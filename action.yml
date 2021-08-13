@@ -1,0 +1,37 @@
+name: 'Container Retention Policy'
+description: 'Lets you create a retention policy for GHCR hosted container images'
+branding:
+  icon: "book"
+  color: "blue"
+inputs:
+  account-type:
+    description: "The type of account. Can be either 'org' or 'personal'."
+    required: true
+  org-name:
+    description: "The name of the organization. Only required if the account type is 'personal'."
+    default: ''
+    required: false
+  image-names:
+    description: 'Image name to delete. Supports passing several names as a comma-separated list.'
+    required: true
+  timestamp-to-use:
+    description: 'Whether to use updated_at or created_at timestamps. Defaults to updated_at.'
+    required: true
+    default: 'updated_at'
+  cut-off:
+    description: "The cut-off for which to delete images older than. For example '2 days ago UTC'. Timezone is required."
+    required: true
+  token:
+    description: 'Personal access token with read and delete scopes.'
+    required: true
+
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  args:
+    - ${{ inputs.account-type }}
+    - ${{ inputs.org-name }}
+    - ${{ inputs.image-names }}
+    - ${{ inputs.timestamp-to-use }}
+    - ${{ inputs.cut-off }}
+    - ${{ inputs.token }}

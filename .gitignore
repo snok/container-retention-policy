@@ -1,0 +1,6 @@
+.env
+.venv
+.idea/
+.mypy_cache/
+__pycache__/
+.coverage

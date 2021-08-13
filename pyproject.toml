@@ -1,0 +1,42 @@
+[tool.poetry]
+name = "container-retention-policy"
+version = "1.0.0"  # This version doesn't matter - only using Poetry for dependencies
+description = "Lets you create a retention policy for GHCR hosted container images"
+authors = ["Sondre Lillebø Gundersen <sondrelg@live.no>"]
+license = "BSD-3"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+httpx = "^0.18.2"
+dateparser = "^1.0.0"
+
+[tool.poetry.dev-dependencies]
+types-dateparser = "^1.0.0"
+pytest = "^6.2.4"
+pytest-mock = "^3.6.1"
+pytest-asyncio = "^0.15.1"
+pytest-cov = "^2.12.1"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 140
+skip-string-normalization = true
+
+[tool.isort]
+profile = "black"
+line_length = 140
+
+[tool.coverage.run]
+omit = []
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = [
+    'if TYPE_CHECKING:',
+    "if __name__ == '__main__':",
+]
