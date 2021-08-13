@@ -3,14 +3,27 @@ name: Delete old container images
 on: workflow_dispatch
 
 jobs:
+  build-containers:
+    name: Build a few images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v2
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v1
+      - name: Login to GHCR
+        run: docker login ghcr.io -u sondrelg --password-stdin <<< ${{ secrets.PAT }}
+      - name: Build latest
+        run: docker buildx build . --tag "ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
   clean-ghcr:
-    name: Delete old unused container images
+    needs: build-containers
+    name: Then delete them
     runs-on: ubuntu-latest
     steps:
       - name: Delete more than two weeks old
         uses: sondrelg/container-retention-policy@v0.1.3
         with:
-          image-names: dev, web-base, js-base, base, dev-base, web
-          cut-off: 2 hours ago UTC+2
+          image-names: ghcr-retention-policy-test
+          cut-off: 2 seconds ago UTC+2
           account-type: personal
           token: ${{ secrets.PAT }}
