@@ -1,4 +1,4 @@
-[![release](https://img.shields.io/github/release/sondrelg/container-retention-policy.svg)](https://github.com/sondrelg/container-retention-policy/releases/latest)
+[![release](https://img.shields.io/github/v/release/sondrelg/container-retention-policy)](https://github.com/sondrelg/container-retention-policy/releases/latest)
 [![coverage](https://codecov.io/gh/snok/drf-openapi-tester/branch/master/graph/badge.svg)](https://codecov.io/gh/sondrelg/container-retention-policy)
 
 # 📘 GHCR Container Retention Policy
