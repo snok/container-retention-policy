@@ -67,7 +67,7 @@ jobs:
           account-type: org
           org-name: my-org
           token: ${{ secrets.PAT }}
-  
+
       - name: Delete 'test' containers older than a month
         uses: sondrelg/container-retention-policy@v0.1
         with:

@@ -16,6 +16,8 @@ if TYPE_CHECKING:
     from datetime import datetime
     from typing import Any, Callable, Coroutine, Optional
 
+    from httpx import Response
+
 BASE_URL = 'https://api.github.com'
 
 ImageName = namedtuple('ImageName', ['value', 'encoded'])
@@ -58,6 +60,16 @@ async def list_package_versions(image_name: ImageName, http_client: AsyncClient)
     return response.json()
 
 
+def post_deletion_output(response: Response, image_name: ImageName, version_id: int) -> None:
+    """
+    Output a little info to the user.
+    """
+    if response.is_error:
+        print(f'\nCouldn\'t delete {image_name.value}:{version_id}.\nStatus code: {response.status_code}\nResponse: {response.json()}\n')
+    else:
+        print(f'Deleted old image: {image_name.value}:{version_id}')
+
+
 async def delete_org_package_versions(org_name: str, image_name: ImageName, version_id: int, http_client: AsyncClient) -> None:
     """
     Delete an image version for an organization.
@@ -70,8 +82,7 @@ async def delete_org_package_versions(org_name: str, image_name: ImageName, vers
     """
     url = f'{BASE_URL}/orgs/{org_name}/packages/container/{image_name.encoded}/versions/{version_id}'
     response = await http_client.delete(url)
-    response.raise_for_status()
-    print(f'Deleted old image: {image_name.value}:{version_id}')
+    post_deletion_output(response, image_name, version_id)
 
 
 async def delete_package_versions(image_name: ImageName, version_id: int, http_client: AsyncClient) -> None:
@@ -85,8 +96,7 @@ async def delete_package_versions(image_name: ImageName, version_id: int, http_c
     """
     url = f'{BASE_URL}/user/packages/container/{image_name.encoded}/versions/{version_id}'
     response = await http_client.delete(url)
-    response.raise_for_status()
-    print(f'Deleted old image: {image_name.value}:{version_id}')
+    post_deletion_output(response, image_name, version_id)
 
 
 @dataclass
