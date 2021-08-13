@@ -1,5 +1,5 @@
 name: 'Container Retention Policy'
-description: 'Lets you create a retention policy for GHCR hosted container images'
+description: 'Create a retention policy for your GHCR hosted container images'
 branding:
   icon: "book"
   color: "blue"
