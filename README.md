@@ -15,6 +15,7 @@ Supports both organizational and personal accounts.
 - [Usage](#usage)
 - [Examples](#examples)
 - [Parameters](#parameters)
+- [Nice to knows](#nice-to-knows)
 - [Contributing](#contributing)
 
 # Usage
@@ -154,6 +155,15 @@ it the following scopes:
 
 - `read:packages`, and
 - `delete:packages`
+
+# Nice to knows
+
+* The Github API restricts ut to fetching 100 image versions per image name,
+so if your registry isn't 100% clean after the first job, don't be alarmed.
+
+* If you accidentally delete something you shouldn't have, Github apparently has a
+30 day grace period before actually deleting your image version. See [these docs](https://docs.github.com/en/rest/reference/packages#restore-package-version-for-an-organization)
+for the information you need to restore your data.
 
 # Contributing
 
