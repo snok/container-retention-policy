@@ -40,7 +40,7 @@ async def list_org_package_versions(org_name: str, image_name: ImageName, http_c
     :param http_client: HTTP client.
     :return: List of image objects.
     """
-    response = await http_client.get(f'{BASE_URL}/orgs/{org_name}/packages/container/{image_name.encoded}/versions')
+    response = await http_client.get(f'{BASE_URL}/orgs/{org_name}/packages/container/{image_name.encoded}/versions?per_page=100')
     response.raise_for_status()
     return response.json()
 
@@ -53,7 +53,7 @@ async def list_package_versions(image_name: ImageName, http_client: AsyncClient)
     :param http_client: HTTP client.
     :return: List of image objects.
     """
-    response = await http_client.get(f'{BASE_URL}/user/packages/container/{image_name.encoded}/versions')
+    response = await http_client.get(f'{BASE_URL}/user/packages/container/{image_name.encoded}/versions?per_page=100')
     response.raise_for_status()
     return response.json()
 
