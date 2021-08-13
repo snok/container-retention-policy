@@ -24,6 +24,7 @@ from main import parse_image_names, validate_inputs
 
 mock_response = Mock()
 mock_response.json.return_value = []
+mock_response.is_error = False
 mock_http_client = AsyncMock()
 mock_http_client.get.return_value = mock_response
 mock_http_client.delete.return_value = mock_response
@@ -92,7 +93,7 @@ class TestGetAndDeleteOldVersions:
             parsed_cutoff=parse('an hour ago utc'), timestamp_type=TimestampType('created_at'), account_type=AccountType('personal')
         )
 
-        await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=AsyncMock())
+        await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=mock_http_client)
         captured = capsys.readouterr()
         assert captured.out == 'Deleted old image: a:1234567\n'
 
@@ -111,7 +112,7 @@ class TestGetAndDeleteOldVersions:
             parsed_cutoff=parse('2 days ago utc'), timestamp_type=TimestampType('created_at'), account_type=AccountType('personal')
         )
 
-        await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=AsyncMock())
+        await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=mock_http_client)
         captured = capsys.readouterr()
         assert captured.out == 'No more versions to delete for a\n'
 
@@ -122,7 +123,7 @@ class TestGetAndDeleteOldVersions:
             parsed_cutoff=parse('an hour ago utc'), timestamp_type=TimestampType('created_at'), account_type=AccountType('personal')
         )
 
-        await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=AsyncMock())
+        await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=mock_http_client)
         captured = capsys.readouterr()
         assert captured.out == 'Skipping image version 1234567. Unable to parse timestamps.\nNo more versions to delete for a\n'
 
@@ -133,7 +134,7 @@ class TestGetAndDeleteOldVersions:
             parsed_cutoff=parse('an hour ago utc'), timestamp_type=TimestampType('created_at'), account_type=AccountType('personal')
         )
 
-        await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=AsyncMock())
+        await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=mock_http_client)
         captured = capsys.readouterr()
         assert captured.out == 'No more versions to delete for a\n'
 
