@@ -6,4 +6,4 @@ RUN pip install httpx dateparser
 
 COPY main.py /main.py
 
-ENTRYPOINT ["python", "main.py"]
+ENTRYPOINT ["python", "/main.py"]
