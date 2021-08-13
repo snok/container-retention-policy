@@ -1,19 +1,20 @@
-# TODO: When upgrading to v1 and above, implement this:
-#  https://github.com/snok/install-poetry/blob/main/.github/workflows/tag_release.yml
-name: Tag releases with minor versions
+name: Tag releases with minor and major version
 
 on:
   release:
-    types: [published]
+    types: [published, edited]
 
 jobs:
   tag-v1:
+    name: Tag v1
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - name: Update tag
         run: |
+          major_tag="$(python .github/get_version.py "${GITHUB_REF}" major)"
           minor_tag="$(python .github/get_version.py "${GITHUB_REF}" minor)"
+          git tag $major_tag
           git tag $minor_tag
           git push origin HEAD:refs/heads/master --tags --force
         env:
