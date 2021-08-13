@@ -1,0 +1,16 @@
+name: Delete old container images
+
+on: workflow_dispatch
+
+jobs:
+  clean-ghcr:
+    name: Delete old unused container images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete more than two weeks old
+        uses: sondrelg/container-retention-policy@v0.1.3
+        with:
+          image-names: dev, web-base, js-base, base, dev-base, web
+          cut-off: 2 hours ago UTC+2
+          account-type: personal
+          token: ${{ secrets.PAT }}
