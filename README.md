@@ -53,25 +53,29 @@ on:
   schedule:
     - cron: '0 0 * * *'  # every day at midnight
 
-jobs:
-  delete-old-container-images:
-    - name: Delete 'dev' containers older than a week
-      uses: sondrelg/container-retention-policy@v0.1
-      with:
-        image-names: app1/dev, app2/dev
-        cut-off: A week ago UTC
-        account-type: org
-        org-name: my-org
-        token: ${{ secrets.PAT }}
 
-    - name: Delete 'test' containers older than a month
-      uses: sondrelg/container-retention-policy@v0.1
-      with:
-        image-names: app1/test, app2/test
-        cut-off: One month ago UTC
-        account-type: org
-        org-name: my-org
-        token: ${{ secrets.PAT }}
+jobs:
+  clean-ghcr:
+    name: Delete old unused container images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete 'dev' containers older than a week
+        uses: sondrelg/container-retention-policy@v0.1
+        with:
+          image-names: python-dev, js-dev
+          cut-off: A week ago UTC
+          account-type: org
+          org-name: my-org
+          token: ${{ secrets.PAT }}
+  
+      - name: Delete 'test' containers older than a month
+        uses: sondrelg/container-retention-policy@v0.1
+        with:
+          image-names: python-test, js-test
+          cut-off: One month ago UTC
+          account-type: org
+          org-name: my-org
+          token: ${{ secrets.PAT }}
 ```
 
 While for a personal account, something like this might do:
