@@ -165,6 +165,21 @@ with access to the container registry. Specifically, you need to grant it the fo
 - `read:packages`, and
 - `delete:packages`
 
+## untagged-only:
+
+* **Required**: `No`
+* **Default**: `false`
+
+Restricts image deletion to images without any tags, if enabled.
+
+
+## skip-tags:
+
+* **Required**: `No`
+* **Example**: `latest`
+
+Restrict deletions to images without specific tags, if specified.
+
 # Nice to knows
 
 * The Github API restricts ut to fetching 100 image versions per image name, so if your registry isn't 100% clean after
