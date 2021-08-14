@@ -24,6 +24,13 @@ inputs:
   token:
     description: 'Personal access token with read and delete scopes.'
     required: true
+  untagged-only:
+    description: 'Restrict deletions to images without tags.'
+    required: false
+    default: 'false'
+  skip-tags:
+    description: 'Restrict deletions to images without specific tags.'
+    required: false
 
 runs:
   using: 'docker'
@@ -35,3 +42,5 @@ runs:
     - ${{ inputs.timestamp-to-use }}
     - ${{ inputs.cut-off }}
     - ${{ inputs.token }}
+    - ${{ inputs.untagged-only }}
+    - ${{ inputs.skip-tags }}
