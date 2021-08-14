@@ -14,14 +14,22 @@ jobs:
       - name: Login to GHCR
         run: docker login ghcr.io -u sondrelg --password-stdin <<< ${{ secrets.PAT }}
       - name: Build latest
-        run: docker buildx build . --tag "ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
+        run: echo $'FROM scratch\nCMD ["$RANDOM"]' > Dockerfile.test && docker buildx build . -f Dockerfile.test -t "ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
+      - name: Build latest
+        run: echo $'FROM scratch\nCMD ["$RANDOM"]' > Dockerfile.test && docker buildx build . -f Dockerfile.test -t "ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
+      - name: Build latest
+        run: echo $'FROM scratch\nCMD ["$RANDOM"]' > Dockerfile.test && docker buildx build . -f Dockerfile.test -t "ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
+      - name: Build latest
+        run: echo $'FROM scratch\nCMD ["$RANDOM"]' > Dockerfile.test && docker buildx build . -f Dockerfile.test -t "ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
+      - name: Build latest
+        run: echo $'FROM scratch\nCMD ["$RANDOM"]' > Dockerfile.test && docker buildx build . -f Dockerfile.test -t "ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
   clean-ghcr:
     needs: build-containers
     name: Then delete them
     runs-on: ubuntu-latest
     steps:
       - name: Delete more than two weeks old
-        uses: sondrelg/container-retention-policy@v1.5
+        uses: sondrelg/container-retention-policy@v1
         with:
           image-names: ghcr-retention-policy-test
           cut-off: 2 seconds ago UTC+2
