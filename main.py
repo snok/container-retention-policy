@@ -14,7 +14,7 @@ from httpx import AsyncClient
 
 if TYPE_CHECKING:
     from datetime import datetime
-    from typing import Any, Callable, Coroutine, Optional
+    from typing import Any, Callable, Coroutine, Optional, Union
 
     from httpx import Response
 
@@ -99,6 +99,15 @@ async def delete_package_versions(image_name: ImageName, version_id: int, http_c
     post_deletion_output(response, image_name, version_id)
 
 
+def get_image_version_tags(version: dict) -> list[str]:
+    """
+    Return the list of tags on a container image.
+    """
+    if 'metadata' in version and 'container' in version['metadata'] and 'tags' in version['metadata']['container']:
+        return version['metadata']['container']['tags']
+    return []
+
+
 @dataclass
 class Inputs:
     """
@@ -108,6 +117,8 @@ class Inputs:
     parsed_cutoff: datetime
     timestamp_type: TimestampType
     account_type: AccountType
+    untagged_only: bool
+    skip_tags: list[str]
     org_name: Optional[str] = None
 
     @property
@@ -153,8 +164,21 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
             print(f'Skipping image version {version["id"]}. Unable to parse timestamps.')
             continue
 
-        if updated_or_created_at < inputs.parsed_cutoff:
-            tasks.append(asyncio.create_task(inputs.delete_package(image_name, version['id'], http_client)))
+        if updated_or_created_at > inputs.parsed_cutoff:
+            # Skipping because it's not below the datetime cut-off
+            continue
+
+        image_tags = get_image_version_tags(version)
+
+        if inputs.untagged_only and image_tags:
+            # Skipping because no tagged images should be deleted
+            continue
+
+        if any(tag in inputs.skip_tags for tag in image_tags):
+            # Skipping because this image version is tagged with a protected tag
+            continue
+
+        tasks.append(asyncio.create_task(inputs.delete_package(image_name, version['id'], http_client)))
 
     if not tasks:
         print(f'No more versions to delete for {image_name.value}')
@@ -162,7 +186,9 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
     await asyncio.gather(*tasks)
 
 
-def validate_inputs(account_type: str, org_name: str, timestamp_type: str, cut_off: str) -> Inputs:
+def validate_inputs(
+    account_type: str, org_name: str, timestamp_type: str, cut_off: str, untagged_only: Union[bool, str], skip_tags: Optional[str]
+) -> Inputs:
     """
     Perform basic validation on the incoming parameters and return an Inputs instance.
     """
@@ -176,11 +202,23 @@ def validate_inputs(account_type: str, org_name: str, timestamp_type: str, cut_o
     if account_type == 'org' and not org_name:
         raise ValueError('org-name is required when account-type is org')
 
+    if isinstance(untagged_only, str):
+        untagged_only_ = bool(untagged_only)
+    else:
+        untagged_only_ = untagged_only
+
+    if skip_tags is None:
+        skip_tags_ = []
+    else:
+        skip_tags_ = [i.strip() for i in skip_tags.split(',')]
+
     return Inputs(
         parsed_cutoff=parsed_cutoff,
         timestamp_type=TimestampType(timestamp_type),
         account_type=AccountType(account_type),
         org_name=org_name if account_type == 'org' else None,
+        untagged_only=untagged_only_,
+        skip_tags=skip_tags_,
     )
 
 
@@ -196,7 +234,16 @@ def parse_image_names(image_names: str) -> list[ImageName]:
     return [ImageName(img_name.strip(), quote_from_bytes(img_name.strip().encode('utf-8'), safe='')) for img_name in image_names.split(',')]
 
 
-async def main(account_type: str, org_name: str, image_names: str, timestamp_type: str, cut_off: str, token: str) -> None:
+async def main(
+    account_type: str,
+    org_name: str,
+    image_names: str,
+    timestamp_type: str,
+    cut_off: str,
+    token: str,
+    untagged_only: Union[bool, str] = False,
+    skip_tags: Optional[str] = None,
+) -> None:
     """
     Delete old image versions.
 
@@ -210,9 +257,11 @@ async def main(account_type: str, org_name: str, image_names: str, timestamp_typ
     :param cut_off: Can be a human readable relative time like '2 days ago UTC', or a timestamp.
                             Must contain a reference to the timezone.
     :param token: The personal access token to authenticate with.
+    :param untagged_only: Whether to only delete untagged images.
+    :param skip_tags: Comma-separated list of tags to not delete.
     """
     parsed_image_names: list[ImageName] = parse_image_names(image_names)
-    inputs: Inputs = validate_inputs(account_type, org_name, timestamp_type, cut_off)
+    inputs: Inputs = validate_inputs(account_type, org_name, timestamp_type, cut_off, untagged_only, skip_tags)
     headers = {'accept': 'application/vnd.github.v3+json', 'Authorization': f'Bearer {token}'}
 
     async with AsyncClient(headers=headers) as http_client:
