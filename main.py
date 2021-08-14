@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections import namedtuple
 from dataclasses import dataclass
+from distutils.util import strtobool
 from enum import Enum
 from functools import partial
 from sys import argv
@@ -203,7 +204,7 @@ def validate_inputs(
         raise ValueError('org-name is required when account-type is org')
 
     if isinstance(untagged_only, str):
-        untagged_only_ = bool(untagged_only)
+        untagged_only_ = strtobool(untagged_only) == 1
     else:
         untagged_only_ = untagged_only
 
