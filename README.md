@@ -30,6 +30,7 @@ To use the action, simply add it to your Github workflow, like this:
     timestamp-to-use: updated_at
     account-type: org
     org-name: google
+    skip-tags: latest
     token: ${{ secrets.PAT }}
 ```
 
@@ -68,6 +69,7 @@ jobs:
           cut-off: A week ago UTC
           account-type: org
           org-name: my-org
+          untagged-only: true
           token: ${{ secrets.PAT }}
 
       - name: Delete 'test' containers older than a month
@@ -77,6 +79,7 @@ jobs:
           cut-off: One month ago UTC
           account-type: org
           org-name: my-org
+          skip-tags: latest
           token: ${{ secrets.PAT }}
 ```
 
