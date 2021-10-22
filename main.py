@@ -120,6 +120,7 @@ class Inputs:
     account_type: AccountType
     untagged_only: bool
     skip_tags: list[str]
+    keep_at_least: int
     org_name: Optional[str] = None
 
     @property
@@ -156,6 +157,9 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
     """
     versions = await inputs.list_package_versions(image_name, http_client)
 
+    if 0 <= inputs.keep_at_least:
+        versions = versions[inputs.keep_at_least:]
+
     tasks = []
 
     for version in versions:
@@ -188,7 +192,7 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
 
 
 def validate_inputs(
-    account_type: str, org_name: str, timestamp_type: str, cut_off: str, untagged_only: Union[bool, str], skip_tags: Optional[str]
+    account_type: str, org_name: str, timestamp_type: str, cut_off: str, untagged_only: Union[bool, str], skip_tags: Optional[str], keep_at_least: Optional[str]
 ) -> Inputs:
     """
     Perform basic validation on the incoming parameters and return an Inputs instance.
@@ -213,6 +217,13 @@ def validate_inputs(
     else:
         skip_tags_ = [i.strip() for i in skip_tags.split(',')]
 
+    if keep_at_least is None:
+        keep_at_least_ = 0
+    else:
+        keep_at_least_ = int(keep_at_least)
+        if keep_at_least_ < 0:
+            raise ValueError('keep-at-least must be 0 or positive')
+
     return Inputs(
         parsed_cutoff=parsed_cutoff,
         timestamp_type=TimestampType(timestamp_type),
@@ -220,6 +231,7 @@ def validate_inputs(
         org_name=org_name if account_type == 'org' else None,
         untagged_only=untagged_only_,
         skip_tags=skip_tags_,
+        keep_at_least=keep_at_least_,
     )
 
 
@@ -244,6 +256,7 @@ async def main(
     token: str,
     untagged_only: Union[bool, str] = False,
     skip_tags: Optional[str] = None,
+    keep_at_least: Optional[str] = None,
 ) -> None:
     """
     Delete old image versions.
@@ -260,9 +273,10 @@ async def main(
     :param token: The personal access token to authenticate with.
     :param untagged_only: Whether to only delete untagged images.
     :param skip_tags: Comma-separated list of tags to not delete.
+    :param keep_at_least: Number of images to always keep
     """
     parsed_image_names: list[ImageName] = parse_image_names(image_names)
-    inputs: Inputs = validate_inputs(account_type, org_name, timestamp_type, cut_off, untagged_only, skip_tags)
+    inputs: Inputs = validate_inputs(account_type, org_name, timestamp_type, cut_off, untagged_only, skip_tags, keep_at_least)
     headers = {'accept': 'application/vnd.github.v3+json', 'Authorization': f'Bearer {token}'}
 
     async with AsyncClient(headers=headers) as http_client:
