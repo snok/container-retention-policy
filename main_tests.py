@@ -72,6 +72,7 @@ def test_inputs_dataclass():
         account_type=AccountType('personal'),
         untagged_only=False,
         skip_tags=[],
+        keep_at_least=0,
     )
     assert personal.is_org is False
     assert personal.list_package_versions == list_package_versions
@@ -84,6 +85,7 @@ def test_inputs_dataclass():
         org_name='abcorp',
         untagged_only=False,
         skip_tags=[],
+        keep_at_least=0,
     )
     assert org.is_org is True
     assert isinstance(org.list_package_versions, partial)
@@ -129,6 +131,7 @@ class TestGetAndDeleteOldVersions:
         'account_type': AccountType('personal'),
         'untagged_only': False,
         'skip_tags': [],
+        'keep_at_least': '0',
     }
 
     @staticmethod
@@ -144,6 +147,16 @@ class TestGetAndDeleteOldVersions:
 
         captured = capsys.readouterr()
         assert captured.out == 'Deleted old image: a:1234567\n'
+
+    @pytest.mark.asyncio
+    async def test_keep_at_least(self, capsys):
+        Inputs.list_package_versions = partial(self._mock_list_package_versions, self.valid_data)
+        inputs = Inputs(**self.valid_inputs | {'keep_at_least': 1})
+
+        await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=mock_http_client)
+
+        captured = capsys.readouterr()
+        assert captured.out == 'No more versions to delete for a\n'
 
     @pytest.mark.asyncio
     async def test_not_beyond_cutoff(self, capsys):
@@ -224,6 +237,7 @@ def test_inputs_bad_account_type():
         'cut_off': '2 hours ago UTC',
         'untagged_only': False,
         'skip_tags': None,
+        'keep_at_least': 0,
     }
 
     # Account type
@@ -262,6 +276,10 @@ def test_inputs_bad_account_type():
     assert validate_inputs(**defaults | {'skip_tags': 'a'}).skip_tags == ['a']
     assert validate_inputs(**defaults | {'skip_tags': 'a,b'}).skip_tags == ['a', 'b']
     assert validate_inputs(**defaults | {'skip_tags': 'a , b  ,c'}).skip_tags == ['a', 'b', 'c']
+
+    # Keep at least
+    with pytest.raises(ValueError, match='keep-at-least must be 0 or positive'):
+        validate_inputs(**defaults | {'keep_at_least': '-1'})
 
 
 def test_parse_image_names():

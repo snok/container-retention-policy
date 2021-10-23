@@ -123,6 +123,12 @@ class Inputs:
     keep_at_least: int
     org_name: Optional[str] = None
 
+    def __post_init__(self) -> None:
+        """
+        Cast keep-at-least to int.
+        """
+        self.keep_at_least = int(self.keep_at_least)
+
     @property
     def is_org(self) -> bool:
         """
@@ -157,7 +163,7 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
     """
     versions = await inputs.list_package_versions(image_name, http_client)
 
-    if 0 <= inputs.keep_at_least:
+    if inputs.keep_at_least >= 0:
         versions = versions[inputs.keep_at_least :]
 
     tasks = []
