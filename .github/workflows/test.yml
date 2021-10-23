@@ -10,33 +10,32 @@ jobs:
   linting:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v2
-
-      - name: Set up Python
-        uses: actions/setup-python@v2
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
         with:
-          python-version: 3.10.0-rc.1
-
-      - name: Load pre-commit cache
-        uses: actions/cache@v2
+          python-version: "3.10"
+      - uses: actions/cache@v2
+        id: cache-venv
         with:
-          path: |
-            ~/.cache/pip
-            ~/.cache/pre-commit
-          key: ${{ runner.os }}-pip-2
-          restore-keys: |
-            ${{ runner.os }}-pip-
-            ${{ runner.os }}-
-
-      - name: Install pre-commit
-        run: python -m pip install pre-commit
-
-      - name: Run pre-commit
-        run: pre-commit run --all-files
+          path: .venv
+          key: venv-0
+      - run: |
+          pip install virtualenv
+          virtualenv .venv
+          source .venv/bin/activate
+          pip install pip setuptools wheel -U
+          pip install pre-commit
+        if: steps.cache-venv.outputs.cache-hit != 'true'
+      - uses: actions/cache@v2
+        id: pre-commit-cache
+        with:
+          path: ~/.cache/pre-commit
+          key: key-0
+      - run: |
+          source .venv/bin/activate
+          pre-commit run --all-files
 
   test:
-    needs: linting
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -45,7 +44,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v2
         with:
-          python-version: 3.10.0-rc.1
+          python-version: "3.10"
 
       - name: Load cached Poetry installation
         uses: actions/cache@v2

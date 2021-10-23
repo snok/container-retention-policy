@@ -1,5 +1,5 @@
-[![release](https://img.shields.io/github/v/release/sondrelg/container-retention-policy)](https://github.com/sondrelg/container-retention-policy/releases/latest)
-[![coverage](https://codecov.io/gh/snok/drf-openapi-tester/branch/master/graph/badge.svg)](https://codecov.io/gh/sondrelg/container-retention-policy)
+[![release](https://img.shields.io/github/v/release/snok/container-retention-policy)](https://github.com/snok/container-retention-policy/releases/latest)
+[![coverage](https://codecov.io/gh/snok/drf-openapi-tester/branch/master/graph/badge.svg)](https://codecov.io/gh/snok/container-retention-policy)
 
 # 📘 GHCR Container Retention Policy
 
@@ -23,7 +23,7 @@ Supports both organizational and personal accounts.
 To use the action, simply add it to your Github workflow, like this:
 
 ```yaml
-- uses: sondrelg/container-retention-policy@v1
+- uses: snok/container-retention-policy@v1
   with:
     image-names: dev, web, test
     cut-off: two hours ago UTC+2
@@ -63,7 +63,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Delete 'dev' containers older than a week
-        uses: sondrelg/container-retention-policy@v1
+        uses: snok/container-retention-policy@v1
         with:
           image-names: python-dev, js-dev
           cut-off: A week ago UTC
@@ -73,7 +73,7 @@ jobs:
           token: ${{ secrets.PAT }}
 
       - name: Delete 'test' containers older than a month
-        uses: sondrelg/container-retention-policy@v1
+        uses: snok/container-retention-policy@v1
         with:
           image-names: python-test, js-test
           cut-off: One month ago UTC
@@ -98,7 +98,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Delete old images
-        uses: sondrelg/container-retention-policy@v1
+        uses: snok/container-retention-policy@v1
         with:
           image-names: dev
           cut-off: One month ago UTC

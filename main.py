@@ -123,6 +123,12 @@ class Inputs:
     keep_at_least: int
     org_name: Optional[str] = None
 
+    def __post_init__(self) -> None:
+        """
+        Cast keep-at-least to int.
+        """
+        self.keep_at_least = int(self.keep_at_least)
+
     @property
     def is_org(self) -> bool:
         """
@@ -157,8 +163,8 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
     """
     versions = await inputs.list_package_versions(image_name, http_client)
 
-    if 0 <= inputs.keep_at_least:
-        versions = versions[inputs.keep_at_least:]
+    if inputs.keep_at_least >= 0:
+        versions = versions[inputs.keep_at_least :]
 
     tasks = []
 
@@ -192,7 +198,13 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
 
 
 def validate_inputs(
-    account_type: str, org_name: str, timestamp_type: str, cut_off: str, untagged_only: Union[bool, str], skip_tags: Optional[str], keep_at_least: Optional[str]
+    account_type: str,
+    org_name: str,
+    timestamp_type: str,
+    cut_off: str,
+    untagged_only: Union[bool, str],
+    skip_tags: Optional[str],
+    keep_at_least: Optional[str],
 ) -> Inputs:
     """
     Perform basic validation on the incoming parameters and return an Inputs instance.
