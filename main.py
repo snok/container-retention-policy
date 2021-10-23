@@ -158,7 +158,7 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
     versions = await inputs.list_package_versions(image_name, http_client)
 
     if 0 <= inputs.keep_at_least:
-        versions = versions[inputs.keep_at_least:]
+        versions = versions[inputs.keep_at_least :]
 
     tasks = []
 
@@ -192,7 +192,13 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
 
 
 def validate_inputs(
-    account_type: str, org_name: str, timestamp_type: str, cut_off: str, untagged_only: Union[bool, str], skip_tags: Optional[str], keep_at_least: Optional[str]
+    account_type: str,
+    org_name: str,
+    timestamp_type: str,
+    cut_off: str,
+    untagged_only: Union[bool, str],
+    skip_tags: Optional[str],
+    keep_at_least: Optional[str],
 ) -> Inputs:
     """
     Perform basic validation on the incoming parameters and return an Inputs instance.
