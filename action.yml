@@ -34,6 +34,7 @@ inputs:
   keep-at-least:
     description: 'How many images to keep no matter what. Defaults to 0 which means you might delete everything'
     required: false
+    default: '0'
 
 runs:
   using: 'docker'
