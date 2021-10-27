@@ -3,7 +3,7 @@
 
 # 📘 GHCR Container Retention Policy
 
-A Github Action for deleting old image versions from the Github container registry.
+A GitHub Action for deleting old image versions from the GitHub container registry.
 
 Storage isn't free and registries can often get bloated with unused images. Having a retention policy to prevent clutter
 makes sense in most cases.
@@ -20,7 +20,7 @@ Supports both organizational and personal accounts.
 
 # Usage
 
-To use the action, simply add it to your Github workflow, like this:
+To use the action, simply add it to your GitHub workflow, like this:
 
 ```yaml
 - uses: snok/container-retention-policy@v1
@@ -30,6 +30,7 @@ To use the action, simply add it to your Github workflow, like this:
     timestamp-to-use: updated_at
     account-type: org
     org-name: google
+    keep-at-least: 1
     skip-tags: latest
     token: ${{ secrets.PAT }}
 ```
@@ -39,7 +40,7 @@ a [scheduled event](https://docs.github.com/en/actions/reference/events-that-tri
 of an existing workflow, but for the sake of inspiration, it might also make sense for you to trigger it with a:
 
 - [workflow_dispatch](https://docs.github.com/en/actions/reference/events-that-trigger-workflows#workflow_dispatch):
-  trigger it manually in the Github repo UI when needed
+  trigger it manually in the GitHub repo UI when needed
 - [workflow_run](https://docs.github.com/en/actions/reference/events-that-trigger-workflows#workflow_run): have it run
   as clean-up after another key workflow completes
 - or triggering it with a
@@ -69,6 +70,7 @@ jobs:
           cut-off: A week ago UTC
           account-type: org
           org-name: my-org
+          keep-at-least: 1
           untagged-only: true
           token: ${{ secrets.PAT }}
 
@@ -79,6 +81,7 @@ jobs:
           cut-off: One month ago UTC
           account-type: org
           org-name: my-org
+          keep-at-least: 1
           skip-tags: latest
           token: ${{ secrets.PAT }}
 ```
@@ -102,6 +105,7 @@ jobs:
         with:
           image-names: dev
           cut-off: One month ago UTC
+          keep-at-least: 1
           account-type: personal
           token: ${{ secrets.PAT }}
 ```
@@ -146,7 +150,7 @@ Must be `created_at` or `updated_at`. The timestamp to use determines how we fil
 * **Example**: `account-type: personal`
 * **Valid choices**: `org` or `personal`
 
-The account type of the account running the action. The account type determines which API endpoints to use in the Github
+The account type of the account running the action. The account type determines which API endpoints to use in the GitHub
 API.
 
 ## org-name
@@ -168,15 +172,25 @@ with access to the container registry. Specifically, you need to grant it the fo
 - `read:packages`, and
 - `delete:packages`
 
-## untagged-only:
+## keep-at-least
+
+* **Required**: `No`
+* **Default**: `0`
+* **Example**: `keep-at-least: 5`
+
+How many versions to keep no matter what. Defaults to 0, meaning all versions older than the `cut-off` date may be deleted.
+
+Setting this to a larger value ensures that the specified number of recent versions are always retained, regardless of
+their age. Useful for images that are not updated very often.
+
+## untagged-only
 
 * **Required**: `No`
 * **Default**: `false`
 
 Restricts image deletion to images without any tags, if enabled.
 
-
-## skip-tags:
+## skip-tags
 
 * **Required**: `No`
 * **Example**: `latest`
@@ -185,10 +199,10 @@ Restrict deletions to images without specific tags, if specified.
 
 # Nice to knows
 
-* The Github API restricts ut to fetching 100 image versions per image name, so if your registry isn't 100% clean after
+* The GitHub API restricts us to fetching 100 image versions per image name, so if your registry isn't 100% clean after
   the first job, don't be alarmed.
 
-* If you accidentally delete something you shouldn't have, Github apparently has a 30 day grace period before actually
+* If you accidentally delete something you shouldn't have, GitHub apparently has a 30 day grace period before actually
   deleting your image version.
   See [these docs](https://docs.github.com/en/rest/reference/packages#restore-package-version-for-an-organization)
   for the information you need to restore your data.
