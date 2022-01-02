@@ -193,9 +193,11 @@ Restricts image deletion to images without any tags, if enabled.
 ## skip-tags
 
 * **Required**: `No`
-* **Example**: `latest`
+* **Example**: `latest, v*`
 
 Restrict deletions to images without specific tags, if specified.
+
+Supports Unix-shell style wildcards, i.e 'v*' to match all tags starting with 'v'.
 
 # Nice to knows
 
