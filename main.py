@@ -9,6 +9,7 @@ from functools import partial
 from sys import argv
 from typing import TYPE_CHECKING
 from urllib.parse import quote_from_bytes
+from fnmatch import fnmatch
 
 from dateparser import parse
 from httpx import AsyncClient
@@ -185,8 +186,12 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
             # Skipping because no tagged images should be deleted
             continue
 
-        if any(tag in inputs.skip_tags for tag in image_tags):
-            # Skipping because this image version is tagged with a protected tag
+        skip = False
+        for skip_tag in inputs.skip_tags:
+            if any(fnmatch(tag, skip_tag) for tag in image_tags):
+                # Skipping because this image version is tagged with a protected tag
+                skip = True
+        if skip:
             continue
 
         tasks.append(asyncio.create_task(inputs.delete_package(image_name, version['id'], http_client)))
@@ -284,7 +289,7 @@ async def main(
                             Must contain a reference to the timezone.
     :param token: The personal access token to authenticate with.
     :param untagged_only: Whether to only delete untagged images.
-    :param skip_tags: Comma-separated list of tags to not delete.
+    :param skip_tags: Comma-separated list of tags to not delete. Supports wildcard '*', '?', '[seq]' and '[!seq]' via Unix shell-style wildcards
     :param keep_at_least: Number of images to always keep
     """
     parsed_image_names: list[ImageName] = parse_image_names(image_names)

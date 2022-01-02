@@ -29,7 +29,7 @@ inputs:
     required: false
     default: 'false'
   skip-tags:
-    description: 'Restrict deletions to images without specific tags.'
+    description: "Restrict deletions to images without specific tags. Supports Unix-shell style wildcards"
     required: false
   keep-at-least:
     description: 'How many images to keep no matter what. Defaults to 0 which means you might delete everything'

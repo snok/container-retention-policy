@@ -208,7 +208,20 @@ class TestGetAndDeleteOldVersions:
         data[0]['metadata'] = {'container': {'tags': ['abc', 'bcd']}}
 
         Inputs.list_package_versions = partial(self._mock_list_package_versions, data)
-        inputs = Inputs(**self.valid_inputs | {'skip_tags': 'abc'})
+        inputs = Inputs(**self.valid_inputs | {'skip_tags': ['abc']})
+
+        await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=mock_http_client)
+
+        captured = capsys.readouterr()
+        assert captured.out == 'No more versions to delete for a\n'
+
+    @pytest.mark.asyncio
+    async def test_skip_tags_wildcard(self, capsys):
+        data = deepcopy(self.valid_data)
+        data[0]['metadata'] = {'container': {'tags': ['v1.0.0', 'abc']}}
+
+        Inputs.list_package_versions = partial(self._mock_list_package_versions, data)
+        inputs = Inputs(**self.valid_inputs | {'skip_tags': ['v*']})
 
         await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=mock_http_client)
 
