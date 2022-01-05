@@ -35,6 +35,12 @@ inputs:
     description: 'How many images to keep no matter what. Defaults to 0 which means you might delete everything'
     required: false
     default: '0'
+  filter-tags:
+    description: "Comma-separated list of tags to consider for deletion. Supports Unix-shell style wildcards"
+    required: false
+  filter-include-untagged:
+    description: "Whether to consider untagged images for deletion."
+    required: false
 
 runs:
   using: 'docker'
@@ -49,3 +55,5 @@ runs:
     - ${{ inputs.untagged-only }}
     - ${{ inputs.skip-tags }}
     - ${{ inputs.keep-at-least }}
+    - ${{ inputs.filter-tags }}
+    - ${{ inputs.filter-include-untagged }}

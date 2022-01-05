@@ -199,6 +199,22 @@ Restrict deletions to images without specific tags, if specified.
 
 Supports Unix-shell style wildcards, i.e 'v*' to match all tags starting with 'v'.
 
+## filter-tags
+
+* **Required**: `No`
+* **Example**: `sha-*`
+
+Comma-separated list of tags to consider for deletion.
+
+Supports Unix-shell style wildcards, i.e 'sha-*' to match all tags starting with 'sha-'.
+
+## filter-include-untagged
+
+* **Required**: `No`
+* **Default**: `true`
+
+Whether to consider untagged images for deletion.
+
 # Nice to knows
 
 * The GitHub API restricts us to fetching 100 image versions per image name, so if your registry isn't 100% clean after
