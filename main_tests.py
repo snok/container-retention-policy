@@ -321,11 +321,11 @@ def test_inputs_bad_account_type():
     assert validate_inputs(**defaults | {'filter_tags': 'sha-* , latest'}).filter_tags == ['sha-*', 'latest']
 
     # Filter include untagged
-    for i in ['true', 'True', '1']:
+    for i in ['true', 'True', '1', True]:
         assert validate_inputs(**defaults | {'filter_include_untagged': i}).filter_include_untagged is True
-    for j in ['False', 'false', '0']:
+    for j in ['False', 'false', '0', False]:
         assert validate_inputs(**defaults | {'filter_include_untagged': j}).filter_include_untagged is False
-    assert validate_inputs(**defaults | {'filter_include_untagged': False}).filter_include_untagged is False
+    assert validate_inputs(**defaults | {'filter_include_untagged': ''}).filter_include_untagged is True
 
 
 def test_parse_image_names():
