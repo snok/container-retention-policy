@@ -73,6 +73,8 @@ def test_inputs_dataclass():
         untagged_only=False,
         skip_tags=[],
         keep_at_least=0,
+        filter_tags=[],
+        filter_include_untagged=True,
     )
     assert personal.is_org is False
     assert personal.list_package_versions == list_package_versions
@@ -86,6 +88,8 @@ def test_inputs_dataclass():
         untagged_only=False,
         skip_tags=[],
         keep_at_least=0,
+        filter_tags=[],
+        filter_include_untagged=True,
     )
     assert org.is_org is True
     assert isinstance(org.list_package_versions, partial)
@@ -132,6 +136,8 @@ class TestGetAndDeleteOldVersions:
         'untagged_only': False,
         'skip_tags': [],
         'keep_at_least': '0',
+        'filter_tags': [],
+        'filter_include_untagged': True,
     }
 
     @staticmethod
@@ -241,6 +247,18 @@ class TestGetAndDeleteOldVersions:
         captured = capsys.readouterr()
         assert captured.out == 'No more versions to delete for a\n'
 
+    @pytest.mark.asyncio
+    async def test_filter_tags(self, capsys):
+        data = deepcopy(self.valid_data)
+        data[0]['metadata'] = {'container': {'tags': ['sha-deadbeef', 'edge']}}
+
+        Inputs.list_package_versions = partial(self._mock_list_package_versions, data)
+        inputs = Inputs(**self.valid_inputs | {'filter_tags': ['sha-*']})
+
+        await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=mock_http_client)
+
+        captured = capsys.readouterr()
+        assert captured.out == 'Deleted old image: a:1234567\n'
 
 def test_inputs_bad_account_type():
     defaults = {
@@ -251,6 +269,8 @@ def test_inputs_bad_account_type():
         'untagged_only': False,
         'skip_tags': None,
         'keep_at_least': 0,
+        'filter_tags': None,
+        'filter_include_untagged': True,
     }
 
     # Account type
@@ -294,6 +314,17 @@ def test_inputs_bad_account_type():
     with pytest.raises(ValueError, match='keep-at-least must be 0 or positive'):
         validate_inputs(**defaults | {'keep_at_least': '-1'})
 
+    # Filter tags
+    assert validate_inputs(**defaults | {'filter_tags': 'a'}).filter_tags == ['a']
+    assert validate_inputs(**defaults | {'filter_tags': 'sha-*,latest'}).filter_tags == ['sha-*', 'latest']
+    assert validate_inputs(**defaults | {'filter_tags': 'sha-* , latest'}).filter_tags == ['sha-*', 'latest']
+
+    # Filter include untagged
+    for i in ['true', 'True', '1']:
+        assert validate_inputs(**defaults | {'filter_include_untagged': i}).filter_include_untagged is True
+    for j in ['False', 'false', '0']:
+        assert validate_inputs(**defaults | {'filter_include_untagged': j}).filter_include_untagged is False
+    assert validate_inputs(**defaults | {'filter_include_untagged': False}).filter_include_untagged is False
 
 def test_parse_image_names():
     assert parse_image_names('a') == [ImageName('a', 'a')]

@@ -122,6 +122,8 @@ class Inputs:
     untagged_only: bool
     skip_tags: list[str]
     keep_at_least: int
+    filter_tags: list[str]
+    filter_include_untagged: bool
     org_name: Optional[str] = None
 
     def __post_init__(self) -> None:
@@ -186,7 +188,18 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
             # Skipping because no tagged images should be deleted
             continue
 
+        # if untagged and we don't include untagged images, skip this image.
+        if not image_tags and not inputs.filter_include_untagged:
+            continue
+
         skip = False
+        for filter_tag in inputs.filter_tags:
+            if not any(fnmatch(tag, filter_tag) for tag in image_tags):
+                # no image tag matches the filter tag, skip this image 
+                skip = True
+        if skip:
+            break
+
         for skip_tag in inputs.skip_tags:
             if any(fnmatch(tag, skip_tag) for tag in image_tags):
                 # Skipping because this image version is tagged with a protected tag
@@ -210,6 +223,8 @@ def validate_inputs(
     untagged_only: Union[bool, str],
     skip_tags: Optional[str],
     keep_at_least: Optional[str],
+    filter_tags: Optional[str],
+    filter_include_untagged: Union[bool, str],
 ) -> Inputs:
     """
     Perform basic validation on the incoming parameters and return an Inputs instance.
@@ -240,6 +255,16 @@ def validate_inputs(
         keep_at_least_ = int(keep_at_least)
         if keep_at_least_ < 0:
             raise ValueError('keep-at-least must be 0 or positive')
+    
+    if filter_tags is None:
+        filter_tags_ = []
+    else:
+        filter_tags_ = [i.strip() for i in filter_tags.split(',')]
+
+    if isinstance(filter_include_untagged, str):
+        filter_include_untagged_ = strtobool(filter_include_untagged) == 1
+    else:
+        filter_include_untagged_ = filter_include_untagged
 
     return Inputs(
         parsed_cutoff=parsed_cutoff,
@@ -249,6 +274,8 @@ def validate_inputs(
         untagged_only=untagged_only_,
         skip_tags=skip_tags_,
         keep_at_least=keep_at_least_,
+        filter_tags=filter_tags_,
+        filter_include_untagged=filter_include_untagged_,
     )
 
 
@@ -274,6 +301,8 @@ async def main(
     untagged_only: Union[bool, str] = False,
     skip_tags: Optional[str] = None,
     keep_at_least: Optional[str] = None,
+    filter_tags: Optional[str] = None,
+    filter_include_untagged: Union[bool, str] = True,
 ) -> None:
     """
     Delete old image versions.
@@ -291,9 +320,11 @@ async def main(
     :param untagged_only: Whether to only delete untagged images.
     :param skip_tags: Comma-separated list of tags to not delete. Supports wildcard '*', '?', '[seq]' and '[!seq]' via Unix shell-style wildcards
     :param keep_at_least: Number of images to always keep
+    :param filter_tags: Comma-separated list of tags to consider for deletion. Supports wildcard '*', '?', '[seq]' and '[!seq]' via Unix shell-style wildcards
+    :param filter_include_untagged: Whether to consider untagged images for deletion.
     """
     parsed_image_names: list[ImageName] = parse_image_names(image_names)
-    inputs: Inputs = validate_inputs(account_type, org_name, timestamp_type, cut_off, untagged_only, skip_tags, keep_at_least)
+    inputs: Inputs = validate_inputs(account_type, org_name, timestamp_type, cut_off, untagged_only, skip_tags, keep_at_least, filter_tags, filter_include_untagged)
     headers = {'accept': 'application/vnd.github.v3+json', 'Authorization': f'Bearer {token}'}
 
     async with AsyncClient(headers=headers) as http_client:
