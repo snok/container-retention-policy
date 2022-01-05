@@ -260,6 +260,7 @@ class TestGetAndDeleteOldVersions:
         captured = capsys.readouterr()
         assert captured.out == 'Deleted old image: a:1234567\n'
 
+
 def test_inputs_bad_account_type():
     defaults = {
         'account_type': 'org',
@@ -325,6 +326,7 @@ def test_inputs_bad_account_type():
     for j in ['False', 'false', '0']:
         assert validate_inputs(**defaults | {'filter_include_untagged': j}).filter_include_untagged is False
     assert validate_inputs(**defaults | {'filter_include_untagged': False}).filter_include_untagged is False
+
 
 def test_parse_image_names():
     assert parse_image_names('a') == [ImageName('a', 'a')]

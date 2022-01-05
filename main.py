@@ -5,11 +5,11 @@ from collections import namedtuple
 from dataclasses import dataclass
 from distutils.util import strtobool
 from enum import Enum
+from fnmatch import fnmatch
 from functools import partial
 from sys import argv
 from typing import TYPE_CHECKING
 from urllib.parse import quote_from_bytes
-from fnmatch import fnmatch
 
 from dateparser import parse
 from httpx import AsyncClient
@@ -195,7 +195,7 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
         skip = False
         for filter_tag in inputs.filter_tags:
             if not any(fnmatch(tag, filter_tag) for tag in image_tags):
-                # no image tag matches the filter tag, skip this image 
+                # no image tag matches the filter tag, skip this image
                 skip = True
         if skip:
             break
@@ -255,7 +255,7 @@ def validate_inputs(
         keep_at_least_ = int(keep_at_least)
         if keep_at_least_ < 0:
             raise ValueError('keep-at-least must be 0 or positive')
-    
+
     if filter_tags is None:
         filter_tags_ = []
     else:
@@ -318,13 +318,17 @@ async def main(
                             Must contain a reference to the timezone.
     :param token: The personal access token to authenticate with.
     :param untagged_only: Whether to only delete untagged images.
-    :param skip_tags: Comma-separated list of tags to not delete. Supports wildcard '*', '?', '[seq]' and '[!seq]' via Unix shell-style wildcards
+    :param skip_tags: Comma-separated list of tags to not delete.
+        Supports wildcard '*', '?', '[seq]' and '[!seq]' via Unix shell-style wildcards
     :param keep_at_least: Number of images to always keep
-    :param filter_tags: Comma-separated list of tags to consider for deletion. Supports wildcard '*', '?', '[seq]' and '[!seq]' via Unix shell-style wildcards
+    :param filter_tags: Comma-separated list of tags to consider for deletion.
+        Supports wildcard '*', '?', '[seq]' and '[!seq]' via Unix shell-style wildcards
     :param filter_include_untagged: Whether to consider untagged images for deletion.
     """
     parsed_image_names: list[ImageName] = parse_image_names(image_names)
-    inputs: Inputs = validate_inputs(account_type, org_name, timestamp_type, cut_off, untagged_only, skip_tags, keep_at_least, filter_tags, filter_include_untagged)
+    inputs: Inputs = validate_inputs(
+        account_type, org_name, timestamp_type, cut_off, untagged_only, skip_tags, keep_at_least, filter_tags, filter_include_untagged
+    )
     headers = {'accept': 'application/vnd.github.v3+json', 'Authorization': f'Bearer {token}'}
 
     async with AsyncClient(headers=headers) as http_client:
