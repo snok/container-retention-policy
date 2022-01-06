@@ -262,7 +262,10 @@ def validate_inputs(
         filter_tags_ = [i.strip() for i in filter_tags.split(',')]
 
     if isinstance(filter_include_untagged, str):
-        filter_include_untagged_ = strtobool(filter_include_untagged) == 1
+        if not filter_include_untagged:
+            filter_include_untagged_ = True
+        else:
+            filter_include_untagged_ = strtobool(filter_include_untagged) == 1
     else:
         filter_include_untagged_ = filter_include_untagged
 
