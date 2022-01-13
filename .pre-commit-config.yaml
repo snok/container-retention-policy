@@ -37,7 +37,6 @@ repos:
           'flake8-comprehensions',
           'flake8-deprecated',
           'flake8-use-fstring',
-          'flake8-docstrings',
           'flake8-type-checking',
         ]
   - repo: https://github.com/pre-commit/mirrors-mypy

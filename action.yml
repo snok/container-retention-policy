@@ -41,6 +41,7 @@ inputs:
   filter-include-untagged:
     description: "Whether to consider untagged images for deletion."
     required: false
+    default: 'true'
 
 runs:
   using: 'docker'
