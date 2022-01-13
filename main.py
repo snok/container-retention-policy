@@ -244,19 +244,19 @@ def validate_inputs(
     else:
         untagged_only_ = untagged_only
 
-    if skip_tags is None:
+    if not skip_tags:
         skip_tags_ = []
     else:
         skip_tags_ = [i.strip() for i in skip_tags.split(',')]
 
-    if keep_at_least is None:
+    if not keep_at_least:
         keep_at_least_ = 0
     else:
         keep_at_least_ = int(keep_at_least)
         if keep_at_least_ < 0:
             raise ValueError('keep-at-least must be 0 or positive')
 
-    if filter_tags is None:
+    if not filter_tags:
         filter_tags_ = []
     else:
         filter_tags_ = [i.strip() for i in filter_tags.split(',')]
