@@ -6,7 +6,7 @@ authors = ["Sondre Lillebø Gundersen <sondrelg@live.no>"]
 license = "BSD-3"
 
 [tool.poetry.dependencies]
-python = "^3.9"
+python = "^3.10"
 httpx = "^0.18.2"
 dateparser = "^1.0.0"
 pydantic = "^1.9.0"

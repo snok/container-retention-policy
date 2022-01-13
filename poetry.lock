@@ -457,8 +457,8 @@ test = ["pytest-mock (>=3.3)", "pytest (>=4.3)"]
 
 [metadata]
 lock-version = "1.1"
-python-versions = "^3.9"
-content-hash = "f1cbc086b2a0538a27ef66269d592ed5ed50e430f3bfc94eb79997200d23f290"
+python-versions = "^3.10"
+content-hash = "2f5892610640114e9b47fdfda8a61c267f46008ffb92dd4f3e48ba71ee0139e8"
 
 [metadata.files]
 anyio = [
