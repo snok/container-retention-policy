@@ -61,7 +61,7 @@ class GithubAPI:
         account_type: AccountType, org_name: Optional[str]
     ) -> Callable[[ImageName, Any], Coroutine[Any, Any, list[dict]]]:
         if account_type == AccountType.ORG:
-            return partial(list_org_package_versions, org_name=org_name)
+            return partial(list_org_package_versions, org_name)
         else:
             return list_package_versions
 
@@ -70,7 +70,7 @@ class GithubAPI:
         account_type: AccountType, org_name: Optional[str]
     ) -> Callable[[ImageName, int, Any], Coroutine[Any, Any, None]]:
         if account_type == AccountType.ORG:
-            return partial(delete_org_package_versions, org_name=org_name)
+            return partial(delete_org_package_versions, org_name)
         else:
             return delete_package_versions
 
