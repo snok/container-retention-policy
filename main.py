@@ -1,57 +1,76 @@
 from __future__ import annotations
 
 import asyncio
-from collections import namedtuple
-from dataclasses import dataclass
-from distutils.util import strtobool
+from datetime import datetime
 from enum import Enum
 from fnmatch import fnmatch
-from functools import partial
 from sys import argv
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple, Optional
 from urllib.parse import quote_from_bytes
 
 from dateparser import parse
 from httpx import AsyncClient
+from pydantic import BaseModel, conint, validator
 
 if TYPE_CHECKING:
-    from datetime import datetime
-    from typing import Any, Callable, Coroutine, Optional, Union
+    from typing import Any
 
     from httpx import Response
 
 BASE_URL = 'https://api.github.com'
 
-ImageName = namedtuple('ImageName', ['value', 'encoded'])
+
+class ImageName(NamedTuple):
+    """
+    We need to store both the raw image names and url-encoded image names.
+
+    The raw images names are used for logging, while the url-encoded
+    images names are sent in our payloads to the Github API.
+    """
+
+    value: str
+    encoded: str
 
 
-class TimestampType(Enum):
+class TimestampType(str, Enum):
+    """
+    The timestamp-to-use defines how to filter down images for deletion.
+    """
+
     UPDATED_AT = 'updated_at'
     CREATED_AT = 'created_at'
 
 
-class AccountType(Enum):
+class AccountType(str, Enum):
+    """
+    The user's account type defines which endpoints to use.
+    """
+
     ORG = 'org'
     PERSONAL = 'personal'
 
 
-async def list_org_package_versions(org_name: str, image_name: ImageName, http_client: AsyncClient) -> list[dict]:
+async def list_org_package_versions(
+    *, org_name: str, image_name: ImageName, http_client: AsyncClient
+) -> list[dict[str, Any]]:
     """
-    List image versions for an organization.
+    List image versions, for an organization.
 
     :param org_name: The name of the organization.
     :param image_name: The name of the container image.
     :param http_client: HTTP client.
     :return: List of image objects.
     """
-    response = await http_client.get(f'{BASE_URL}/orgs/{org_name}/packages/container/{image_name.encoded}/versions?per_page=100')
+    response = await http_client.get(
+        f'{BASE_URL}/orgs/{org_name}/packages/container/{image_name.encoded}/versions?per_page=100'
+    )
     response.raise_for_status()
     return response.json()
 
 
-async def list_package_versions(image_name: ImageName, http_client: AsyncClient) -> list[dict]:
+async def list_package_versions(*, image_name: ImageName, http_client: AsyncClient) -> list[dict]:
     """
-    List image versions for a personal account.
+    List image versions, for a personal account.
 
     :param image_name: The name of the container image.
     :param http_client: HTTP client.
@@ -62,19 +81,24 @@ async def list_package_versions(image_name: ImageName, http_client: AsyncClient)
     return response.json()
 
 
-def post_deletion_output(response: Response, image_name: ImageName, version_id: int) -> None:
+def post_deletion_output(*, response: Response, image_name: ImageName, version_id: int) -> None:
     """
     Output a little info to the user.
     """
     if response.is_error:
-        print(f'\nCouldn\'t delete {image_name.value}:{version_id}.\nStatus code: {response.status_code}\nResponse: {response.json()}\n')
+        print(
+            f'\nCouldn\'t delete {image_name.value}:{version_id}.\n'
+            f'Status code: {response.status_code}\nResponse: {response.json()}\n'
+        )
     else:
         print(f'Deleted old image: {image_name.value}:{version_id}')
 
 
-async def delete_org_package_versions(org_name: str, image_name: ImageName, version_id: int, http_client: AsyncClient) -> None:
+async def delete_org_package_versions(
+    *, org_name: str, image_name: ImageName, version_id: int, http_client: AsyncClient
+) -> None:
     """
-    Delete an image version for an organization.
+    Delete an image version, for an organization.
 
     :param org_name: The name of the org.
     :param image_name: The name of the container image.
@@ -84,12 +108,12 @@ async def delete_org_package_versions(org_name: str, image_name: ImageName, vers
     """
     url = f'{BASE_URL}/orgs/{org_name}/packages/container/{image_name.encoded}/versions/{version_id}'
     response = await http_client.delete(url)
-    post_deletion_output(response, image_name, version_id)
+    post_deletion_output(response=response, image_name=image_name, version_id=version_id)
 
 
-async def delete_package_versions(image_name: ImageName, version_id: int, http_client: AsyncClient) -> None:
+async def delete_package_versions(*, image_name: ImageName, version_id: int, http_client: AsyncClient) -> None:
     """
-    Delete an image version for a personal account.
+    Delete an image version, for a personal account.
 
     :param image_name: The name of the container image.
     :param version_id: The ID of the image version we're deleting.
@@ -98,116 +122,167 @@ async def delete_package_versions(image_name: ImageName, version_id: int, http_c
     """
     url = f'{BASE_URL}/user/packages/container/{image_name.encoded}/versions/{version_id}'
     response = await http_client.delete(url)
-    post_deletion_output(response, image_name, version_id)
+    post_deletion_output(response=response, image_name=image_name, version_id=version_id)
 
 
-def get_image_version_tags(version: dict) -> list[str]:
+class GithubAPI:
     """
-    Return the list of tags on a container image.
-    """
-    if 'metadata' in version and 'container' in version['metadata'] and 'tags' in version['metadata']['container']:
-        return version['metadata']['container']['tags']
-    return []
-
-
-@dataclass
-class Inputs:
-    """
-    Class holds validated inputs, and unifies the API for org- and personal functions.
+    Provide a unified API, regardless of account type.
     """
 
-    parsed_cutoff: datetime
-    timestamp_type: TimestampType
+    @staticmethod
+    async def list_package_versions(
+        *, account_type: AccountType, org_name: Optional[str], image_name: ImageName, http_client: AsyncClient
+    ) -> list[dict[str, Any]]:
+        if account_type != AccountType.ORG:
+            return await list_package_versions(image_name=image_name, http_client=http_client)
+        assert isinstance(org_name, str)
+        return await list_org_package_versions(org_name=org_name, image_name=image_name, http_client=http_client)
+
+    @staticmethod
+    async def delete_package(
+        *,
+        account_type: AccountType,
+        org_name: Optional[str],
+        image_name: ImageName,
+        version_id: int,
+        http_client: AsyncClient,
+    ) -> None:
+        if account_type != AccountType.ORG:
+            return await delete_package_versions(image_name=image_name, version_id=version_id, http_client=http_client)
+        assert isinstance(org_name, str)
+        return await delete_org_package_versions(
+            org_name=org_name, image_name=image_name, version_id=version_id, http_client=http_client
+        )
+
+
+class Inputs(BaseModel):
+    image_names: list[ImageName]
+    cut_off: datetime
+    timestamp_to_use: TimestampType
     account_type: AccountType
+    org_name: Optional[str]
     untagged_only: bool
     skip_tags: list[str]
-    keep_at_least: int
+    keep_at_least: conint(ge=0) = 0  # type: ignore[valid-type]
     filter_tags: list[str]
-    filter_include_untagged: bool
-    org_name: Optional[str] = None
+    filter_include_untagged: bool = True
 
-    def __post_init__(self) -> None:
+    @validator('image_names', pre=True)
+    def parse_image_names(cls, v: str) -> list[ImageName]:
         """
-        Cast keep-at-least to int.
-        """
-        self.keep_at_least = int(self.keep_at_least)
+        Return an ImageName for each images name received.
 
-    @property
-    def is_org(self) -> bool:
-        """
-        Whether the account type is an org or not.
-        """
-        return self.account_type == AccountType.ORG
+        The image_name can be one or multiple image names, and should be comma-separated.
 
-    @property
-    def list_package_versions(self) -> Callable[[ImageName, Any], Coroutine[Any, Any, list[dict]]]:
+        For images with special characters in the name (e.g., `/`), we *must* url-encode
+        the image names before passing them to the Github API, so we save both the url-
+        encoded and raw value to a named tuple.
         """
-        Unify the API for package version list functions.
-        """
-        if self.is_org:
-            return partial(list_org_package_versions, self.org_name)
+        return [
+            ImageName(img_name.strip(), quote_from_bytes(img_name.strip().encode('utf-8'), safe=''))
+            for img_name in v.split(',')
+        ]
+
+    @validator('skip_tags', 'filter_tags', pre=True)
+    def parse_comma_separate_string_as_list(cls, v: str) -> list[str]:
+        if not v:
+            return []
         else:
-            return list_package_versions
+            return [i.strip() for i in v.split(',')]
 
-    @property
-    def delete_package(self) -> Callable[[ImageName, int, Any], Coroutine[Any, Any, None]]:
-        """
-        Unify the API for package deletion functions.
-        """
-        if self.is_org:
-            return partial(delete_org_package_versions, self.org_name)
-        else:
-            return delete_package_versions
+    @validator('cut_off', pre=True)
+    def parse_human_readable_datetime(cls, v: str) -> datetime:
+        parsed_cutoff = parse(v)
+        if not parsed_cutoff:
+            raise ValueError(f"Unable to parse '{v}'")
+        elif parsed_cutoff.tzinfo is None or parsed_cutoff.tzinfo.utcoffset(parsed_cutoff) is None:
+            raise ValueError('Timezone is required for the cut-off')
+        return parsed_cutoff
+
+    @validator('org_name', pre=True)
+    def validate_org_name(cls, v: str, values: dict) -> Optional[str]:
+        if values['account_type'] == AccountType.ORG and not v:
+            raise ValueError('org-name is required when account-type is org')
+        if v:
+            return v
+        return None
 
 
 async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, http_client: AsyncClient) -> None:
     """
     Delete old package versions for an image name.
-    """
-    versions = await inputs.list_package_versions(image_name, http_client)
 
-    if inputs.keep_at_least >= 0:
+    This function contains more or less all our logic.
+    """
+    versions = await GithubAPI.list_package_versions(
+        account_type=inputs.account_type, org_name=inputs.org_name, image_name=image_name, http_client=http_client
+    )
+
+    # Trim the version list to the n'th element we want to keep
+    if inputs.keep_at_least > 0:
         versions = versions[inputs.keep_at_least :]
 
+    # Define list of deletion-tasks to append to
     tasks = []
 
+    # Iterate through dicts of image versions
     for version in versions:
-        updated_or_created_at = parse(version[inputs.timestamp_type.value])
+
+        # Parse either the update-at timestamp, or the created-at timestamp
+        # depending on which on the user has specified that we should use
+        updated_or_created_at = parse(version[inputs.timestamp_to_use.value])
 
         if not updated_or_created_at:
             print(f'Skipping image version {version["id"]}. Unable to parse timestamps.')
             continue
 
-        if updated_or_created_at > inputs.parsed_cutoff:
-            # Skipping because it's not below the datetime cut-off
+        if inputs.cut_off < updated_or_created_at:
+            # Skipping because it's above our datetime cut-off
+            # we're only looking to delete containers older than some timestamp
             continue
 
-        image_tags = get_image_version_tags(version)
+        # Load the tags for the individual image we're processing
+        if 'metadata' in version and 'container' in version['metadata'] and 'tags' in version['metadata']['container']:
+            image_tags = version['metadata']['container']['tags']
+        else:
+            image_tags = []
 
         if inputs.untagged_only and image_tags:
             # Skipping because no tagged images should be deleted
+            # We could proceed if image_tags was empty, but it's not
             continue
 
-        # if untagged and we don't include untagged images, skip this image.
         if not image_tags and not inputs.filter_include_untagged:
+            # Skipping, because the filter_include_untagged setting is False
             continue
 
-        skip = False
+        delete_image = not inputs.filter_tags
         for filter_tag in inputs.filter_tags:
-            if not any(fnmatch(tag, filter_tag) for tag in image_tags):
-                # no image tag matches the filter tag, skip this image
-                skip = True
-        if skip:
-            break
+            # One thing to note here is that we use fnmatch to support wildcards.
+            # A filter-tags setting of 'some-tag-*' should match to both
+            # 'some-tag-1' and 'some-tag-2'.
+            if any(fnmatch(tag, filter_tag) for tag in image_tags):
+                delete_image = True
+                break
 
         for skip_tag in inputs.skip_tags:
             if any(fnmatch(tag, skip_tag) for tag in image_tags):
                 # Skipping because this image version is tagged with a protected tag
-                skip = True
-        if skip:
-            continue
+                delete_image = False
 
-        tasks.append(asyncio.create_task(inputs.delete_package(image_name, version['id'], http_client)))
+        if delete_image:
+            tasks.append(
+                asyncio.create_task(
+                    GithubAPI.delete_package(
+                        account_type=inputs.account_type,
+                        org_name=inputs.org_name,
+                        image_name=image_name,
+                        version_id=version['id'],
+                        http_client=http_client,
+                    )
+                )
+            )
 
     if not tasks:
         print(f'No more versions to delete for {image_name.value}')
@@ -215,108 +290,34 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
     await asyncio.gather(*tasks)
 
 
-def validate_inputs(
-    account_type: str,
-    org_name: str,
-    timestamp_type: str,
-    cut_off: str,
-    untagged_only: Union[bool, str],
-    skip_tags: Optional[str],
-    keep_at_least: Optional[str],
-    filter_tags: Optional[str],
-    filter_include_untagged: Union[bool, str],
-) -> Inputs:
-    """
-    Perform basic validation on the incoming parameters and return an Inputs instance.
-    """
-    # For date parsing we use `dateparser`. If you're having issues getting this to work,
-    # check out https://dateparser.readthedocs.io/en/latest/.
-    if not (parsed_cutoff := parse(cut_off)):
-        raise ValueError(f"Unable to parse '{cut_off}'")
-    elif parsed_cutoff.tzinfo is None or parsed_cutoff.tzinfo.utcoffset(parsed_cutoff) is None:
-        raise ValueError('Timezone is required for the cut-off')
-
-    if account_type == 'org' and not org_name:
-        raise ValueError('org-name is required when account-type is org')
-
-    if isinstance(untagged_only, str):
-        untagged_only_ = strtobool(untagged_only) == 1
-    else:
-        untagged_only_ = untagged_only
-
-    if not skip_tags:
-        skip_tags_ = []
-    else:
-        skip_tags_ = [i.strip() for i in skip_tags.split(',')]
-
-    if not keep_at_least:
-        keep_at_least_ = 0
-    else:
-        keep_at_least_ = int(keep_at_least)
-        if keep_at_least_ < 0:
-            raise ValueError('keep-at-least must be 0 or positive')
-
-    if not filter_tags:
-        filter_tags_ = []
-    else:
-        filter_tags_ = [i.strip() for i in filter_tags.split(',')]
-
-    if isinstance(filter_include_untagged, str):
-        if not filter_include_untagged:
-            filter_include_untagged_ = True
-        else:
-            filter_include_untagged_ = strtobool(filter_include_untagged) == 1
-    else:
-        filter_include_untagged_ = filter_include_untagged
-
-    return Inputs(
-        parsed_cutoff=parsed_cutoff,
-        timestamp_type=TimestampType(timestamp_type),
-        account_type=AccountType(account_type),
-        org_name=org_name if account_type == 'org' else None,
-        untagged_only=untagged_only_,
-        skip_tags=skip_tags_,
-        keep_at_least=keep_at_least_,
-        filter_tags=filter_tags_,
-        filter_include_untagged=filter_include_untagged_,
-    )
-
-
-def parse_image_names(image_names: str) -> list[ImageName]:
-    """
-    Return an ImageName for each images name received.
-
-    The image_name can be one or multiple image names, and should be comma-separated.
-    For images with special characters in the name (e.g., `/`), we must url-encode
-    the image names before passing them to the Github API, so we save both the url-
-    encoded and raw value to a named tuple.
-    """
-    return [ImageName(img_name.strip(), quote_from_bytes(img_name.strip().encode('utf-8'), safe='')) for img_name in image_names.split(',')]
-
-
 async def main(
     account_type: str,
     org_name: str,
     image_names: str,
-    timestamp_type: str,
+    timestamp_to_use: str,
     cut_off: str,
     token: str,
-    untagged_only: Union[bool, str] = False,
-    skip_tags: Optional[str] = None,
-    keep_at_least: Optional[str] = None,
-    filter_tags: Optional[str] = None,
-    filter_include_untagged: Union[bool, str] = True,
+    untagged_only: str,
+    skip_tags: str,
+    keep_at_least: str,
+    filter_tags: str,
+    filter_include_untagged: str,
 ) -> None:
     """
     Delete old image versions.
 
     See action.yml for additional descriptions of each parameter.
 
-    :param account_type: Account type, must be 'org' or 'personal'.
+    The argument order matters. They are fed to the script from the action, in order.
+
+    All arguments are either strings or empty strings. We properly
+    parse types and values in the Inputs pydantic model.
+
+    :param account_type: Account type. must be 'org' or 'personal'.
     :param org_name: The name of the org. Required if account type is 'org'.
-    :param image_names: The image names to delete versions for.
-                        Can be a single image name, or multiple comma-separated image names.
-    :param timestamp_type: Which timestamp to base our cut-off on. Can be 'updated_at' or 'created_at'.
+    :param image_names: The image names to delete versions for. Can be a single
+                        image name, or multiple comma-separated image names.
+    :param timestamp_to_use: Which timestamp to base our cut-off on. Can be 'updated_at' or 'created_at'.
     :param cut_off: Can be a human readable relative time like '2 days ago UTC', or a timestamp.
                             Must contain a reference to the timezone.
     :param token: The personal access token to authenticate with.
@@ -328,16 +329,26 @@ async def main(
         Supports wildcard '*', '?', '[seq]' and '[!seq]' via Unix shell-style wildcards
     :param filter_include_untagged: Whether to consider untagged images for deletion.
     """
-    parsed_image_names: list[ImageName] = parse_image_names(image_names)
-    inputs: Inputs = validate_inputs(
-        account_type, org_name, timestamp_type, cut_off, untagged_only, skip_tags, keep_at_least, filter_tags, filter_include_untagged
+    inputs = Inputs(
+        image_names=image_names,
+        account_type=account_type,
+        org_name=org_name,
+        timestamp_to_use=timestamp_to_use,
+        cut_off=cut_off,
+        untagged_only=untagged_only,
+        skip_tags=skip_tags,
+        keep_at_least=keep_at_least,
+        filter_tags=filter_tags,
+        filter_include_untagged=filter_include_untagged,
     )
-    headers = {'accept': 'application/vnd.github.v3+json', 'Authorization': f'Bearer {token}'}
-
-    async with AsyncClient(headers=headers) as http_client:
-        await asyncio.gather(
-            *(asyncio.create_task(get_and_delete_old_versions(image_name, inputs, http_client)) for image_name in parsed_image_names)
-        )
+    async with AsyncClient(
+        headers={'accept': 'application/vnd.github.v3+json', 'Authorization': f'Bearer {token}'}
+    ) as client:
+        tasks = [
+            asyncio.create_task(get_and_delete_old_versions(image_name, inputs, client))
+            for image_name in inputs.image_names
+        ]
+        await asyncio.gather(*tasks)
 
 
 if __name__ == '__main__':

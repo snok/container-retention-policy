@@ -24,7 +24,7 @@ repos:
       - id: mixed-line-ending
       - id: trailing-whitespace
   - repo: https://github.com/asottile/pyupgrade
-    rev: v2.30.0
+    rev: v2.31.0
     hooks:
       - id: pyupgrade
         args: ['--py3-plus', '--py36-plus', '--py37-plus', '--keep-runtime-typing']
@@ -37,11 +37,10 @@ repos:
           'flake8-comprehensions',
           'flake8-deprecated',
           'flake8-use-fstring',
-          'flake8-docstrings',
           'flake8-type-checking',
         ]
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: 'v0.930'
+    rev: 'v0.931'
     hooks:
       - id: mypy
         additional_dependencies: [types-dateparser]
