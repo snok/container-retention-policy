@@ -4,7 +4,6 @@ import asyncio
 from datetime import datetime
 from enum import Enum
 from fnmatch import fnmatch
-from functools import partial
 from sys import argv
 from typing import TYPE_CHECKING, NamedTuple, Optional
 from urllib.parse import quote_from_bytes
@@ -14,7 +13,7 @@ from httpx import AsyncClient
 from pydantic import BaseModel, conint, validator
 
 if TYPE_CHECKING:
-    from typing import Any, Callable, Coroutine
+    from typing import Any
 
     from httpx import Response
 
@@ -51,28 +50,110 @@ class AccountType(str, Enum):
     PERSONAL = 'personal'
 
 
+async def list_org_package_versions(
+    *, org_name: str, image_name: ImageName, http_client: AsyncClient
+) -> list[dict[str, Any]]:
+    """
+    List image versions, for an organization.
+
+    :param org_name: The name of the organization.
+    :param image_name: The name of the container image.
+    :param http_client: HTTP client.
+    :return: List of image objects.
+    """
+    response = await http_client.get(
+        f'{BASE_URL}/orgs/{org_name}/packages/container/{image_name.encoded}/versions?per_page=100'
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+async def list_package_versions(*, image_name: ImageName, http_client: AsyncClient) -> list[dict]:
+    """
+    List image versions, for a personal account.
+
+    :param image_name: The name of the container image.
+    :param http_client: HTTP client.
+    :return: List of image objects.
+    """
+    response = await http_client.get(f'{BASE_URL}/user/packages/container/{image_name.encoded}/versions?per_page=100')
+    response.raise_for_status()
+    return response.json()
+
+
+def post_deletion_output(*, response: Response, image_name: ImageName, version_id: int) -> None:
+    """
+    Output a little info to the user.
+    """
+    if response.is_error:
+        print(
+            f'\nCouldn\'t delete {image_name.value}:{version_id}.\n'
+            f'Status code: {response.status_code}\nResponse: {response.json()}\n'
+        )
+    else:
+        print(f'Deleted old image: {image_name.value}:{version_id}')
+
+
+async def delete_org_package_versions(
+    *, org_name: str, image_name: ImageName, version_id: int, http_client: AsyncClient
+) -> None:
+    """
+    Delete an image version, for an organization.
+
+    :param org_name: The name of the org.
+    :param image_name: The name of the container image.
+    :param version_id: The ID of the image version we're deleting.
+    :param http_client: HTTP client.
+    :return: Nothing - the API returns a 204.
+    """
+    url = f'{BASE_URL}/orgs/{org_name}/packages/container/{image_name.encoded}/versions/{version_id}'
+    response = await http_client.delete(url)
+    post_deletion_output(response=response, image_name=image_name, version_id=version_id)
+
+
+async def delete_package_versions(*, image_name: ImageName, version_id: int, http_client: AsyncClient) -> None:
+    """
+    Delete an image version, for a personal account.
+
+    :param image_name: The name of the container image.
+    :param version_id: The ID of the image version we're deleting.
+    :param http_client: HTTP client.
+    :return: Nothing - the API returns a 204.
+    """
+    url = f'{BASE_URL}/user/packages/container/{image_name.encoded}/versions/{version_id}'
+    response = await http_client.delete(url)
+    post_deletion_output(response=response, image_name=image_name, version_id=version_id)
+
+
 class GithubAPI:
     """
     Provide a unified API, regardless of account type.
     """
 
     @staticmethod
-    def list_package_versions(
-        account_type: AccountType, org_name: Optional[str]
-    ) -> Callable[[ImageName, Any], Coroutine[Any, Any, list[dict]]]:
-        if account_type == AccountType.ORG:
-            return partial(list_org_package_versions, org_name)
-        else:
-            return list_package_versions
+    async def list_package_versions(
+        *, account_type: AccountType, org_name: Optional[str], image_name: ImageName, http_client: AsyncClient
+    ) -> list[dict[str, Any]]:
+        if account_type != AccountType.ORG:
+            return await list_package_versions(image_name=image_name, http_client=http_client)
+        assert isinstance(org_name, str)
+        return await list_org_package_versions(org_name=org_name, image_name=image_name, http_client=http_client)
 
     @staticmethod
-    def delete_package(
-        account_type: AccountType, org_name: Optional[str]
-    ) -> Callable[[ImageName, int, Any], Coroutine[Any, Any, None]]:
-        if account_type == AccountType.ORG:
-            return partial(delete_org_package_versions, org_name)
-        else:
-            return delete_package_versions
+    async def delete_package(
+        *,
+        account_type: AccountType,
+        org_name: Optional[str],
+        image_name: ImageName,
+        version_id: int,
+        http_client: AsyncClient,
+    ) -> None:
+        if account_type != AccountType.ORG:
+            return await delete_package_versions(image_name=image_name, version_id=version_id, http_client=http_client)
+        assert isinstance(org_name, str)
+        return await delete_org_package_versions(
+            org_name=org_name, image_name=image_name, version_id=version_id, http_client=http_client
+        )
 
 
 class Inputs(BaseModel):
@@ -121,86 +202,11 @@ class Inputs(BaseModel):
 
     @validator('org_name', pre=True)
     def validate_org_name(cls, v: str, values: dict) -> Optional[str]:
-        if values['account_type'] == AccountType.ORG.value and not v:
+        if values['account_type'] == AccountType.ORG and not v:
             raise ValueError('org-name is required when account-type is org')
         if v:
             return v
         return None
-
-
-async def list_org_package_versions(
-    org_name: str, image_name: ImageName, http_client: AsyncClient
-) -> list[dict[str, Any]]:
-    """
-    List image versions, for an organization.
-
-    :param org_name: The name of the organization.
-    :param image_name: The name of the container image.
-    :param http_client: HTTP client.
-    :return: List of image objects.
-    """
-    response = await http_client.get(
-        f'{BASE_URL}/orgs/{org_name}/packages/container/{image_name.encoded}/versions?per_page=100'
-    )
-    response.raise_for_status()
-    return response.json()
-
-
-async def list_package_versions(image_name: ImageName, http_client: AsyncClient) -> list[dict]:
-    """
-    List image versions, for a personal account.
-
-    :param image_name: The name of the container image.
-    :param http_client: HTTP client.
-    :return: List of image objects.
-    """
-    response = await http_client.get(f'{BASE_URL}/user/packages/container/{image_name.encoded}/versions?per_page=100')
-    response.raise_for_status()
-    return response.json()
-
-
-def post_deletion_output(*, response: Response, image_name: ImageName, version_id: int) -> None:
-    """
-    Output a little info to the user.
-    """
-    if response.is_error:
-        print(
-            f'\nCouldn\'t delete {image_name.value}:{version_id}.\n'
-            f'Status code: {response.status_code}\nResponse: {response.json()}\n'
-        )
-    else:
-        print(f'Deleted old image: {image_name.value}:{version_id}')
-
-
-async def delete_org_package_versions(
-    org_name: str, image_name: ImageName, version_id: int, http_client: AsyncClient
-) -> None:
-    """
-    Delete an image version, for an organization.
-
-    :param org_name: The name of the org.
-    :param image_name: The name of the container image.
-    :param version_id: The ID of the image version we're deleting.
-    :param http_client: HTTP client.
-    :return: Nothing - the API returns a 204.
-    """
-    url = f'{BASE_URL}/orgs/{org_name}/packages/container/{image_name.encoded}/versions/{version_id}'
-    response = await http_client.delete(url)
-    post_deletion_output(response=response, image_name=image_name, version_id=version_id)
-
-
-async def delete_package_versions(image_name: ImageName, version_id: int, http_client: AsyncClient) -> None:
-    """
-    Delete an image version, for a personal account.
-
-    :param image_name: The name of the container image.
-    :param version_id: The ID of the image version we're deleting.
-    :param http_client: HTTP client.
-    :return: Nothing - the API returns a 204.
-    """
-    url = f'{BASE_URL}/user/packages/container/{image_name.encoded}/versions/{version_id}'
-    response = await http_client.delete(url)
-    post_deletion_output(response=response, image_name=image_name, version_id=version_id)
 
 
 async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, http_client: AsyncClient) -> None:
@@ -209,10 +215,12 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
 
     This function contains more or less all our logic.
     """
-    versions = await (GithubAPI.list_package_versions(inputs.account_type, inputs.org_name))(image_name, http_client)
+    versions = await GithubAPI.list_package_versions(
+        account_type=inputs.account_type, org_name=inputs.org_name, image_name=image_name, http_client=http_client
+    )
 
     # Trim the version list to the n'th element we want to keep
-    if 0 < inputs.keep_at_least:
+    if inputs.keep_at_least > 0:
         versions = versions[inputs.keep_at_least :]
 
     # Define list of deletion-tasks to append to
@@ -249,13 +257,7 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
             # Skipping, because the filter_include_untagged setting is False
             continue
 
-        if inputs.filter_tags:
-            # If filter tags is set, we should only delete an image
-            # if it matches the filter tag.
-            delete_image = False
-        else:
-            delete_image = True
-
+        delete_image = not inputs.filter_tags
         for filter_tag in inputs.filter_tags:
             # One thing to note here is that we use fnmatch to support wildcards.
             # A filter-tags setting of 'some-tag-*' should match to both
@@ -272,8 +274,12 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
         if delete_image:
             tasks.append(
                 asyncio.create_task(
-                    GithubAPI.delete_package(inputs.account_type, inputs.org_name)(
-                        image_name, version['id'], http_client
+                    GithubAPI.delete_package(
+                        account_type=inputs.account_type,
+                        org_name=inputs.org_name,
+                        image_name=image_name,
+                        version_id=version['id'],
+                        http_client=http_client,
                     )
                 )
             )

@@ -87,16 +87,66 @@ def _create_inputs_model(**kwargs):
     return Inputs(**(input_defaults | kwargs))
 
 
-def test_inputs_model():
+def test_org_name_empty():
+    with pytest.raises(ValidationError):
+        Inputs(**(input_defaults | {'account_type': 'org', 'org_name': ''}))
+
+
+@pytest.mark.asyncio
+async def test_inputs_model_personal(mocker):
+    # Mock the personal list function
+    mocked_list_package_versions: AsyncMock = mocker.patch.object(main, 'list_package_versions', AsyncMock())
+    mocked_delete_package_versions: AsyncMock = mocker.patch.object(main, 'delete_package_versions', AsyncMock())
+
+    # Create a personal inputs model
     personal = _create_inputs_model(account_type='personal')
     assert (personal.account_type == AccountType.ORG) is False
-    assert main.GithubAPI.list_package_versions(personal.account_type, personal.org_name) == list_package_versions
-    assert main.GithubAPI.delete_package(personal.account_type, personal.org_name) == delete_package_versions
 
-    org = _create_inputs_model(account_type='org')
+    # Call the GithubAPI utility function
+    await main.GithubAPI.list_package_versions(
+        account_type=personal.account_type,
+        org_name=personal.org_name,
+        image_name=personal.image_names[0],
+        http_client=AsyncMock(),
+    )
+    await main.GithubAPI.delete_package(
+        account_type=personal.account_type,
+        org_name=personal.org_name,
+        image_name=personal.image_names[0],
+        http_client=AsyncMock(),
+        version_id=1,
+    )
+
+    # Make sure the right function was called
+    mocked_list_package_versions.assert_awaited_once()
+    mocked_delete_package_versions.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_inputs_model_org(mocker):
+    # Mock the org list function
+    mocked_list_package_versions: AsyncMock = mocker.patch.object(main, 'list_org_package_versions', AsyncMock())
+    mocked_delete_package_versions: AsyncMock = mocker.patch.object(main, 'delete_org_package_versions', AsyncMock())
+
+    # Create a personal inputs model
+    org = _create_inputs_model(account_type='org', org_name='test')
     assert (org.account_type == AccountType.ORG) is True
-    assert isinstance(main.GithubAPI.list_package_versions(org.account_type, org.org_name), partial)
-    assert isinstance(main.GithubAPI.delete_package(org.account_type, org.org_name), partial)
+
+    # Call the GithubAPI utility function
+    await main.GithubAPI.list_package_versions(
+        account_type=org.account_type, org_name=org.org_name, image_name=org.image_names[0], http_client=AsyncMock()
+    )
+    await main.GithubAPI.delete_package(
+        account_type=org.account_type,
+        org_name=org.org_name,
+        image_name=org.image_names[0],
+        http_client=AsyncMock(),
+        version_id=1,
+    )
+
+    # Make sure the right function was called
+    mocked_list_package_versions.assert_awaited_once()
+    mocked_delete_package_versions.assert_awaited_once()
 
 
 class TestGetAndDeleteOldVersions:
@@ -114,17 +164,13 @@ class TestGetAndDeleteOldVersions:
     ]
 
     @staticmethod
-    def _mock_list_package_versions(data, *args, **kwargs):
+    async def _mock_list_package_versions(data, *args, **kwargs):
         """
         This isn't trying to match the signature of the code we're mocking.
 
         Rather, we're just hacking this together, to return the data we want.
         """
-
-        async def _(*args, **kwargs):
-            return data
-
-        return _
+        return data
 
     @pytest.mark.asyncio
     async def test_delete_package(self, mocker, capsys):
