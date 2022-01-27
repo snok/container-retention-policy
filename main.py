@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from asyncio import Semaphore
 from datetime import datetime
 from enum import Enum
 from fnmatch import fnmatch
@@ -95,7 +96,7 @@ def post_deletion_output(*, response: Response, image_name: ImageName, version_i
 
 
 async def delete_org_package_versions(
-    *, org_name: str, image_name: ImageName, version_id: int, http_client: AsyncClient
+    *, org_name: str, image_name: ImageName, version_id: int, http_client: AsyncClient, semaphore: Semaphore
 ) -> None:
     """
     Delete an image version, for an organization.
@@ -107,11 +108,17 @@ async def delete_org_package_versions(
     :return: Nothing - the API returns a 204.
     """
     url = f'{BASE_URL}/orgs/{org_name}/packages/container/{image_name.encoded}/versions/{version_id}'
-    response = await http_client.delete(url)
+    await semaphore.acquire()
+    try:
+        response = await http_client.delete(url)
+    finally:
+        semaphore.release()
     post_deletion_output(response=response, image_name=image_name, version_id=version_id)
 
 
-async def delete_package_versions(*, image_name: ImageName, version_id: int, http_client: AsyncClient) -> None:
+async def delete_package_versions(
+    *, image_name: ImageName, version_id: int, http_client: AsyncClient, semaphore: Semaphore
+) -> None:
     """
     Delete an image version, for a personal account.
 
@@ -121,7 +128,11 @@ async def delete_package_versions(*, image_name: ImageName, version_id: int, htt
     :return: Nothing - the API returns a 204.
     """
     url = f'{BASE_URL}/user/packages/container/{image_name.encoded}/versions/{version_id}'
-    response = await http_client.delete(url)
+    await semaphore.acquire()
+    try:
+        response = await http_client.delete(url)
+    finally:
+        semaphore.release()
     post_deletion_output(response=response, image_name=image_name, version_id=version_id)
 
 
@@ -147,12 +158,19 @@ class GithubAPI:
         image_name: ImageName,
         version_id: int,
         http_client: AsyncClient,
+        semaphore: Semaphore,
     ) -> None:
         if account_type != AccountType.ORG:
-            return await delete_package_versions(image_name=image_name, version_id=version_id, http_client=http_client)
+            return await delete_package_versions(
+                image_name=image_name, version_id=version_id, http_client=http_client, semaphore=semaphore
+            )
         assert isinstance(org_name, str)
         return await delete_org_package_versions(
-            org_name=org_name, image_name=image_name, version_id=version_id, http_client=http_client
+            org_name=org_name,
+            image_name=image_name,
+            version_id=version_id,
+            http_client=http_client,
+            semaphore=semaphore,
         )
 
 
@@ -227,62 +245,70 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
     tasks = []
 
     # Iterate through dicts of image versions
-    for version in versions:
+    sem = Semaphore(50)
 
-        # Parse either the update-at timestamp, or the created-at timestamp
-        # depending on which on the user has specified that we should use
-        updated_or_created_at = parse(version[inputs.timestamp_to_use.value])
+    async with sem:
+        for version in versions:
 
-        if not updated_or_created_at:
-            print(f'Skipping image version {version["id"]}. Unable to parse timestamps.')
-            continue
+            # Parse either the update-at timestamp, or the created-at timestamp
+            # depending on which on the user has specified that we should use
+            updated_or_created_at = parse(version[inputs.timestamp_to_use.value])
 
-        if inputs.cut_off < updated_or_created_at:
-            # Skipping because it's above our datetime cut-off
-            # we're only looking to delete containers older than some timestamp
-            continue
+            if not updated_or_created_at:
+                print(f'Skipping image version {version["id"]}. Unable to parse timestamps.')
+                continue
 
-        # Load the tags for the individual image we're processing
-        if 'metadata' in version and 'container' in version['metadata'] and 'tags' in version['metadata']['container']:
-            image_tags = version['metadata']['container']['tags']
-        else:
-            image_tags = []
+            if inputs.cut_off < updated_or_created_at:
+                # Skipping because it's above our datetime cut-off
+                # we're only looking to delete containers older than some timestamp
+                continue
 
-        if inputs.untagged_only and image_tags:
-            # Skipping because no tagged images should be deleted
-            # We could proceed if image_tags was empty, but it's not
-            continue
+            # Load the tags for the individual image we're processing
+            if (
+                'metadata' in version
+                and 'container' in version['metadata']
+                and 'tags' in version['metadata']['container']
+            ):
+                image_tags = version['metadata']['container']['tags']
+            else:
+                image_tags = []
 
-        if not image_tags and not inputs.filter_include_untagged:
-            # Skipping, because the filter_include_untagged setting is False
-            continue
+            if inputs.untagged_only and image_tags:
+                # Skipping because no tagged images should be deleted
+                # We could proceed if image_tags was empty, but it's not
+                continue
 
-        delete_image = not inputs.filter_tags
-        for filter_tag in inputs.filter_tags:
-            # One thing to note here is that we use fnmatch to support wildcards.
-            # A filter-tags setting of 'some-tag-*' should match to both
-            # 'some-tag-1' and 'some-tag-2'.
-            if any(fnmatch(tag, filter_tag) for tag in image_tags):
-                delete_image = True
-                break
+            if not image_tags and not inputs.filter_include_untagged:
+                # Skipping, because the filter_include_untagged setting is False
+                continue
 
-        for skip_tag in inputs.skip_tags:
-            if any(fnmatch(tag, skip_tag) for tag in image_tags):
-                # Skipping because this image version is tagged with a protected tag
-                delete_image = False
+            delete_image = not inputs.filter_tags
+            for filter_tag in inputs.filter_tags:
+                # One thing to note here is that we use fnmatch to support wildcards.
+                # A filter-tags setting of 'some-tag-*' should match to both
+                # 'some-tag-1' and 'some-tag-2'.
+                if any(fnmatch(tag, filter_tag) for tag in image_tags):
+                    delete_image = True
+                    break
 
-        if delete_image:
-            tasks.append(
-                asyncio.create_task(
-                    GithubAPI.delete_package(
-                        account_type=inputs.account_type,
-                        org_name=inputs.org_name,
-                        image_name=image_name,
-                        version_id=version['id'],
-                        http_client=http_client,
+            for skip_tag in inputs.skip_tags:
+                if any(fnmatch(tag, skip_tag) for tag in image_tags):
+                    # Skipping because this image version is tagged with a protected tag
+                    delete_image = False
+
+            if delete_image:
+                tasks.append(
+                    asyncio.create_task(
+                        GithubAPI.delete_package(
+                            account_type=inputs.account_type,
+                            org_name=inputs.org_name,
+                            image_name=image_name,
+                            version_id=version['id'],
+                            http_client=http_client,
+                            semaphore=sem,
+                        )
                     )
                 )
-            )
 
     if not tasks:
         print(f'No more versions to delete for {image_name.value}')

@@ -1,6 +1,9 @@
+import asyncio
+from asyncio import Semaphore
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from functools import partial
+from time import sleep
 from unittest.mock import AsyncMock, Mock
 
 import pytest as pytest
@@ -44,13 +47,44 @@ async def test_list_package_version():
 @pytest.mark.asyncio
 async def test_delete_org_package_version():
     await delete_org_package_versions(
-        org_name='test', image_name=ImageName('test', 'test'), http_client=mock_http_client, version_id=123
+        org_name='test',
+        image_name=ImageName('test', 'test'),
+        http_client=mock_http_client,
+        version_id=123,
+        semaphore=Semaphore(1),
     )
 
 
 @pytest.mark.asyncio
 async def test_delete_package_version():
-    await delete_package_versions(image_name=ImageName('test', 'test'), http_client=mock_http_client, version_id=123)
+    await delete_package_versions(
+        image_name=ImageName('test', 'test'), http_client=mock_http_client, version_id=123, semaphore=Semaphore(1)
+    )
+
+
+@pytest.mark.asyncio
+async def test_delete_package_version_semaphore():
+    """
+    Bit of a useless test, but proves Semaphores work the way we think.
+    """
+    # Test that we're still waiting after 1 second, when the semaphore is empty
+    sem = Semaphore(0)
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(
+            delete_package_versions(
+                image_name=ImageName('test', 'test'), http_client=mock_http_client, version_id=123, semaphore=sem
+            ),
+            1,
+        )
+
+    # Assert that this would not be the case otherwise
+    sem = Semaphore(1)
+    await asyncio.wait_for(
+        delete_package_versions(
+            image_name=ImageName('test', 'test'), http_client=mock_http_client, version_id=123, semaphore=sem
+        ),
+        1,
+    )
 
 
 def test_post_deletion_output(capsys):
@@ -115,6 +149,7 @@ async def test_inputs_model_personal(mocker):
         image_name=personal.image_names[0],
         http_client=AsyncMock(),
         version_id=1,
+        semaphore=Semaphore(1),
     )
 
     # Make sure the right function was called
@@ -142,6 +177,7 @@ async def test_inputs_model_org(mocker):
         image_name=org.image_names[0],
         http_client=AsyncMock(),
         version_id=1,
+        semaphore=Semaphore(1),
     )
 
     # Make sure the right function was called
