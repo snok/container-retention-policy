@@ -217,6 +217,15 @@ Whether to consider untagged images for deletion.
 
 # Outputs
 
+## deleted
+
+Comma-separated list of `image-name:version-id` for each image deleted.
+
+## failed
+
+Comma-separated list of images that we weren't able to delete. Check
+logs for responses.
+
 ## needs-github-assistance
 
 When a container image version is public and reaches

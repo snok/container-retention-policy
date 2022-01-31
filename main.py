@@ -51,6 +51,8 @@ class AccountType(str, Enum):
     PERSONAL = 'personal'
 
 
+deleted: list[str] = []
+failed: list[str] = []
 needs_github_assistance: list[str] = []
 GITHUB_ASSISTANCE_MSG = (
     'Publicly visible package versions with more than '
@@ -100,11 +102,13 @@ def post_deletion_output(*, response: Response, image_name: ImageName, version_i
             # Output the names of these images in one block at the end
             needs_github_assistance.append(image_name_with_tag)
         else:
+            failed.append(image_name_with_tag)
             print(
                 f'\nCouldn\'t delete {image_name_with_tag}.\n'
                 f'Status code: {response.status_code}\nResponse: {response.json()}\n'
             )
     else:
+        deleted.append(image_name_with_tag)
         print(f'Deleted old image: {image_name_with_tag}')
 
 
@@ -400,9 +404,15 @@ async def main(
         )
         print(msg)
 
-        # Then add it to the action outputs
-        comma_separated_list = ','.join(needs_github_assistance)
-        print(f'\n::set-output name=needs-github-assistance::{comma_separated_list}')
+    # Then add it to the action outputs
+    print('\nSetting action outputs:')
+    for name, l in [
+        ('needs-github-assistance', needs_github_assistance),
+        ('deleted', deleted),
+        ('failed', failed),
+    ]:
+        comma_separated_list = ','.join(l)
+        print(f'::set-output name={name}::{comma_separated_list}')
 
 
 if __name__ == '__main__':

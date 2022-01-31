@@ -44,7 +44,11 @@ inputs:
     default: 'true'
 outputs:
   needs-github-assistance:
-    description: 'Comma-separated list of image names and tags, for images that are public and have more than 5000 downloads.'
+    description: 'Comma-separated list of image names and tags, for image versions that are public and have more than 5000 downloads.'
+  deleted:
+    description: 'Comma-separated list of image names and tags, for image versions that were deleted during the run.'
+  failed:
+    description: 'Comma-separated list of image names and tags, for image versions that we failed to delete during the run, for an unknown reason.'
 runs:
   using: 'docker'
   image: 'Dockerfile'
