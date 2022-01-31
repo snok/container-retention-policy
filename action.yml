@@ -42,7 +42,9 @@ inputs:
     description: "Whether to consider untagged images for deletion."
     required: false
     default: 'true'
-
+outputs:
+  needs-github-assistance:
+    description: 'Comma-separated list of image names and tags, for images that are public and have more than 5000 downloads.'
 runs:
   using: 'docker'
   image: 'Dockerfile'

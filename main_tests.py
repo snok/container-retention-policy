@@ -388,3 +388,50 @@ async def test_main(mocker):
             'token': 'test',
         }
     )
+
+
+@pytest.mark.asyncio
+async def test_public_images_with_more_than_5000_downloads(mocker, capsys):
+    """
+    The `response.is_error` block is set up to output errors when we run into them.
+
+    One more commonly seen error is the case where an image is public and has more than 5000 downloads.
+
+    For these cases, instead of just outputting the error, we bundle the images names and list
+    them once at the end, with the necessary context to act on them if wanted.
+    """
+    mock_delete_response = Mock()
+    mock_delete_response.is_error = True
+    mock_delete_response.status_code = 400
+    mock_delete_response.json = lambda: {'message': main.GITHUB_ASSISTANCE_MSG}
+
+    mock_list_response = Mock()
+    mock_list_response.is_error = True
+    mock_list_response.status_code = 400
+    mock_list_response.json = lambda: [{'id': 1, 'updated_at': '2021-05-26T14:03:03Z'}]
+
+    mocker.patch.object(AsyncClient, 'get', return_value=mock_list_response)
+    mocker.patch.object(AsyncClient, 'delete', return_value=mock_delete_response)
+    await main_(
+        **{
+            'account_type': 'org',
+            'org_name': 'test',
+            'image_names': 'a,b,c',
+            'timestamp_to_use': 'updated_at',
+            'cut_off': '2 hours ago UTC',
+            'untagged_only': 'false',
+            'skip_tags': '',
+            'keep_at_least': '0',
+            'filter_tags': '',
+            'filter_include_untagged': 'true',
+            'token': 'test',
+        }
+    )
+    captured = capsys.readouterr()
+    assert (
+        captured.out
+        == 'The follow images are public and have more than 5000 downloads. These cannot be deleted via the Github '
+        'API:\n\n\t- a:1\n\t- b:1\n\t- c:1\n\nIf you still want to delete these images, contact Github support.\n\n'
+        'See https://docs.github.com/en/rest/reference/packages for more info.\n\n'
+        '::set-output name=public-images-with-5000-downloads-or-more::a:1,b:1,c:1\n'
+    )

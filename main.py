@@ -51,6 +51,14 @@ class AccountType(str, Enum):
     PERSONAL = 'personal'
 
 
+needs_github_assistance: list[str] = []
+GITHUB_ASSISTANCE_MSG = (
+    'Publicly visible package versions with more than '
+    '5000 downloads cannot be deleted. '
+    'Contact GitHub support for further assistance.'
+)
+
+
 async def list_org_package_versions(
     *, org_name: str, image_name: ImageName, http_client: AsyncClient
 ) -> list[dict[str, Any]]:
@@ -86,13 +94,18 @@ def post_deletion_output(*, response: Response, image_name: ImageName, version_i
     """
     Output a little info to the user.
     """
+    image_name_with_tag = f'{image_name.value}:{version_id}'
     if response.is_error:
-        print(
-            f'\nCouldn\'t delete {image_name.value}:{version_id}.\n'
-            f'Status code: {response.status_code}\nResponse: {response.json()}\n'
-        )
+        if response.status_code == 400 and response.json()['message'] == GITHUB_ASSISTANCE_MSG:
+            # Output the names of these images in one block at the end
+            needs_github_assistance.append(image_name_with_tag)
+        else:
+            print(
+                f'\nCouldn\'t delete {image_name_with_tag}.\n'
+                f'Status code: {response.status_code}\nResponse: {response.json()}\n'
+            )
     else:
-        print(f'Deleted old image: {image_name.value}:{version_id}')
+        print(f'Deleted old image: {image_name_with_tag}')
 
 
 async def delete_org_package_versions(
@@ -375,6 +388,21 @@ async def main(
             for image_name in inputs.image_names
         ]
         await asyncio.gather(*tasks)
+
+    if needs_github_assistance:
+        # Print a human readable list of public images we couldn't handle
+        image_list = '\n\t- ' + '\n\t- '.join(needs_github_assistance)
+        msg = (
+            'The follow images are public and have more than 5000 downloads. '
+            f'These cannot be deleted via the Github API:\n{image_list}\n\n'
+            f'If you still want to delete these images, contact Github support.\n\n'
+            'See https://docs.github.com/en/rest/reference/packages for more info.'
+        )
+        print(msg)
+
+        # Then add it to the action outputs
+        comma_separated_list = ','.join(needs_github_assistance)
+        print(f'\n::set-output name=needs-github-assistance::{comma_separated_list}')
 
 
 if __name__ == '__main__':
