@@ -1,4 +1,4 @@
-FROM python:3.10.1-alpine
+FROM python:3.10.2-alpine
 
 RUN apk add build-base
 
