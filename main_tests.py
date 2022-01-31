@@ -484,8 +484,10 @@ async def test_outputs_are_set(mocker, capsys):
         }
     )
     captured = capsys.readouterr()
-    assert (
-        '::set-output name=needs-github-assistance::b:1\n'
-        '::set-output name=deleted::c:1\n'
-        '::set-output name=failed::a:1\n'
-    ) in captured.out
+    out = captured.out
+    for i in [
+        '::set-output name=needs-github-assistance::',
+        '::set-output name=deleted::',
+        '::set-output name=failed::',
+    ]:
+        assert i in out

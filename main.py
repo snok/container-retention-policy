@@ -395,17 +395,20 @@ async def main(
 
     if needs_github_assistance:
         # Print a human readable list of public images we couldn't handle
+        print('\n')
+        print('─' * 110)
         image_list = '\n\t- ' + '\n\t- '.join(needs_github_assistance)
         msg = (
-            'The follow images are public and have more than 5000 downloads. '
+            '\nThe follow images are public and have more than 5000 downloads. '
             f'These cannot be deleted via the Github API:\n{image_list}\n\n'
             f'If you still want to delete these images, contact Github support.\n\n'
-            'See https://docs.github.com/en/rest/reference/packages for more info.'
+            'See https://docs.github.com/en/rest/reference/packages for more info.\n'
         )
         print(msg)
+        print('─' * 110)
 
     # Then add it to the action outputs
-    print('\nSetting action outputs:')
+    print('\nSetting action outputs:\n')
     for name, l in [
         ('needs-github-assistance', needs_github_assistance),
         ('deleted', deleted),
