@@ -408,7 +408,6 @@ async def main(
         print('─' * 110)
 
     # Then add it to the action outputs
-    print('\nSetting action outputs:\n')
     for name, l in [
         ('needs-github-assistance', needs_github_assistance),
         ('deleted', deleted),
