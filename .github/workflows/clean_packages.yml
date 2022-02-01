@@ -6,23 +6,36 @@ jobs:
   build-containers:
     name: Build a few images
     runs-on: ubuntu-latest
+    env:
+      IMAGE: ghcr.io/sondrelg/ghcr-retention-policy-test
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v2
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v1
-      - name: Login to GHCR
-        run: docker login ghcr.io -u sondrelg --password-stdin <<< ${{ secrets.PAT }}
+      - uses: actions/checkout@v2
+      - uses: docker/setup-buildx-action@v1
+      - run: docker login ghcr.io -u sondrelg --password-stdin <<< ${{ secrets.PAT }}
+      # Each build should be different because of the $RANDOM addition
       - name: Build latest
-        run: echo $'FROM scratch\nCMD ["$RANDOM"]' > Dockerfile.test && docker buildx build . -f Dockerfile.test -t "ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
+        run: |
+          echo $'FROM scratch\nCMD ["$RANDOM"]' > Dockerfile.test
+          cat Dockerfile.test
+          docker buildx build . -f Dockerfile.test -t "${{ env.IMAGE }}:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
       - name: Build latest
-        run: echo $'FROM scratch\nCMD ["$RANDOM"]' > Dockerfile.test && docker buildx build . -f Dockerfile.test -t "ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
+        run: |
+          echo $'FROM scratch\nCMD ["$RANDOM"]' > Dockerfile.test
+          cat Dockerfile.test
+          docker buildx build . -f Dockerfile.test -t "${{ env.IMAGE }}:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
       - name: Build latest
-        run: echo $'FROM scratch\nCMD ["$RANDOM"]' > Dockerfile.test && docker buildx build . -f Dockerfile.test -t "ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
+        run: |
+          echo $'FROM scratch\nCMD ["$RANDOM"]' > Dockerfile.test
+          cat Dockerfile.test
+          docker buildx build . -f Dockerfile.test -t "${{ env.IMAGE }}:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
       - name: Build latest
-        run: echo $'FROM scratch\nCMD ["$RANDOM"]' > Dockerfile.test && docker buildx build . -f Dockerfile.test -t "ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
+        run: |
+          echo $'FROM scratch\nCMD ["$RANDOM"]' > Dockerfile.test
+          cat Dockerfile.test
+          docker buildx build . -f Dockerfile.test -t "${{ env.IMAGE }}:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
       - name: Build latest
-        run: echo $'FROM scratch\nCMD ["$RANDOM"]' > Dockerfile.test && docker buildx build . -f Dockerfile.test -t "ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
+        run: |
+
   clean-ghcr:
     needs: build-containers
     name: Then delete them
