@@ -215,6 +215,29 @@ Supports Unix-shell style wildcards, i.e 'sha-*' to match all tags starting with
 
 Whether to consider untagged images for deletion.
 
+# Outputs
+
+## deleted
+
+Comma-separated list of `image-name:version-id` for each image deleted.
+
+## failed
+
+Comma-separated list of images that we weren't able to delete. Check
+logs for responses.
+
+## needs-github-assistance
+
+When a container image version is public and reaches
+5,000 downloads, the image version can no longer
+be deleted via the Github API.
+
+If you run into this issue, you can access the names and versions
+of the relevant images by calling `${{ steps.<the-id-of-the-deletion-step>.outputs.needs-github-assistance }}`.
+
+The names and versions are output as a comma-separate list,
+like `"name1:tag1,name2:tag2"`.
+
 # Nice to knows
 
 * The GitHub API restricts us to fetching 100 image versions per image name, so if your registry isn't 100% clean after
