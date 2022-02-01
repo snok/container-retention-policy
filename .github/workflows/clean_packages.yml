@@ -6,56 +6,77 @@ jobs:
   build-containers:
     name: Build a few images
     runs-on: ubuntu-latest
+    env:
+      IMAGE: ghcr.io/sondrelg/ghcr-retention-policy-test
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v2
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v1
-      - name: Login to GHCR
-        run: docker login ghcr.io -u sondrelg --password-stdin <<< ${{ secrets.PAT }}
+      - uses: actions/checkout@v2
+      - uses: docker/setup-buildx-action@v1
+      - run: docker login ghcr.io -u sondrelg --password-stdin <<< ${{ secrets.PAT }}
+      # Each build should be different because of the $RANDOM addition
       - name: Build latest
-        run: echo $'FROM scratch\nCMD ["$RANDOM"]' > Dockerfile.test && docker buildx build . -f Dockerfile.test -t "ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
+        run: |
+          randomString=$(LC_ALL=C tr -dc A-Za-z </dev/urandom | head -c 10)
+          echo "FROM scratch as $randomString" > Dockerfile.test
+          cat Dockerfile.test
+          docker buildx build . -f Dockerfile.test -t "${{ env.IMAGE }}:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
       - name: Build latest
-        run: echo $'FROM scratch\nCMD ["$RANDOM"]' > Dockerfile.test && docker buildx build . -f Dockerfile.test -t "ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
+        run: |
+          randomString=$(LC_ALL=C tr -dc A-Za-z </dev/urandom | head -c 11)
+          echo "FROM scratch as $randomString" > Dockerfile.test
+          cat Dockerfile.test
+          docker buildx build . -f Dockerfile.test -t "${{ env.IMAGE }}:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
       - name: Build latest
-        run: echo $'FROM scratch\nCMD ["$RANDOM"]' > Dockerfile.test && docker buildx build . -f Dockerfile.test -t "ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
+        run: |
+          randomString=$(LC_ALL=C tr -dc A-Za-z </dev/urandom | head -c 12)
+          echo "FROM scratch as $randomString" > Dockerfile.test
+          cat Dockerfile.test
+          docker buildx build . -f Dockerfile.test -t "${{ env.IMAGE }}:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
       - name: Build latest
-        run: echo $'FROM scratch\nCMD ["$RANDOM"]' > Dockerfile.test && docker buildx build . -f Dockerfile.test -t "ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
+        run: |
+          randomString=$(LC_ALL=C tr -dc A-Za-z </dev/urandom | head -c 13)
+          echo "FROM scratch as $randomString" > Dockerfile.test
+          cat Dockerfile.test
+          docker buildx build . -f Dockerfile.test -t "${{ env.IMAGE }}:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
       - name: Build latest
-        run: echo $'FROM scratch\nCMD ["$RANDOM"]' > Dockerfile.test && docker buildx build . -f Dockerfile.test -t "ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
+        run: |
+
   clean-ghcr:
     needs: build-containers
     name: Then delete them
     runs-on: ubuntu-latest
     steps:
-      - name: Cache(d) image versions to skip
+      - name: Cache image versions to skip
         uses: actions/cache@v2
+        id: cache
         with:
           path: skip-image-versions.txt
-          key: image-versions-to-skip
+          # key will always *not* match for a new commit, but
+          # restore-key will match if there's a previously stored
+          # file; so cache will *both be loaded and stored*.
+          key: image-versions-to-skip-${{ github.sha }}
+          restore-keys: image-versions-to-skip
 
       - name: Create file if it doesn't exist
         run: touch skip-image-versions.txt
-        if: steps.cache-venv.outputs.cache-hit != 'true'
+        if: steps.cache.outputs.cache-hit != 'true'
 
-      - name: Output file content
-        run: cat skip-image-versions.txt
+      - name: Set image-versions output
+        id: image-version
+        run: |
+          images="$(cat skip-image-versions.txt)"
+          echo $images
+          echo "::set-output name=image-versions::$images"
 
       - name: Delete images more than 2 seconds old
-        uses: sondrelg/container-retention-policy@main
+        uses: sondrelg/container-retention-policy@sondrelg/experiment
         id: delete-images
         with:
           image-names: ghcr-retention-policy-test
           cut-off: 2 seconds ago UTC+2
           account-type: personal
           token: ${{ secrets.PAT }}
+          skip-tags: ${{ steps.image-version.outputs.image-versions }}
 
       - name: Write skipped tags to cache
         run: |
-          echo "${{ steps.delete-images.outputs.needs-github-assistance }}"
-          echo "${{ steps.delete-images.outputs.failed }}"
-          echo "${{ steps.delete-images.outputs.deleted }}"
-          echo "${{ steps.delete-images.outputs.needs-github-assistance }}" > skip-image-versions.txt
-
-      - name: Output file content
-        run: cat skip-image-versions.txt
+          echo "${{ steps.delete-images.outputs.failed }}" > skip-image-versions.txt
