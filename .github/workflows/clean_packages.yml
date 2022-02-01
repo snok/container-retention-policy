@@ -43,6 +43,7 @@ jobs:
 
       - name: Delete images more than 2 seconds old
         uses: sondrelg/container-retention-policy@main
+        id: delete-images
         with:
           image-names: ghcr-retention-policy-test
           cut-off: 2 seconds ago UTC+2
@@ -50,7 +51,11 @@ jobs:
           token: ${{ secrets.PAT }}
 
       - name: Write skipped tags to cache
-        run: echo "${{ steps.arbitrary-id.outputs.needs-github-assistance }}" > skip-image-versions.txt
+        run: |
+          echo "${{ steps.delete-images.outputs.needs-github-assistance }}"
+          echo "${{ steps.delete-images.outputs.failed }}"
+          echo "${{ steps.delete-images.outputs.deleted }}"
+          echo "${{ steps.delete-images.outputs.needs-github-assistance }}" > skip-image-versions.txt
 
       - name: Output file content
         run: cat skip-image-versions.txt
