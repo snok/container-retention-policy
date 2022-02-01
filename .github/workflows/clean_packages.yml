@@ -45,8 +45,9 @@ jobs:
     name: Then delete them
     runs-on: ubuntu-latest
     steps:
-      - name: Cache(d) image versions to skip
+      - name: Cache image versions to skip
         uses: actions/cache@v2
+        id: cache
         with:
           path: skip-image-versions.txt
           # key will always *not* match for a new commit, but
@@ -57,10 +58,14 @@ jobs:
 
       - name: Create file if it doesn't exist
         run: touch skip-image-versions.txt
-        if: steps.cache-venv.outputs.cache-hit != 'true'
+        if: steps.cache.outputs.cache-hit != 'true'
 
-      - name: Output file content
-        run: cat skip-image-versions.txt
+      - name: Set image-versions output
+        id: image-version
+        run: |
+          images="$(cat skip-image-versions.txt)"
+          echo $images
+          echo "::set-output name=image-versions::$images"
 
       - name: Delete images more than 2 seconds old
         uses: sondrelg/container-retention-policy@sondrelg/experiment
@@ -70,10 +75,8 @@ jobs:
           cut-off: 2 seconds ago UTC+2
           account-type: personal
           token: ${{ secrets.PAT }}
+          skip-tags: ${{ steps.image-version.outputs.image-versions }}
 
       - name: Write skipped tags to cache
         run: |
           echo "${{ steps.delete-images.outputs.failed }}" > skip-image-versions.txt
-
-      - name: Output file content
-        run: cat skip-image-versions.txt
