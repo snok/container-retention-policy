@@ -32,7 +32,11 @@ jobs:
         uses: actions/cache@v2
         with:
           path: skip-image-versions.txt
-          key: image-versions-to-skip
+          # key will always *not* match for a new commit, but
+          # restore-key will match if there's a previously stored
+          # file; so cache will *both be loaded and stored*.
+          key: image-versions-to-skip-${{ github.sha }}
+          restore-keys: image-versions-to-skip
 
       - name: Create file if it doesn't exist
         run: touch skip-image-versions.txt
@@ -42,7 +46,7 @@ jobs:
         run: cat skip-image-versions.txt
 
       - name: Delete images more than 2 seconds old
-        uses: sondrelg/container-retention-policy@main
+        uses: sondrelg/container-retention-policy@sondrelg/experiment
         id: delete-images
         with:
           image-names: ghcr-retention-policy-test
@@ -55,7 +59,7 @@ jobs:
           echo "${{ steps.delete-images.outputs.needs-github-assistance }}"
           echo "${{ steps.delete-images.outputs.failed }}"
           echo "${{ steps.delete-images.outputs.deleted }}"
-          echo "${{ steps.delete-images.outputs.needs-github-assistance }}" > skip-image-versions.txt
+          echo "${{ steps.delete-images.outputs.failed }}" > skip-image-versions.txt
 
       - name: Output file content
         run: cat skip-image-versions.txt
