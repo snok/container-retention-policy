@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, NamedTuple, Optional
 from urllib.parse import quote_from_bytes
 
 from dateparser import parse
-from httpx import AsyncClient
+from httpx import AsyncClient, TimeoutException
 from pydantic import BaseModel, conint, validator
 
 if TYPE_CHECKING:
@@ -128,9 +128,11 @@ async def delete_org_package_versions(
     await semaphore.acquire()
     try:
         response = await http_client.delete(url)
+        post_deletion_output(response=response, image_name=image_name, version_id=version_id)
+    except TimeoutException as e:
+        print(f'Request to delete {image_name.value} timed out with error `{e}`')
     finally:
         semaphore.release()
-    post_deletion_output(response=response, image_name=image_name, version_id=version_id)
 
 
 async def delete_package_versions(
@@ -148,9 +150,11 @@ async def delete_package_versions(
     await semaphore.acquire()
     try:
         response = await http_client.delete(url)
+        post_deletion_output(response=response, image_name=image_name, version_id=version_id)
+    except TimeoutException as e:
+        print(f'Request to delete {image_name.value} timed out with error `{e}`')
     finally:
         semaphore.release()
-    post_deletion_output(response=response, image_name=image_name, version_id=version_id)
 
 
 class GithubAPI:
@@ -221,10 +225,7 @@ class Inputs(BaseModel):
 
     @validator('skip_tags', 'filter_tags', pre=True)
     def parse_comma_separate_string_as_list(cls, v: str) -> list[str]:
-        if not v:
-            return []
-        else:
-            return [i.strip() for i in v.split(',')]
+        return [] if not v else [i.strip() for i in v.split(',')]
 
     @validator('cut_off', pre=True)
     def parse_human_readable_datetime(cls, v: str) -> datetime:
@@ -330,7 +331,18 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
     if not tasks:
         print(f'No more versions to delete for {image_name.value}')
 
-    await asyncio.gather(*tasks)
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    for item in results:
+        if isinstance(item, Exception):
+            try:
+                raise item
+            except Exception as e:
+                # Unhandled errors *shouldn't* occur
+                print(
+                    f'Unhandled exception raised at runtime: `{e}`. '
+                    f'Please report this at https://github.com/snok/container-retention-policy/issues/new'
+                )
 
 
 async def main(
