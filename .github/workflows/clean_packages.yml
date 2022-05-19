@@ -37,8 +37,6 @@ jobs:
           echo "FROM scratch as $randomString" > Dockerfile.test
           cat Dockerfile.test
           docker buildx build . -f Dockerfile.test -t "${{ env.IMAGE }}:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
-      - name: Build latest
-        run: |
 
   clean-ghcr:
     needs: build-containers
