@@ -69,7 +69,7 @@ runs:
       shell: bash
       id: container-retention-policy
       run: |
-        python main.py \
+        python ${{ github.action_path }}/main.py \
           ${{ inputs.account-type }} \
           ${{ inputs.org-name }} \
           ${{ inputs.image-names }} \
