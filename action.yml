@@ -58,7 +58,6 @@ runs:
     - name: Install dependencies
       shell: bash
       run: |
-        # TODO: consider switching to poetry
         pip --disable-pip-version-check install \
           regex==2022.3.2 \
           httpx \
