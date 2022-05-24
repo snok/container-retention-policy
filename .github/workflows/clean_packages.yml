@@ -66,7 +66,7 @@ jobs:
           echo "::set-output name=image-versions::$images"
 
       - name: Delete images more than 2 seconds old
-        uses: sondrelg/container-retention-policy@sondrelg/experiment
+        uses: snok/container-retention-policy@${{ github.ref_name }}
         id: delete-images
         with:
           image-names: ghcr-retention-policy-test
