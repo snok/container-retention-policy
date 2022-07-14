@@ -25,7 +25,7 @@ To use the action, simply add it to your GitHub workflow, like this:
 ```yaml
 - uses: snok/container-retention-policy@v1
   with:
-    image-names: dev, web, test
+    image-names: dev, web, test*
     cut-off: two hours ago UTC+2
     timestamp-to-use: updated_at
     account-type: org
@@ -34,6 +34,8 @@ To use the action, simply add it to your GitHub workflow, like this:
     skip-tags: latest
     token: ${{ secrets.PAT }}
 ```
+
+Notice image-names supports wildcards.
 
 You could run this as
 a [scheduled event](https://docs.github.com/en/actions/reference/events-that-trigger-workflows#schedule), or as a part
@@ -74,10 +76,10 @@ jobs:
           untagged-only: true
           token: ${{ secrets.PAT }}
 
-      - name: Delete 'test' containers older than a month
+      - name: Delete all test containers older than a month, using a wildcard
         uses: snok/container-retention-policy@v1
         with:
-          image-names: python-test, js-test
+          image-names: python-test*, js-test*
           cut-off: One month ago UTC
           account-type: org
           org-name: my-org
@@ -103,7 +105,7 @@ jobs:
       - name: Delete old images
         uses: snok/container-retention-policy@v1
         with:
-          image-names: dev
+          image-names: dev/*
           cut-off: One month ago UTC
           keep-at-least: 1
           account-type: personal
@@ -115,10 +117,11 @@ jobs:
 ## image-names
 
 * **Required**: `Yes`
-* **Example**: `image-names: image1,image2,image3`
+* **Example**: `image-names: image1,image2,image3` or just `image*`
 
 The names of the container images you want to delete old versions for. Takes one or several container image names as a
-comma separated list.
+comma separated list, and supports wildcards. The action will fetch all packages available, and filter
+down the list of packages to handle based on the image name input.
 
 ## cut-off
 
