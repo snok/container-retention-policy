@@ -469,7 +469,7 @@ test = ["pytest-mock (>=3.3)", "pytest (>=4.3)"]
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.10"
-content-hash = "00e750cbd61cc53150f6608c61a3780cf331c91cb686166722459cdb349be343"
+content-hash = "c255379ebf670bcf766c180225e6d8b12878c14d8a483c8847c5a3521217866f"
 
 [metadata.files]
 anyio = []

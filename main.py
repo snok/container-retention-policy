@@ -61,6 +61,38 @@ GITHUB_ASSISTANCE_MSG = (
 )
 
 
+class PackageResponse(BaseModel):
+    id: int
+    name: str
+    created_at: datetime
+    updated_at: datetime
+
+
+async def list_org_packages(*, org_name: str, http_client: AsyncClient) -> list[PackageResponse]:
+    """
+    List all packages, for an organization.
+
+    :param org_name: The name of the organization.
+    :param http_client: HTTP client.
+    :return: List of packages.
+    """
+    response = await http_client.get(f'{BASE_URL}/orgs/{org_name}/packages?package_type=container')
+    response.raise_for_status()
+    return [PackageResponse(**i) for i in response.json()]
+
+
+async def list_packages(*, http_client: AsyncClient) -> list[PackageResponse]:
+    """
+    List all packages, for a user.
+
+    :param http_client: HTTP client.
+    :return: List of packages.
+    """
+    response = await http_client.get(f'{BASE_URL}/user/packages?package_type=container')
+    response.raise_for_status()
+    return [PackageResponse(**i) for i in response.json()]
+
+
 async def list_org_package_versions(
     *, org_name: str, image_name: ImageName, http_client: AsyncClient
 ) -> list[dict[str, Any]]:
@@ -163,6 +195,15 @@ class GithubAPI:
     """
 
     @staticmethod
+    async def list_packages(
+        *, account_type: AccountType, org_name: str | None, http_client: AsyncClient
+    ) -> list[PackageResponse]:
+        if account_type != AccountType.ORG:
+            return await list_packages(http_client=http_client)
+        assert isinstance(org_name, str)
+        return await list_org_packages(org_name=org_name, http_client=http_client)
+
+    @staticmethod
     async def list_package_versions(
         *, account_type: AccountType, org_name: str | None, image_name: ImageName, http_client: AsyncClient
     ) -> list[dict[str, Any]]:
@@ -196,7 +237,7 @@ class GithubAPI:
 
 
 class Inputs(BaseModel):
-    image_names: list[ImageName]
+    image_names: list[str]
     cut_off: datetime
     timestamp_to_use: TimestampType
     account_type: AccountType
@@ -207,25 +248,9 @@ class Inputs(BaseModel):
     filter_tags: list[str]
     filter_include_untagged: bool = True
 
-    @validator('image_names', pre=True)
-    def parse_image_names(cls, v: str) -> list[ImageName]:
-        """
-        Return an ImageName for each images name received.
-
-        The image_name can be one or multiple image names, and should be comma-separated.
-
-        For images with special characters in the name (e.g., `/`), we *must* url-encode
-        the image names before passing them to the Github API, so we save both the url-
-        encoded and raw value to a named tuple.
-        """
-        return [
-            ImageName(img_name.strip(), quote_from_bytes(img_name.strip().encode('utf-8'), safe=''))
-            for img_name in v.split(',')
-        ]
-
-    @validator('skip_tags', 'filter_tags', pre=True)
+    @validator('skip_tags', 'filter_tags', 'image_names', pre=True)
     def parse_comma_separate_string_as_list(cls, v: str) -> list[str]:
-        return [] if not v else [i.strip() for i in v.split(',')]
+        return [i.strip() for i in v.split(',')] if v else []
 
     @validator('cut_off', pre=True)
     def parse_human_readable_datetime(cls, v: str) -> datetime:
@@ -345,6 +370,34 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
                 )
 
 
+async def get_image_names(all_packages: list[PackageResponse], image_names: list[str]) -> set[ImageName]:
+    """
+    Filter package names by action input package names.
+
+    The action input can contain wildcards and other patterns supported by fnmatch.
+
+    The idea is that given a list: ['ab', 'ac', 'bb', 'ba'], and image names (from the action inputs): ['aa', 'b*'],
+    this function should return ['ba', 'bb'].
+
+    :param all_packages: List of packages received from the Github API
+    :param image_names: List of image names the client wishes to delete from
+    :return: The intersection of the two lists, returned as `ImageName` instances
+    """
+
+    packages_to_delete_from = set()
+
+    # Iterate over image names from the action inputs and fnmatch to packages
+    # contained in the users/orgs list of packages.
+    for image_name in image_names:
+        for package in all_packages:
+            if fnmatch(image_name, package.name):
+                packages_to_delete_from.add(
+                    ImageName(package.name.strip(), quote_from_bytes(package.name.strip().encode('utf-8'), safe=''))
+                )
+
+    return packages_to_delete_from
+
+
 async def main(
     account_type: str,
     org_name: str,
@@ -399,10 +452,21 @@ async def main(
     async with AsyncClient(
         headers={'accept': 'application/vnd.github.v3+json', 'Authorization': f'Bearer {token}'}
     ) as client:
+        # Get all packages from the user or orgs account
+        all_packages = await GithubAPI.list_packages(
+            account_type=inputs.account_type, org_name=inputs.org_name, http_client=client
+        )
+
+        # Filter existing image names by action inputs
+        packages_to_delete_from = await get_image_names(all_packages, inputs.image_names)
+
+        # Create tasks to run concurrently
         tasks = [
             asyncio.create_task(get_and_delete_old_versions(image_name, inputs, client))
-            for image_name in inputs.image_names
+            for image_name in packages_to_delete_from
         ]
+
+        # Execute tasks
         await asyncio.gather(*tasks)
 
     if needs_github_assistance:
