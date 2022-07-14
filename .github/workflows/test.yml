@@ -10,11 +10,11 @@ jobs:
   linting:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-python@v2
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
         with:
-          python-version: "3.10"
-      - uses: actions/cache@v2
+          python-version: "3.10.5"
+      - uses: actions/cache@v3
         id: cache-venv
         with:
           path: .venv
@@ -24,7 +24,7 @@ jobs:
           source .venv/bin/activate
           pip install pre-commit
         if: steps.cache-venv.outputs.cache-hit != 'true'
-      - uses: actions/cache@v2
+      - uses: actions/cache@v3
         id: pre-commit-cache
         with:
           path: ~/.cache/pre-commit
@@ -36,40 +36,26 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v2
-
-      - name: Set up Python
-        uses: actions/setup-python@v2
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
         with:
-          python-version: "3.10"
-
-      - name: Load cached Poetry installation
-        uses: actions/cache@v2
+          python-version: "3.10.5"
+      - uses: actions/cache@v3
         with:
           path: ~/.local
           key: poetry-cache-0
-
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
+      - uses: snok/install-poetry@v1
         with:
           virtualenvs-in-project: true
-
-      - name: Load cached venv
-        uses: actions/cache@v2
+      - uses: actions/cache@v3
         id: cache-venv
         with:
           path: .venv
           key: ${{ hashFiles('**/poetry.lock') }}-0
-
-      - name: Install dependencies
-        run: poetry install --no-interaction --no-root
+      - run: poetry install --no-interaction --no-root
         if: steps.cache-venv.outputs.cache-hit != 'true'
-
-      - name: Run tests
-        run: source $VENV && pytest main_tests.py --cov-report=xml
-
-      - uses: codecov/codecov-action@v2
+      - run: source $VENV && pytest main_tests.py --cov-report=xml
+      - uses: codecov/codecov-action@v3
         with:
           file: ./coverage.xml
           fail_ci_if_error: true

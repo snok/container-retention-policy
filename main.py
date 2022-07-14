@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from fnmatch import fnmatch
 from sys import argv
-from typing import TYPE_CHECKING, NamedTuple, Optional
+from typing import TYPE_CHECKING, NamedTuple
 from urllib.parse import quote_from_bytes
 
 from dateparser import parse
@@ -164,7 +164,7 @@ class GithubAPI:
 
     @staticmethod
     async def list_package_versions(
-        *, account_type: AccountType, org_name: Optional[str], image_name: ImageName, http_client: AsyncClient
+        *, account_type: AccountType, org_name: str | None, image_name: ImageName, http_client: AsyncClient
     ) -> list[dict[str, Any]]:
         if account_type != AccountType.ORG:
             return await list_package_versions(image_name=image_name, http_client=http_client)
@@ -175,7 +175,7 @@ class GithubAPI:
     async def delete_package(
         *,
         account_type: AccountType,
-        org_name: Optional[str],
+        org_name: str | None,
         image_name: ImageName,
         version_id: int,
         http_client: AsyncClient,
@@ -200,7 +200,7 @@ class Inputs(BaseModel):
     cut_off: datetime
     timestamp_to_use: TimestampType
     account_type: AccountType
-    org_name: Optional[str]
+    org_name: str | None
     untagged_only: bool
     skip_tags: list[str]
     keep_at_least: conint(ge=0) = 0  # type: ignore[valid-type]
@@ -237,7 +237,7 @@ class Inputs(BaseModel):
         return parsed_cutoff
 
     @validator('org_name', pre=True)
-    def validate_org_name(cls, v: str, values: dict) -> Optional[str]:
+    def validate_org_name(cls, v: str, values: dict) -> str | None:
         if values['account_type'] == AccountType.ORG and not v:
             raise ValueError('org-name is required when account-type is org')
         if v:
