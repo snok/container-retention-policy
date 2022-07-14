@@ -370,7 +370,7 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
                 )
 
 
-async def get_image_names(all_packages: list[PackageResponse], image_names: list[str]) -> set[ImageName]:
+def filter_image_names(all_packages: list[PackageResponse], image_names: list[str]) -> set[ImageName]:
     """
     Filter package names by action input package names.
 
@@ -390,7 +390,7 @@ async def get_image_names(all_packages: list[PackageResponse], image_names: list
     # contained in the users/orgs list of packages.
     for image_name in image_names:
         for package in all_packages:
-            if fnmatch(image_name, package.name):
+            if fnmatch(package.name, image_name):
                 packages_to_delete_from.add(
                     ImageName(package.name.strip(), quote_from_bytes(package.name.strip().encode('utf-8'), safe=''))
                 )
@@ -458,7 +458,7 @@ async def main(
         )
 
         # Filter existing image names by action inputs
-        packages_to_delete_from = await get_image_names(all_packages, inputs.image_names)
+        packages_to_delete_from = filter_image_names(all_packages, inputs.image_names)
 
         # Create tasks to run concurrently
         tasks = [
