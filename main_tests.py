@@ -14,8 +14,10 @@ from main import (
     AccountType,
     ImageName,
     Inputs,
+    PackageResponse,
     delete_org_package_versions,
     delete_package_versions,
+    filter_image_names,
     get_and_delete_old_versions,
     list_org_package_versions,
     list_package_versions,
@@ -133,7 +135,7 @@ async def test_inputs_model_personal(mocker):
 
     # Create a personal inputs model
     personal = _create_inputs_model(account_type='personal')
-    assert (personal.account_type == AccountType.ORG) is False
+    assert personal.account_type != AccountType.ORG
 
     # Call the GithubAPI utility function
     await main.GithubAPI.list_package_versions(
@@ -360,10 +362,26 @@ def test_inputs_bad_account_type():
 
 
 def test_parse_image_names():
-    assert _create_inputs_model(image_names='a').image_names == [ImageName('a', 'a')]
-    assert _create_inputs_model(image_names='a,b').image_names == [ImageName('a', 'a'), ImageName('b', 'b')]
-    assert _create_inputs_model(image_names='  a  ,  b ').image_names == [ImageName('a', 'a'), ImageName('b', 'b')]
-    assert _create_inputs_model(image_names='a/a').image_names == [ImageName('a/a', 'a%2Fa')]
+    assert filter_image_names(
+        all_packages=[
+            PackageResponse(id=1, name='aaa', created_at=datetime.now(), updated_at=datetime.now()),
+            PackageResponse(id=1, name='bbb', created_at=datetime.now(), updated_at=datetime.now()),
+            PackageResponse(id=1, name='ccc', created_at=datetime.now(), updated_at=datetime.now()),
+            PackageResponse(id=1, name='aab', created_at=datetime.now(), updated_at=datetime.now()),
+            PackageResponse(id=1, name='aac', created_at=datetime.now(), updated_at=datetime.now()),
+            PackageResponse(id=1, name='aba', created_at=datetime.now(), updated_at=datetime.now()),
+            PackageResponse(id=1, name='aca', created_at=datetime.now(), updated_at=datetime.now()),
+            PackageResponse(id=1, name='abb', created_at=datetime.now(), updated_at=datetime.now()),
+            PackageResponse(id=1, name='acc', created_at=datetime.now(), updated_at=datetime.now()),
+        ],
+        image_names=['ab*', 'aa*', 'cc'],
+    ) == {
+        ImageName('aba', 'aba'),
+        ImageName('abb', 'abb'),
+        ImageName('aaa', 'aaa'),
+        ImageName('aab', 'aab'),
+        ImageName('aac', 'aac'),
+    }
 
 
 @pytest.mark.asyncio
@@ -406,7 +424,23 @@ async def test_public_images_with_more_than_5000_downloads(mocker, capsys):
     mock_list_response = Mock()
     mock_list_response.is_error = True
     mock_list_response.status_code = 400
-    mock_list_response.json = lambda: [{'id': 1, 'updated_at': '2021-05-26T14:03:03Z'}]
+
+    class DualMock:
+        counter = 0
+
+        def __call__(self):
+            if self.counter == 0:
+                self.counter += 1
+                return [
+                    {'id': 1, 'updated_at': '2021-05-26T14:03:03Z', 'name': 'a', 'created_at': '2021-05-26T14:03:03Z'},
+                    {'id': 1, 'updated_at': '2021-05-26T14:03:03Z', 'name': 'b', 'created_at': '2021-05-26T14:03:03Z'},
+                    {'id': 1, 'updated_at': '2021-05-26T14:03:03Z', 'name': 'c', 'created_at': '2021-05-26T14:03:03Z'},
+                ]
+            return [
+                {'id': 1, 'updated_at': '2021-05-26T14:03:03Z', 'name': 'a', 'created_at': '2021-05-26T14:03:03Z'},
+            ]
+
+    mock_list_response.json = DualMock()
 
     mocker.patch.object(AsyncClient, 'get', return_value=mock_list_response)
     mocker.patch.object(AsyncClient, 'delete', return_value=mock_delete_response)
@@ -426,11 +460,13 @@ async def test_public_images_with_more_than_5000_downloads(mocker, capsys):
         }
     )
     captured = capsys.readouterr()
-    assert (
-        'The follow images are public and have more than 5000 downloads. These cannot be deleted via the Github '
-        'API:\n\n\t- a:1\n\t- b:1\n\t- c:1\n\nIf you still want to delete these images, contact Github support.\n\n'
-        'See https://docs.github.com/en/rest/reference/packages for more info.\n\n' in captured.out
-    )
+
+    for m in [
+        'The follow images are public and have more than 5000 downloads. These cannot be deleted via the Github API:',
+        'If you still want to delete these images, contact Github support.',
+        'See https://docs.github.com/en/rest/reference/packages for more info.',
+    ]:
+        assert m in captured.out
 
 
 class RotatingStatusCodeMock(Mock):
@@ -463,7 +499,9 @@ async def test_outputs_are_set(mocker, capsys):
     mock_list_response = Mock()
     mock_list_response.is_error = True
     mock_list_response.status_code = 200
-    mock_list_response.json = lambda: [{'id': 1, 'updated_at': '2021-05-26T14:03:03Z'}]
+    mock_list_response.json = lambda: [
+        {'id': 1, 'updated_at': '2021-05-26T14:03:03Z', 'name': 'a', 'created_at': '2021-05-26T14:03:03Z'}
+    ]
 
     mocker.patch.object(AsyncClient, 'get', return_value=mock_list_response)
     mocker.patch.object(AsyncClient, 'delete', return_value=RotatingStatusCodeMock())
