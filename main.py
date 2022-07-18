@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from fnmatch import fnmatch
 from sys import argv
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Literal, NamedTuple
 from urllib.parse import quote_from_bytes
 
 from dateparser import parse
@@ -14,7 +14,6 @@ from httpx import AsyncClient, TimeoutException
 from pydantic import BaseModel, conint, validator
 
 if TYPE_CHECKING:
-    from typing import Any
 
     from httpx import Response
 
@@ -65,7 +64,7 @@ class PackageResponse(BaseModel):
     id: int
     name: str
     created_at: datetime
-    updated_at: datetime
+    updated_at: datetime | None
 
 
 async def list_org_packages(*, org_name: str, http_client: AsyncClient) -> list[PackageResponse]:
@@ -93,9 +92,26 @@ async def list_packages(*, http_client: AsyncClient) -> list[PackageResponse]:
     return [PackageResponse(**i) for i in response.json()]
 
 
+class ContainerModel(BaseModel):
+    tags: list[str]
+
+
+class MetadataModel(BaseModel):
+    package_type: Literal['container']
+    container: ContainerModel
+
+
+class PackageVersionResponse(BaseModel):
+    id: int
+    name: str
+    metadata: MetadataModel
+    created_at: datetime | None
+    updated_at: datetime | None
+
+
 async def list_org_package_versions(
     *, org_name: str, image_name: ImageName, http_client: AsyncClient
-) -> list[dict[str, Any]]:
+) -> list[PackageVersionResponse]:
     """
     List image versions, for an organization.
 
@@ -108,10 +124,10 @@ async def list_org_package_versions(
         f'{BASE_URL}/orgs/{org_name}/packages/container/{image_name.encoded}/versions?per_page=100'
     )
     response.raise_for_status()
-    return response.json()
+    return [PackageVersionResponse(**i) for i in response.json()]
 
 
-async def list_package_versions(*, image_name: ImageName, http_client: AsyncClient) -> list[dict]:
+async def list_package_versions(*, image_name: ImageName, http_client: AsyncClient) -> list[PackageVersionResponse]:
     """
     List image versions, for a personal account.
 
@@ -121,7 +137,7 @@ async def list_package_versions(*, image_name: ImageName, http_client: AsyncClie
     """
     response = await http_client.get(f'{BASE_URL}/user/packages/container/{image_name.encoded}/versions?per_page=100')
     response.raise_for_status()
-    return response.json()
+    return [PackageVersionResponse(**i) for i in response.json()]
 
 
 def post_deletion_output(*, response: Response, image_name: ImageName, version_id: int) -> None:
@@ -206,7 +222,7 @@ class GithubAPI:
     @staticmethod
     async def list_package_versions(
         *, account_type: AccountType, org_name: str | None, image_name: ImageName, http_client: AsyncClient
-    ) -> list[dict[str, Any]]:
+    ) -> list[PackageVersionResponse]:
         if account_type != AccountType.ORG:
             return await list_package_versions(image_name=image_name, http_client=http_client)
         assert isinstance(org_name, str)
@@ -295,10 +311,10 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
 
             # Parse either the update-at timestamp, or the created-at timestamp
             # depending on which on the user has specified that we should use
-            updated_or_created_at = parse(version[inputs.timestamp_to_use.value])
+            updated_or_created_at = getattr(version, inputs.timestamp_to_use.value)
 
             if not updated_or_created_at:
-                print(f'Skipping image version {version["id"]}. Unable to parse timestamps.')
+                print(f'Skipping image version {version.id}. Unable to parse timestamps.')
                 continue
 
             if inputs.cut_off < updated_or_created_at:
@@ -308,11 +324,11 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
 
             # Load the tags for the individual image we're processing
             if (
-                'metadata' in version
-                and 'container' in version['metadata']
-                and 'tags' in version['metadata']['container']
+                hasattr(version, 'metadata')
+                and hasattr(version.metadata, 'container')
+                and hasattr(version.metadata.container, 'tags')
             ):
-                image_tags = version['metadata']['container']['tags']
+                image_tags = version.metadata.container.tags
             else:
                 image_tags = []
 
@@ -346,7 +362,7 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
                             account_type=inputs.account_type,
                             org_name=inputs.org_name,
                             image_name=image_name,
-                            version_id=version['id'],
+                            version_id=version.id,
                             http_client=http_client,
                             semaphore=sem,
                         )
