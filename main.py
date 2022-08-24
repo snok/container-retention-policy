@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import re
+import time
 from asyncio import Semaphore
 from datetime import datetime
 from enum import Enum
@@ -66,6 +68,19 @@ class PackageResponse(BaseModel):
     created_at: datetime
     updated_at: datetime | None
 
+async def wait_for_ratelimit(*, response: HTTPResponse, eligible_for_secondary_limit: bool = False) -> None:
+    ratelimit_remaining = int(response.headers['x-ratelimit-remaining'])
+    if ratelimit_remaining == 0:
+        print('ratelimit exceeded')
+        ratelimit_reset = datetime.fromtimestamp(int(response.headers['x-ratelimit-reset']))
+        delta = ratelimit_reset - datetime.now()
+        if delta > datetime.timedelta(0):
+            print('sleeping for %ss' % delta)
+            time.sleep(delta.total_seconds())
+            print('done sleeping')
+    elif eligible_for_secondary_limit:
+        # https://docs.github.com/en/rest/guides/best-practices-for-integrators#dealing-with-secondary-rate-limits
+        time.sleep(1)
 
 async def list_org_packages(*, org_name: str, http_client: AsyncClient) -> list[PackageResponse]:
     """
@@ -120,12 +135,11 @@ async def list_org_package_versions(
     :param http_client: HTTP client.
     :return: List of image objects.
     """
-    response = await http_client.get(
-        f'{BASE_URL}/orgs/{org_name}/packages/container/{image_name.encoded}/versions?per_page=100'
+    packages = await get_all_pages(
+        url=f'{BASE_URL}/orgs/{org_name}/packages/container/{image_name.encoded}/versions?per_page=100',
+        http_client=http_client
     )
-    response.raise_for_status()
-    return [PackageVersionResponse(**i) for i in response.json()]
-
+    return [PackageVersionResponse(**i) for i in packages]
 
 async def list_package_versions(*, image_name: ImageName, http_client: AsyncClient) -> list[PackageVersionResponse]:
     """
@@ -135,10 +149,34 @@ async def list_package_versions(*, image_name: ImageName, http_client: AsyncClie
     :param http_client: HTTP client.
     :return: List of image objects.
     """
-    response = await http_client.get(f'{BASE_URL}/user/packages/container/{image_name.encoded}/versions?per_page=100')
-    response.raise_for_status()
-    return [PackageVersionResponse(**i) for i in response.json()]
+    packages = await get_all_pages(
+        url=f'{BASE_URL}/user/packages/container/{image_name.encoded}/versions?per_page=100',
+        http_client=http_client
+    )
+    return [PackageVersionResponse(**i) for i in packages]
 
+async def get_all_pages(*, url: str, http_client: AsyncClient) -> list[dict]:
+    """
+    Accumulate all pages of an paginated API endpoint
+
+    :param url: The full API URL
+    :param http_client: HTTP client.
+    :return: List of objects.
+    """
+    result = []
+    rel_regex = re.compile(r'<([^<>]*)>; rel="(\w+)"')
+    rels = { 'next': url }
+
+    while 'next' in rels:
+        response = await http_client.get(rels['next'])
+        response.raise_for_status()
+        result.extend(response.json())
+
+        rels = {rel:url for url, rel in rel_regex.findall(response.headers['link'])}
+
+        await wait_for_ratelimit(response=response)
+
+    return result
 
 def post_deletion_output(*, response: Response, image_name: ImageName, version_id: int) -> None:
     """
@@ -176,6 +214,7 @@ async def delete_org_package_versions(
     await semaphore.acquire()
     try:
         response = await http_client.delete(url)
+        await wait_for_ratelimit(response=response,eligible_for_secondary_limit=True)
         post_deletion_output(response=response, image_name=image_name, version_id=version_id)
     except TimeoutException as e:
         print(f'Request to delete {image_name.value} timed out with error `{e}`')
@@ -198,6 +237,7 @@ async def delete_package_versions(
     await semaphore.acquire()
     try:
         response = await http_client.delete(url)
+        await wait_for_ratelimit(response=response,eligible_for_secondary_limit=True)
         post_deletion_output(response=response, image_name=image_name, version_id=version_id)
     except TimeoutException as e:
         print(f'Request to delete {image_name.value} timed out with error `{e}`')
