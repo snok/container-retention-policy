@@ -160,7 +160,7 @@ async def list_package_versions(*, image_name: ImageName, http_client: AsyncClie
 
 async def get_all_pages(*, url: str, http_client: AsyncClient) -> list[dict]:
     """
-    Accumulate all pages of an paginated API endpoint
+    Accumulate all pages of a paginated API endpoint.
 
     :param url: The full API URL
     :param http_client: HTTP client.
