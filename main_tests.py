@@ -14,8 +14,12 @@ from main import (
     AccountType,
     ImageName,
     Inputs,
+    MetadataModel,
+    PackageResponse,
+    PackageVersionResponse,
     delete_org_package_versions,
     delete_package_versions,
+    filter_image_names,
     get_and_delete_old_versions,
     list_org_package_versions,
     list_package_versions,
@@ -133,7 +137,7 @@ async def test_inputs_model_personal(mocker):
 
     # Create a personal inputs model
     personal = _create_inputs_model(account_type='personal')
-    assert (personal.account_type == AccountType.ORG) is False
+    assert personal.account_type != AccountType.ORG
 
     # Call the GithubAPI utility function
     await main.GithubAPI.list_package_versions(
@@ -164,7 +168,7 @@ async def test_inputs_model_org(mocker):
 
     # Create a personal inputs model
     org = _create_inputs_model(account_type='org', org_name='test')
-    assert (org.account_type == AccountType.ORG) is True
+    assert org.account_type == AccountType.ORG
 
     # Call the GithubAPI utility function
     await main.GithubAPI.list_package_versions(
@@ -186,16 +190,18 @@ async def test_inputs_model_org(mocker):
 
 class TestGetAndDeleteOldVersions:
     valid_data = [
-        {
-            'created_at': '2021-05-26T14:03:03Z',
-            'html_url': 'https://github.com/orgs/org-name/packages/container/image-name/1234567',
-            'id': 1234567,
-            'metadata': {'container': {'tags': []}, 'package_type': 'container'},
-            'name': 'sha256:3c6891187412bd31fa04c63b4f06c47417eb599b1b659462632285531aa99c19',
-            'package_html_url': 'https://github.com/orgs/org-name/packages/container/package/image-name',
-            'updated_at': '2021-05-26T14:03:03Z',
-            'url': 'https://api.github.com/orgs/org-name/packages/container/image-name/versions/1234567',
-        }
+        PackageVersionResponse(
+            **{
+                'id': 1234567,
+                'name': 'sha256:3c6891187412bd31fa04c63b4f06c47417eb599b1b659462632285531aa99c19',
+                'created_at': '2021-05-26T14:03:03Z',
+                'updated_at': '2021-05-26T14:03:03Z',
+                'metadata': {'container': {'tags': []}, 'package_type': 'container'},
+                'html_url': 'https://github.com/orgs/org-name/packages/container/image-name/1234567',
+                'package_html_url': 'https://github.com/orgs/org-name/packages/container/package/image-name',
+                'url': 'https://api.github.com/orgs/org-name/packages/container/image-name/versions/1234567',
+            }
+        )
     ]
 
     @staticmethod
@@ -209,11 +215,15 @@ class TestGetAndDeleteOldVersions:
 
     @pytest.mark.asyncio
     async def test_delete_package(self, mocker, capsys):
-        mocker.patch.object(
-            main.GithubAPI, 'list_package_versions', partial(self._mock_list_package_versions, self.valid_data)
-        )
+        # Mock the list function
+        p = partial(self._mock_list_package_versions, self.valid_data)
+        mocker.patch.object(main.GithubAPI, 'list_package_versions', p)
+
+        # Call the function
         inputs = _create_inputs_model()
         await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=mock_http_client)
+
+        # Check the output
         captured = capsys.readouterr()
         assert captured.out == 'Deleted old image: a:1234567\n'
 
@@ -230,10 +240,13 @@ class TestGetAndDeleteOldVersions:
     @pytest.mark.asyncio
     async def test_not_beyond_cutoff(self, mocker, capsys):
         response_data = [
-            {
-                'created_at': str(datetime.now(timezone(timedelta(hours=1)))),
-                'id': 1234567,
-            }
+            PackageVersionResponse(
+                created_at=datetime.now(timezone(timedelta(hours=1))),
+                updated_at=datetime.now(timezone(timedelta(hours=1))),
+                id=1234567,
+                name='',
+                metadata={'container': {'tags': []}, 'package_type': 'container'},
+            )
         ]
         mocker.patch.object(
             main.GithubAPI, 'list_package_versions', partial(self._mock_list_package_versions, response_data)
@@ -245,7 +258,15 @@ class TestGetAndDeleteOldVersions:
 
     @pytest.mark.asyncio
     async def test_missing_timestamp(self, mocker, capsys):
-        data = [{'created_at': '', 'id': 1234567}]
+        data = [
+            PackageVersionResponse(
+                created_at=None,
+                updated_at=None,
+                id=1234567,
+                name='',
+                metadata={'container': {'tags': []}, 'package_type': 'container'},
+            )
+        ]
         mocker.patch.object(main.GithubAPI, 'list_package_versions', partial(self._mock_list_package_versions, data))
         inputs = _create_inputs_model()
         await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=mock_http_client)
@@ -267,7 +288,7 @@ class TestGetAndDeleteOldVersions:
     @pytest.mark.asyncio
     async def test_skip_tags(self, mocker, capsys):
         data = deepcopy(self.valid_data)
-        data[0]['metadata'] = {'container': {'tags': ['abc', 'bcd']}}
+        data[0].metadata = MetadataModel(**{'container': {'tags': ['abc', 'bcd']}, 'package_type': 'container'})
         mocker.patch.object(main.GithubAPI, 'list_package_versions', partial(self._mock_list_package_versions, data))
         inputs = _create_inputs_model(skip_tags='abc')
         await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=mock_http_client)
@@ -277,7 +298,7 @@ class TestGetAndDeleteOldVersions:
     @pytest.mark.asyncio
     async def test_skip_tags_wildcard(self, mocker, capsys):
         data = deepcopy(self.valid_data)
-        data[0]['metadata'] = {'container': {'tags': ['v1.0.0', 'abc']}}
+        data[0].metadata = MetadataModel(**{'container': {'tags': ['v1.0.0', 'abc']}, 'package_type': 'container'})
         mocker.patch.object(main.GithubAPI, 'list_package_versions', partial(self._mock_list_package_versions, data))
         inputs = _create_inputs_model(skip_tags='v*')
         await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=mock_http_client)
@@ -287,7 +308,7 @@ class TestGetAndDeleteOldVersions:
     @pytest.mark.asyncio
     async def test_untagged_only(self, mocker, capsys):
         data = deepcopy(self.valid_data)
-        data[0]['metadata'] = {'container': {'tags': ['abc', 'bcd']}}
+        data[0].metadata = MetadataModel(**{'container': {'tags': ['abc', 'bcd']}, 'package_type': 'container'})
         mocker.patch.object(main.GithubAPI, 'list_package_versions', partial(self._mock_list_package_versions, data))
         inputs = _create_inputs_model(untagged_only='true')
         await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=mock_http_client)
@@ -297,7 +318,9 @@ class TestGetAndDeleteOldVersions:
     @pytest.mark.asyncio
     async def test_filter_tags(self, mocker, capsys):
         data = deepcopy(self.valid_data)
-        data[0]['metadata'] = {'container': {'tags': ['sha-deadbeef', 'edge']}}
+        data[0].metadata = MetadataModel(
+            **{'container': {'tags': ['sha-deadbeef', 'edge']}, 'package_type': 'container'}
+        )
         mocker.patch.object(main.GithubAPI, 'list_package_versions', partial(self._mock_list_package_versions, data))
         inputs = _create_inputs_model(filter_tags='sha-*')
         await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=mock_http_client)
@@ -328,8 +351,8 @@ def test_inputs_bad_account_type():
     _create_inputs_model(cut_off='12/12/12 PM EST')
     with pytest.raises(ValueError, match='Timezone is required for the cut-off'):
         _create_inputs_model(cut_off='12/12/12')
-    with pytest.raises(ValueError, match="Unable to parse 'lolol'"):
-        _create_inputs_model(cut_off='lolol')
+    with pytest.raises(ValueError, match="Unable to parse 'test'"):
+        _create_inputs_model(cut_off='test')
 
     # Untagged only
     for i in ['true', 'True', '1']:
@@ -360,10 +383,26 @@ def test_inputs_bad_account_type():
 
 
 def test_parse_image_names():
-    assert _create_inputs_model(image_names='a').image_names == [ImageName('a', 'a')]
-    assert _create_inputs_model(image_names='a,b').image_names == [ImageName('a', 'a'), ImageName('b', 'b')]
-    assert _create_inputs_model(image_names='  a  ,  b ').image_names == [ImageName('a', 'a'), ImageName('b', 'b')]
-    assert _create_inputs_model(image_names='a/a').image_names == [ImageName('a/a', 'a%2Fa')]
+    assert filter_image_names(
+        all_packages=[
+            PackageResponse(id=1, name='aaa', created_at=datetime.now(), updated_at=datetime.now()),
+            PackageResponse(id=1, name='bbb', created_at=datetime.now(), updated_at=datetime.now()),
+            PackageResponse(id=1, name='ccc', created_at=datetime.now(), updated_at=datetime.now()),
+            PackageResponse(id=1, name='aab', created_at=datetime.now(), updated_at=datetime.now()),
+            PackageResponse(id=1, name='aac', created_at=datetime.now(), updated_at=datetime.now()),
+            PackageResponse(id=1, name='aba', created_at=datetime.now(), updated_at=datetime.now()),
+            PackageResponse(id=1, name='aca', created_at=datetime.now(), updated_at=datetime.now()),
+            PackageResponse(id=1, name='abb', created_at=datetime.now(), updated_at=datetime.now()),
+            PackageResponse(id=1, name='acc', created_at=datetime.now(), updated_at=datetime.now()),
+        ],
+        image_names=['ab*', 'aa*', 'cc'],
+    ) == {
+        ImageName('aba', 'aba'),
+        ImageName('abb', 'abb'),
+        ImageName('aaa', 'aaa'),
+        ImageName('aab', 'aab'),
+        ImageName('aac', 'aac'),
+    }
 
 
 @pytest.mark.asyncio
@@ -406,7 +445,47 @@ async def test_public_images_with_more_than_5000_downloads(mocker, capsys):
     mock_list_response = Mock()
     mock_list_response.is_error = True
     mock_list_response.status_code = 400
-    mock_list_response.json = lambda: [{'id': 1, 'updated_at': '2021-05-26T14:03:03Z'}]
+
+    class DualMock:
+        counter = 0
+
+        def __call__(self):
+            if self.counter == 0:
+                self.counter += 1
+                return [
+                    {
+                        'id': 1,
+                        'updated_at': '2021-05-26T14:03:03Z',
+                        'name': 'a',
+                        'created_at': '2021-05-26T14:03:03Z',
+                        'metadata': {'container': {'tags': []}, 'package_type': 'container'},
+                    },
+                    {
+                        'id': 1,
+                        'updated_at': '2021-05-26T14:03:03Z',
+                        'name': 'b',
+                        'created_at': '2021-05-26T14:03:03Z',
+                        'metadata': {'container': {'tags': []}, 'package_type': 'container'},
+                    },
+                    {
+                        'id': 1,
+                        'updated_at': '2021-05-26T14:03:03Z',
+                        'name': 'c',
+                        'created_at': '2021-05-26T14:03:03Z',
+                        'metadata': {'container': {'tags': []}, 'package_type': 'container'},
+                    },
+                ]
+            return [
+                {
+                    'id': 1,
+                    'updated_at': '2021-05-26T14:03:03Z',
+                    'name': 'a',
+                    'created_at': '2021-05-26T14:03:03Z',
+                    'metadata': {'container': {'tags': []}, 'package_type': 'container'},
+                },
+            ]
+
+    mock_list_response.json = DualMock()
 
     mocker.patch.object(AsyncClient, 'get', return_value=mock_list_response)
     mocker.patch.object(AsyncClient, 'delete', return_value=mock_delete_response)
@@ -426,11 +505,13 @@ async def test_public_images_with_more_than_5000_downloads(mocker, capsys):
         }
     )
     captured = capsys.readouterr()
-    assert (
-        'The follow images are public and have more than 5000 downloads. These cannot be deleted via the Github '
-        'API:\n\n\t- a:1\n\t- b:1\n\t- c:1\n\nIf you still want to delete these images, contact Github support.\n\n'
-        'See https://docs.github.com/en/rest/reference/packages for more info.\n\n' in captured.out
-    )
+
+    for m in [
+        'The follow images are public and have more than 5000 downloads. These cannot be deleted via the Github API:',
+        'If you still want to delete these images, contact Github support.',
+        'See https://docs.github.com/en/rest/reference/packages for more info.',
+    ]:
+        assert m in captured.out
 
 
 class RotatingStatusCodeMock(Mock):
@@ -463,7 +544,15 @@ async def test_outputs_are_set(mocker, capsys):
     mock_list_response = Mock()
     mock_list_response.is_error = True
     mock_list_response.status_code = 200
-    mock_list_response.json = lambda: [{'id': 1, 'updated_at': '2021-05-26T14:03:03Z'}]
+    mock_list_response.json = lambda: [
+        {
+            'id': 1,
+            'updated_at': '2021-05-26T14:03:03Z',
+            'name': 'a',
+            'created_at': '2021-05-26T14:03:03Z',
+            'metadata': {'container': {'tags': []}, 'package_type': 'container'},
+        }
+    ]
 
     mocker.patch.object(AsyncClient, 'get', return_value=mock_list_response)
     mocker.patch.object(AsyncClient, 'delete', return_value=RotatingStatusCodeMock())
