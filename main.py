@@ -75,7 +75,7 @@ async def list_org_packages(*, org_name: str, http_client: AsyncClient) -> list[
     :param http_client: HTTP client.
     :return: List of packages.
     """
-    response = await http_client.get(f'{BASE_URL}/orgs/{org_name}/packages?package_type=container')
+    response = await http_client.get(f'{BASE_URL}/orgs/{org_name}/packages?package_type=container&per_page=100')
     response.raise_for_status()
     return [PackageResponse(**i) for i in response.json()]
 
@@ -87,7 +87,7 @@ async def list_packages(*, http_client: AsyncClient) -> list[PackageResponse]:
     :param http_client: HTTP client.
     :return: List of packages.
     """
-    response = await http_client.get(f'{BASE_URL}/user/packages?package_type=container')
+    response = await http_client.get(f'{BASE_URL}/user/packages?package_type=container&per_page=100')
     response.raise_for_status()
     return [PackageResponse(**i) for i in response.json()]
 
