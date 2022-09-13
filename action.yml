@@ -69,14 +69,14 @@ runs:
       id: container-retention-policy
       run: |
         python ${{ github.action_path }}/main.py \
-          ${{ inputs.account-type }} \
-          ${{ inputs.org-name }} \
-          ${{ inputs.image-names }} \
-          ${{ inputs.timestamp-to-use }} \
-          ${{ inputs.cut-off }} \
-          ${{ inputs.token }} \
-          ${{ inputs.untagged-only }} \
-          ${{ inputs.skip-tags }} \
-          ${{ inputs.keep-at-least }} \
-          ${{ inputs.filter-tags }} \
-          ${{ inputs.filter-include-untagged }} \
+          "${{ inputs.account-type }}" \
+          "${{ inputs.org-name }}" \
+          "${{ inputs.image-names }}" \
+          "${{ inputs.timestamp-to-use }}" \
+          "${{ inputs.cut-off }}" \
+          "${{ inputs.token }}" \
+          "${{ inputs.untagged-only }}" \
+          "${{ inputs.skip-tags }}" \
+          "${{ inputs.keep-at-least }}" \
+          "${{ inputs.filter-tags }}" \
+          "${{ inputs.filter-include-untagged }}" \
