@@ -84,4 +84,4 @@ runs:
           "${{ inputs.skip-tags }}" \
           "${{ inputs.keep-at-least }}" \
           "${{ inputs.filter-tags }}" \
-          "${{ inputs.filter-include-untagged }}" \
+          "${{ inputs.filter-include-untagged }}"
