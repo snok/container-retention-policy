@@ -45,22 +45,43 @@ inputs:
 outputs:
   needs-github-assistance:
     description: 'Comma-separated list of image names and tags, for image versions that are public and have more than 5000 downloads.'
+    value:  ${{ steps.container-retention-policy.outputs.needs-github-assistance }}
   deleted:
     description: 'Comma-separated list of image names and tags, for image versions that were deleted during the run.'
+    value:  ${{ steps.container-retention-policy.outputs.deleted }}
   failed:
     description: 'Comma-separated list of image names and tags, for image versions that we failed to delete during the run, for an unknown reason.'
+    value:  ${{ steps.container-retention-policy.outputs.failed }}
 runs:
-  using: 'docker'
-  image: 'Dockerfile'
-  args:
-    - ${{ inputs.account-type }}
-    - ${{ inputs.org-name }}
-    - ${{ inputs.image-names }}
-    - ${{ inputs.timestamp-to-use }}
-    - ${{ inputs.cut-off }}
-    - ${{ inputs.token }}
-    - ${{ inputs.untagged-only }}
-    - ${{ inputs.skip-tags }}
-    - ${{ inputs.keep-at-least }}
-    - ${{ inputs.filter-tags }}
-    - ${{ inputs.filter-include-untagged }}
+  using: 'composite'
+  steps:
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.10"
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        pip --disable-pip-version-check install \
+          regex==2022.3.2 \
+          httpx \
+          dateparser \
+          pydantic
+
+    - name: Run Container Retention Policy
+      shell: bash
+      id: container-retention-policy
+      run: |
+        python ${{ github.action_path }}/main.py \
+          "${{ inputs.account-type }}" \
+          "${{ inputs.org-name }}" \
+          "${{ inputs.image-names }}" \
+          "${{ inputs.timestamp-to-use }}" \
+          "${{ inputs.cut-off }}" \
+          "${{ inputs.token }}" \
+          "${{ inputs.untagged-only }}" \
+          "${{ inputs.skip-tags }}" \
+          "${{ inputs.keep-at-least }}" \
+          "${{ inputs.filter-tags }}" \
+          "${{ inputs.filter-include-untagged }}" \
