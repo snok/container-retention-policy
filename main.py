@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from asyncio import Semaphore
 from datetime import datetime
 from enum import Enum
@@ -506,7 +507,9 @@ async def main(
         ('failed', failed),
     ]:
         comma_separated_list = ','.join(l)
-        print(f'::set-output name={name}::{comma_separated_list}')
+
+        with open(os.environ['GITHUB_ENV'], 'a') as f:
+            f.write(f'{name}={comma_separated_list}')
 
 
 if __name__ == '__main__':
