@@ -112,6 +112,40 @@ jobs:
           token: ${{ secrets.PAT }}
 ```
 
+An example showing 2 different retention policies based on image tags format:
+
+```yaml
+name: Delete old container images
+
+on:
+  schedule:
+    - cron: '0 0 0 * *'  # the first day of the month
+
+jobs:
+  clean-ghcr:
+    name: Delete old unused container images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete old released images
+        uses: snok/container-retention-policy@v1
+        with:
+          image-names: dev/*
+          cut-off: One month ago UTC
+          keep-at-least: 5
+          filter-tags: "v*.*.*"
+          account-type: personal
+          token: ${{ secrets.PAT }}
+      - name: Delete old pre-release images
+        uses: snok/container-retention-policy@v1
+        with:
+          image-names: dev/*
+          cut-off: One week ago UTC
+          keep-at-least: 1
+          filter-tags: "rc*", "dev*"
+          account-type: personal
+          token: ${{ secrets.PAT }}
+```
+
 # Parameters
 
 ## image-names
@@ -183,8 +217,9 @@ with access to the container registry. Specifically, you need to grant it the fo
 
 How many versions to keep no matter what. Defaults to 0, meaning all versions older than the `cut-off` date may be deleted.
 
-Setting this to a larger value ensures that the specified number of recent versions are always retained, regardless of
-their age. Useful for images that are not updated very often.
+Setting this to a larger value ensures that the specified number of recent versions are always retained, regardless of their age. Useful for images that are not updated very often.
+
+If used together with `filter-tags` parameter, `keep-at-least` number of image tags will be skipped from the resulting filtered set, which makes it possible to apply different retention policies based on image tag format.
 
 ## untagged-only
 
