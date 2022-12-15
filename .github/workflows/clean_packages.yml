@@ -63,7 +63,7 @@ jobs:
         run: |
           images="$(cat skip-image-versions.txt)"
           echo $images
-          echo "::set-output name=image-versions::$images"
+          echo "image-versions=$images" >> $GITHUB_OUTPUT
 
       - name: Delete images more than 2 seconds old
         uses: snok/container-retention-policy@${{ github.ref_name }}

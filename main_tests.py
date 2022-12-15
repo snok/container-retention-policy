@@ -1,4 +1,6 @@
 import asyncio
+import os
+import tempfile
 from asyncio import Semaphore
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
@@ -35,6 +37,16 @@ mock_bad_response.is_error = True
 mock_http_client = AsyncMock()
 mock_http_client.get.return_value = mock_response
 mock_http_client.delete.return_value = mock_response
+
+
+@pytest.fixture(autouse=True)
+def github_env():
+    """
+    Create a GITHUB_ENV env value to mock the Github actions equivalent.
+    """
+    with tempfile.NamedTemporaryFile() as temp:
+        os.environ['GITHUB_ENV'] = temp.name
+        yield
 
 
 @pytest.mark.asyncio
@@ -540,7 +552,7 @@ class RotatingStatusCodeMock(Mock):
 
 
 @pytest.mark.asyncio
-async def test_outputs_are_set(mocker, capsys):
+async def test_outputs_are_set(mocker):
     mock_list_response = Mock()
     mock_list_response.is_error = True
     mock_list_response.status_code = 200
@@ -572,11 +584,12 @@ async def test_outputs_are_set(mocker, capsys):
             'token': 'test',
         }
     )
-    captured = capsys.readouterr()
-    out = captured.out
+    with open(os.environ['GITHUB_ENV']) as f:
+        env_vars = f.readlines()[0]
+
     for i in [
-        '::set-output name=needs-github-assistance::',
-        '::set-output name=deleted::',
-        '::set-output name=failed::',
+        'needs-github-assistance=',
+        'deleted=',
+        'failed=',
     ]:
-        assert i in out
+        assert i in env_vars
