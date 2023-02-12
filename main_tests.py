@@ -14,7 +14,6 @@ import main
 from main import (
     MAX_SLEEP,
     AccountType,
-    ImageName,
     Inputs,
     MetadataModel,
     PackageResponse,
@@ -66,7 +65,7 @@ def github_env():
 
 
 async def test_list_org_package_version(http_client):
-    await list_org_package_versions(org_name='test', image_name=ImageName('test'), http_client=http_client)
+    await list_org_package_versions(org_name='test', image_name='test', http_client=http_client)
 
 
 async def test_wait_for_rate_limit(ok_response, capsys):
@@ -96,13 +95,13 @@ async def test_wait_for_rate_limit(ok_response, capsys):
 
 
 async def test_list_package_version(http_client):
-    await list_package_versions(image_name=ImageName('test'), http_client=http_client)
+    await list_package_versions(image_name='test', http_client=http_client)
 
 
 async def test_delete_org_package_version(http_client):
     await delete_org_package_versions(
         org_name='test',
-        image_name=ImageName('test'),
+        image_name='test',
         http_client=http_client,
         version_id=123,
         semaphore=Semaphore(1),
@@ -110,9 +109,7 @@ async def test_delete_org_package_version(http_client):
 
 
 async def test_delete_package_version(http_client):
-    await delete_package_versions(
-        image_name=ImageName('test'), http_client=http_client, version_id=123, semaphore=Semaphore(1)
-    )
+    await delete_package_versions(image_name='test', http_client=http_client, version_id=123, semaphore=Semaphore(1))
 
 
 async def test_delete_package_version_semaphore(http_client):
@@ -123,28 +120,26 @@ async def test_delete_package_version_semaphore(http_client):
     sem = Semaphore(0)
     with pytest.raises(asyncio.TimeoutError):
         await asyncio.wait_for(
-            delete_package_versions(
-                image_name=ImageName('test'), http_client=http_client, version_id=123, semaphore=sem
-            ),
+            delete_package_versions(image_name='test', http_client=http_client, version_id=123, semaphore=sem),
             2,
         )
 
     # Assert that this would not be the case otherwise
     sem = Semaphore(1)
     await asyncio.wait_for(
-        delete_package_versions(image_name=ImageName('test'), http_client=http_client, version_id=123, semaphore=sem),
+        delete_package_versions(image_name='test', http_client=http_client, version_id=123, semaphore=sem),
         2,
     )
 
 
 def test_post_deletion_output(capsys, ok_response, bad_response):
     # Happy path
-    post_deletion_output(response=ok_response, image_name=ImageName('test'), version_id=123)
+    post_deletion_output(response=ok_response, image_name='test', version_id=123)
     captured = capsys.readouterr()
     assert captured.out == 'Deleted old image: test:123\n'
 
     # Bad response
-    post_deletion_output(response=bad_response, image_name=ImageName('test'), version_id=123)
+    post_deletion_output(response=bad_response, image_name='test', version_id=123)
     captured = capsys.readouterr()
     assert captured.out != 'Deleted old image: test:123\n'
 
@@ -255,7 +250,7 @@ class TestGetAndDeleteOldVersions:
 
         # Call the function
         inputs = _create_inputs_model()
-        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=http_client)
+        await get_and_delete_old_versions(image_name='a', inputs=inputs, http_client=http_client)
 
         # Check the output
         captured = capsys.readouterr()
@@ -264,7 +259,7 @@ class TestGetAndDeleteOldVersions:
     async def test_keep_at_least(self, mocker, capsys, http_client):
         mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=self.valid_data)
         inputs = _create_inputs_model(keep_at_least=1)
-        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=http_client)
+        await get_and_delete_old_versions(image_name='a', inputs=inputs, http_client=http_client)
         captured = capsys.readouterr()
         assert captured.out == 'No more versions to delete for a\n'
 
@@ -280,7 +275,7 @@ class TestGetAndDeleteOldVersions:
         ]
         mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=response_data)
         inputs = _create_inputs_model()
-        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=http_client)
+        await get_and_delete_old_versions(image_name='a', inputs=inputs, http_client=http_client)
         captured = capsys.readouterr()
         assert captured.out == 'No more versions to delete for a\n'
 
@@ -296,7 +291,7 @@ class TestGetAndDeleteOldVersions:
         ]
         mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=data)
         inputs = _create_inputs_model()
-        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=http_client)
+        await get_and_delete_old_versions(image_name='a', inputs=inputs, http_client=http_client)
         captured = capsys.readouterr()
         assert (
             captured.out
@@ -307,7 +302,7 @@ class TestGetAndDeleteOldVersions:
         data = []
         mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=data)
         inputs = _create_inputs_model()
-        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=http_client)
+        await get_and_delete_old_versions(image_name='a', inputs=inputs, http_client=http_client)
         captured = capsys.readouterr()
         assert captured.out == 'No more versions to delete for a\n'
 
@@ -316,7 +311,7 @@ class TestGetAndDeleteOldVersions:
         data[0].metadata = MetadataModel(**{'container': {'tags': ['abc', 'bcd']}, 'package_type': 'container'})
         mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=data)
         inputs = _create_inputs_model(skip_tags='abc')
-        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=http_client)
+        await get_and_delete_old_versions(image_name='a', inputs=inputs, http_client=http_client)
         captured = capsys.readouterr()
         assert captured.out == 'No more versions to delete for a\n'
 
@@ -325,7 +320,7 @@ class TestGetAndDeleteOldVersions:
         data[0].metadata = MetadataModel(**{'container': {'tags': ['v1.0.0', 'abc']}, 'package_type': 'container'})
         mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=data)
         inputs = _create_inputs_model(skip_tags='v*')
-        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=http_client)
+        await get_and_delete_old_versions(image_name='a', inputs=inputs, http_client=http_client)
         captured = capsys.readouterr()
         assert captured.out == 'No more versions to delete for a\n'
 
@@ -334,7 +329,7 @@ class TestGetAndDeleteOldVersions:
         data[0].metadata = MetadataModel(**{'container': {'tags': ['abc', 'bcd']}, 'package_type': 'container'})
         mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=data)
         inputs = _create_inputs_model(untagged_only='true')
-        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=http_client)
+        await get_and_delete_old_versions(image_name='a', inputs=inputs, http_client=http_client)
         captured = capsys.readouterr()
         assert captured.out == 'No more versions to delete for a\n'
 
@@ -345,7 +340,7 @@ class TestGetAndDeleteOldVersions:
         )
         mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=data)
         inputs = _create_inputs_model(filter_tags='sha-*')
-        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=http_client)
+        await get_and_delete_old_versions(image_name='a', inputs=inputs, http_client=http_client)
         captured = capsys.readouterr()
         assert captured.out == 'Deleted old image: a:1234567\n'
 
@@ -419,11 +414,11 @@ def test_parse_image_names():
         ],
         image_names=['ab*', 'aa*', 'cc'],
     ) == {
-        ImageName('aba'),
-        ImageName('abb'),
-        ImageName('aaa'),
-        ImageName('aab'),
-        ImageName('aac'),
+        'aba',
+        'abb',
+        'aaa',
+        'aab',
+        'aac',
     }
 
 

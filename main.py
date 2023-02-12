@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from fnmatch import fnmatch
 from sys import argv
-from typing import TYPE_CHECKING, Literal, NamedTuple
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import quote_from_bytes
 
 from dateparser import parse
@@ -21,19 +21,8 @@ if TYPE_CHECKING:
 BASE_URL = 'https://api.github.com'
 
 
-class ImageName(NamedTuple):
-    """
-    We need to store both the raw image names and url-encoded image names.
-
-    The raw images names are used for logging, while the url-encoded
-    images names are sent in our payloads to the Github API.
-    """
-
-    value: str
-
-    @property
-    def encoded(self) -> str:
-        return quote_from_bytes(self.value.encode('utf-8'), safe='')
+def encode_image_name(name: str) -> str:
+    return quote_from_bytes(name.strip().encode('utf-8'), safe='')
 
 
 class TimestampType(str, Enum):
@@ -169,7 +158,7 @@ async def get_all_pages(*, url: str, http_client: AsyncClient) -> list[dict]:
 
 
 async def list_org_package_versions(
-    *, org_name: str, image_name: ImageName, http_client: AsyncClient
+    *, org_name: str, image_name: str, http_client: AsyncClient
 ) -> list[PackageVersionResponse]:
     """
     List image versions, for an organization.
@@ -180,13 +169,13 @@ async def list_org_package_versions(
     :return: List of image objects.
     """
     packages = await get_all_pages(
-        url=f'{BASE_URL}/orgs/{org_name}/packages/container/{image_name.encoded}/versions?per_page=100',
+        url=f'{BASE_URL}/orgs/{org_name}/packages/container/{encode_image_name(image_name)}/versions?per_page=100',
         http_client=http_client,
     )
     return [PackageVersionResponse(**i) for i in packages]
 
 
-async def list_package_versions(*, image_name: ImageName, http_client: AsyncClient) -> list[PackageVersionResponse]:
+async def list_package_versions(*, image_name: str, http_client: AsyncClient) -> list[PackageVersionResponse]:
     """
     List image versions, for a personal account.
 
@@ -195,16 +184,17 @@ async def list_package_versions(*, image_name: ImageName, http_client: AsyncClie
     :return: List of image objects.
     """
     packages = await get_all_pages(
-        url=f'{BASE_URL}/user/packages/container/{image_name.encoded}/versions?per_page=100', http_client=http_client
+        url=f'{BASE_URL}/user/packages/container/{encode_image_name(image_name)}/versions?per_page=100',
+        http_client=http_client,
     )
     return [PackageVersionResponse(**i) for i in packages]
 
 
-def post_deletion_output(*, response: Response, image_name: ImageName, version_id: int) -> None:
+def post_deletion_output(*, response: Response, image_name: str, version_id: int) -> None:
     """
     Output a little info to the user.
     """
-    image_name_with_tag = f'{image_name.value}:{version_id}'
+    image_name_with_tag = f'{image_name}:{version_id}'
     if response.is_error:
         if response.status_code == 400 and response.json()['message'] == GITHUB_ASSISTANCE_MSG:
             # Output the names of these images in one block at the end
@@ -221,7 +211,7 @@ def post_deletion_output(*, response: Response, image_name: ImageName, version_i
 
 
 async def delete_package_version(
-    url: str, semaphore: Semaphore, http_client: AsyncClient, image_name: ImageName, version_id: int
+    url: str, semaphore: Semaphore, http_client: AsyncClient, image_name: str, version_id: int
 ) -> None:
     async with semaphore:
         try:
@@ -229,11 +219,11 @@ async def delete_package_version(
             await wait_for_rate_limit(response=response, eligible_for_secondary_limit=True)
             post_deletion_output(response=response, image_name=image_name, version_id=version_id)
         except TimeoutException as e:
-            print(f'Request to delete {image_name.value} timed out with error `{e}`')
+            print(f'Request to delete {image_name} timed out with error `{e}`')
 
 
 async def delete_org_package_versions(
-    *, org_name: str, image_name: ImageName, version_id: int, http_client: AsyncClient, semaphore: Semaphore
+    *, org_name: str, image_name: str, version_id: int, http_client: AsyncClient, semaphore: Semaphore
 ) -> None:
     """
     Delete an image version, for an organization.
@@ -244,14 +234,14 @@ async def delete_org_package_versions(
     :param http_client: HTTP client.
     :return: Nothing - the API returns a 204.
     """
-    url = f'{BASE_URL}/orgs/{org_name}/packages/container/{image_name.encoded}/versions/{version_id}'
+    url = f'{BASE_URL}/orgs/{org_name}/packages/container/{encode_image_name(image_name)}/versions/{version_id}'
     await delete_package_version(
         url=url, semaphore=semaphore, http_client=http_client, image_name=image_name, version_id=version_id
     )
 
 
 async def delete_package_versions(
-    *, image_name: ImageName, version_id: int, http_client: AsyncClient, semaphore: Semaphore
+    *, image_name: str, version_id: int, http_client: AsyncClient, semaphore: Semaphore
 ) -> None:
     """
     Delete an image version, for a personal account.
@@ -261,7 +251,7 @@ async def delete_package_versions(
     :param http_client: HTTP client.
     :return: Nothing - the API returns a 204.
     """
-    url = f'{BASE_URL}/user/packages/container/{image_name.encoded}/versions/{version_id}'
+    url = f'{BASE_URL}/user/packages/container/{encode_image_name(image_name)}/versions/{version_id}'
     await delete_package_version(
         url=url, semaphore=semaphore, http_client=http_client, image_name=image_name, version_id=version_id
     )
@@ -283,7 +273,7 @@ class GithubAPI:
 
     @staticmethod
     async def list_package_versions(
-        *, account_type: AccountType, org_name: str | None, image_name: ImageName, http_client: AsyncClient
+        *, account_type: AccountType, org_name: str | None, image_name: str, http_client: AsyncClient
     ) -> list[PackageVersionResponse]:
         if account_type != AccountType.ORG:
             return await list_package_versions(image_name=image_name, http_client=http_client)
@@ -295,7 +285,7 @@ class GithubAPI:
         *,
         account_type: AccountType,
         org_name: str | None,
-        image_name: ImageName,
+        image_name: str,
         version_id: int,
         http_client: AsyncClient,
         semaphore: Semaphore,
@@ -348,7 +338,7 @@ class Inputs(BaseModel):
         return None
 
 
-async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, http_client: AsyncClient) -> None:
+async def get_and_delete_old_versions(image_name: str, inputs: Inputs, http_client: AsyncClient) -> None:
     """
     Delete old package versions for an image name.
 
@@ -431,7 +421,7 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
                 )
 
     if not tasks:
-        print(f'No more versions to delete for {image_name.value}')
+        print(f'No more versions to delete for {image_name}')
 
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -447,7 +437,7 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
                 )
 
 
-def filter_image_names(all_packages: list[PackageResponse], image_names: list[str]) -> set[ImageName]:
+def filter_image_names(all_packages: list[PackageResponse], image_names: list[str]) -> set[str]:
     """
     Filter package names by action input package names.
 
@@ -468,7 +458,7 @@ def filter_image_names(all_packages: list[PackageResponse], image_names: list[st
     for image_name in image_names:
         for package in all_packages:
             if fnmatch(package.name, image_name):
-                packages_to_delete_from.add(ImageName(package.name.strip()))
+                packages_to_delete_from.add(package.name.strip())
 
     return packages_to_delete_from
 
