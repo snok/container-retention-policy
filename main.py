@@ -31,7 +31,10 @@ class ImageName(NamedTuple):
     """
 
     value: str
-    encoded: str
+
+    @property
+    def encoded(self) -> str:
+        return quote_from_bytes(self.value.encode('utf-8'), safe='')
 
 
 class TimestampType(str, Enum):
@@ -450,9 +453,7 @@ def filter_image_names(all_packages: list[PackageResponse], image_names: list[st
     for image_name in image_names:
         for package in all_packages:
             if fnmatch(package.name, image_name):
-                packages_to_delete_from.add(
-                    ImageName(package.name.strip(), quote_from_bytes(package.name.strip().encode('utf-8'), safe=''))
-                )
+                packages_to_delete_from.add(ImageName(package.name.strip()))
 
     return packages_to_delete_from
 

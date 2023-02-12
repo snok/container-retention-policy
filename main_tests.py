@@ -53,19 +53,19 @@ def github_env():
 
 @pytest.mark.asyncio
 async def test_list_org_package_version():
-    await list_org_package_versions(org_name='test', image_name=ImageName('test', 'test'), http_client=mock_http_client)
+    await list_org_package_versions(org_name='test', image_name=ImageName('test'), http_client=mock_http_client)
 
 
 @pytest.mark.asyncio
 async def test_list_package_version():
-    await list_package_versions(image_name=ImageName('test', 'test'), http_client=mock_http_client)
+    await list_package_versions(image_name=ImageName('test'), http_client=mock_http_client)
 
 
 @pytest.mark.asyncio
 async def test_delete_org_package_version():
     await delete_org_package_versions(
         org_name='test',
-        image_name=ImageName('test', 'test'),
+        image_name=ImageName('test'),
         http_client=mock_http_client,
         version_id=123,
         semaphore=Semaphore(1),
@@ -75,7 +75,7 @@ async def test_delete_org_package_version():
 @pytest.mark.asyncio
 async def test_delete_package_version():
     await delete_package_versions(
-        image_name=ImageName('test', 'test'), http_client=mock_http_client, version_id=123, semaphore=Semaphore(1)
+        image_name=ImageName('test'), http_client=mock_http_client, version_id=123, semaphore=Semaphore(1)
     )
 
 
@@ -89,7 +89,7 @@ async def test_delete_package_version_semaphore():
     with pytest.raises(asyncio.TimeoutError):
         await asyncio.wait_for(
             delete_package_versions(
-                image_name=ImageName('test', 'test'), http_client=mock_http_client, version_id=123, semaphore=sem
+                image_name=ImageName('test'), http_client=mock_http_client, version_id=123, semaphore=sem
             ),
             1,
         )
@@ -98,7 +98,7 @@ async def test_delete_package_version_semaphore():
     sem = Semaphore(1)
     await asyncio.wait_for(
         delete_package_versions(
-            image_name=ImageName('test', 'test'), http_client=mock_http_client, version_id=123, semaphore=sem
+            image_name=ImageName('test'), http_client=mock_http_client, version_id=123, semaphore=sem
         ),
         1,
     )
@@ -106,12 +106,12 @@ async def test_delete_package_version_semaphore():
 
 def test_post_deletion_output(capsys):
     # Happy path
-    post_deletion_output(response=mock_response, image_name=ImageName('test', 'test'), version_id=123)
+    post_deletion_output(response=mock_response, image_name=ImageName('test'), version_id=123)
     captured = capsys.readouterr()
     assert captured.out == 'Deleted old image: test:123\n'
 
     # Bad response
-    post_deletion_output(response=mock_bad_response, image_name=ImageName('test', 'test'), version_id=123)
+    post_deletion_output(response=mock_bad_response, image_name=ImageName('test'), version_id=123)
     captured = capsys.readouterr()
     assert captured.out != 'Deleted old image: test:123\n'
 
@@ -235,7 +235,7 @@ class TestGetAndDeleteOldVersions:
 
         # Call the function
         inputs = _create_inputs_model()
-        await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=mock_http_client)
+        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=mock_http_client)
 
         # Check the output
         captured = capsys.readouterr()
@@ -247,7 +247,7 @@ class TestGetAndDeleteOldVersions:
             main.GithubAPI, 'list_package_versions', partial(self._mock_list_package_versions, self.valid_data)
         )
         inputs = _create_inputs_model(keep_at_least=1)
-        await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=mock_http_client)
+        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=mock_http_client)
         captured = capsys.readouterr()
         assert captured.out == 'No more versions to delete for a\n'
 
@@ -266,7 +266,7 @@ class TestGetAndDeleteOldVersions:
             main.GithubAPI, 'list_package_versions', partial(self._mock_list_package_versions, response_data)
         )
         inputs = _create_inputs_model()
-        await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=mock_http_client)
+        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=mock_http_client)
         captured = capsys.readouterr()
         assert captured.out == 'No more versions to delete for a\n'
 
@@ -283,7 +283,7 @@ class TestGetAndDeleteOldVersions:
         ]
         mocker.patch.object(main.GithubAPI, 'list_package_versions', partial(self._mock_list_package_versions, data))
         inputs = _create_inputs_model()
-        await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=mock_http_client)
+        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=mock_http_client)
         captured = capsys.readouterr()
         assert (
             captured.out
@@ -295,7 +295,7 @@ class TestGetAndDeleteOldVersions:
         data = []
         mocker.patch.object(main.GithubAPI, 'list_package_versions', partial(self._mock_list_package_versions, data))
         inputs = _create_inputs_model()
-        await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=mock_http_client)
+        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=mock_http_client)
         captured = capsys.readouterr()
         assert captured.out == 'No more versions to delete for a\n'
 
@@ -305,7 +305,7 @@ class TestGetAndDeleteOldVersions:
         data[0].metadata = MetadataModel(**{'container': {'tags': ['abc', 'bcd']}, 'package_type': 'container'})
         mocker.patch.object(main.GithubAPI, 'list_package_versions', partial(self._mock_list_package_versions, data))
         inputs = _create_inputs_model(skip_tags='abc')
-        await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=mock_http_client)
+        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=mock_http_client)
         captured = capsys.readouterr()
         assert captured.out == 'No more versions to delete for a\n'
 
@@ -315,7 +315,7 @@ class TestGetAndDeleteOldVersions:
         data[0].metadata = MetadataModel(**{'container': {'tags': ['v1.0.0', 'abc']}, 'package_type': 'container'})
         mocker.patch.object(main.GithubAPI, 'list_package_versions', partial(self._mock_list_package_versions, data))
         inputs = _create_inputs_model(skip_tags='v*')
-        await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=mock_http_client)
+        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=mock_http_client)
         captured = capsys.readouterr()
         assert captured.out == 'No more versions to delete for a\n'
 
@@ -325,7 +325,7 @@ class TestGetAndDeleteOldVersions:
         data[0].metadata = MetadataModel(**{'container': {'tags': ['abc', 'bcd']}, 'package_type': 'container'})
         mocker.patch.object(main.GithubAPI, 'list_package_versions', partial(self._mock_list_package_versions, data))
         inputs = _create_inputs_model(untagged_only='true')
-        await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=mock_http_client)
+        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=mock_http_client)
         captured = capsys.readouterr()
         assert captured.out == 'No more versions to delete for a\n'
 
@@ -337,7 +337,7 @@ class TestGetAndDeleteOldVersions:
         )
         mocker.patch.object(main.GithubAPI, 'list_package_versions', partial(self._mock_list_package_versions, data))
         inputs = _create_inputs_model(filter_tags='sha-*')
-        await get_and_delete_old_versions(image_name=ImageName('a', 'a'), inputs=inputs, http_client=mock_http_client)
+        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=mock_http_client)
         captured = capsys.readouterr()
         assert captured.out == 'Deleted old image: a:1234567\n'
 
@@ -411,11 +411,11 @@ def test_parse_image_names():
         ],
         image_names=['ab*', 'aa*', 'cc'],
     ) == {
-        ImageName('aba', 'aba'),
-        ImageName('abb', 'abb'),
-        ImageName('aaa', 'aaa'),
-        ImageName('aab', 'aab'),
-        ImageName('aac', 'aac'),
+        ImageName('aba'),
+        ImageName('abb'),
+        ImageName('aaa'),
+        ImageName('aab'),
+        ImageName('aac'),
     }
 
 
