@@ -30,9 +30,11 @@ from main import main as main_
 from main import post_deletion_output
 
 mock_response = Mock()
+mock_response.headers = {'x-ratelimit-remaining': '1', 'link': ''}
 mock_response.json.return_value = []
 mock_response.is_error = False
 mock_bad_response = Mock()
+mock_bad_response.headers = {'x-ratelimit-remaining': '1', 'link': ''}
 mock_bad_response.is_error = True
 mock_http_client = AsyncMock()
 mock_http_client.get.return_value = mock_response
@@ -450,11 +452,13 @@ async def test_public_images_with_more_than_5000_downloads(mocker, capsys):
     them once at the end, with the necessary context to act on them if wanted.
     """
     mock_delete_response = Mock()
+    mock_delete_response.headers = {'x-ratelimit-remaining': '1', 'link': ''}
     mock_delete_response.is_error = True
     mock_delete_response.status_code = 400
     mock_delete_response.json = lambda: {'message': main.GITHUB_ASSISTANCE_MSG}
 
     mock_list_response = Mock()
+    mock_list_response.headers = {'x-ratelimit-remaining': '1', 'link': ''}
     mock_list_response.is_error = True
     mock_list_response.status_code = 400
 
@@ -554,6 +558,7 @@ class RotatingStatusCodeMock(Mock):
 @pytest.mark.asyncio
 async def test_outputs_are_set(mocker):
     mock_list_response = Mock()
+    mock_list_response.headers = {'x-ratelimit-remaining': '1', 'link': ''}
     mock_list_response.is_error = True
     mock_list_response.status_code = 200
     mock_list_response.json = lambda: [
