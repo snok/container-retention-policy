@@ -108,9 +108,12 @@ async def get_all_pages(*, url: str, http_client: AsyncClient) -> list[dict]:
         response.raise_for_status()
         result.extend(response.json())
 
-        rels = {rel: url for url, rel in rel_regex.findall(response.headers['link'])}
-
         await wait_for_rate_limit(response=response)
+
+        if link := response.headers.get('link'):
+            rels = {rel: url for url, rel in rel_regex.findall(link)}
+        else:
+            break
 
     return result
 
