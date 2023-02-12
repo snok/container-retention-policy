@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import re
-import time
 import os
+import re
 from asyncio import Semaphore
 from datetime import datetime, timedelta
 from enum import Enum
@@ -58,6 +57,7 @@ class AccountType(str, Enum):
 deleted: list[str] = []
 failed: list[str] = []
 needs_github_assistance: list[str] = []
+
 GITHUB_ASSISTANCE_MSG = (
     'Publicly visible package versions with more than '
     '5000 downloads cannot be deleted. '
@@ -72,19 +72,34 @@ class PackageResponse(BaseModel):
     updated_at: datetime | None
 
 
-async def wait_for_ratelimit(*, response: Response, eligible_for_secondary_limit: bool = False) -> None:
-    ratelimit_remaining = int(response.headers['x-ratelimit-remaining'])
-    if ratelimit_remaining == 0:
-        print('ratelimit exceeded')
+# This could be made into a setting if needed
+MAX_SLEEP = 60 * 10  # 10 minutes
+
+
+async def wait_for_rate_limit(*, response: Response, eligible_for_secondary_limit: bool = False) -> None:
+    """
+    Sleeps or terminates the workflow if we've hit rate limits.
+
+    See docs on rate limits: https://docs.github.com/en/rest/rate-limit?apiVersion=2022-11-28.
+    """
+    if int(response.headers['x-ratelimit-remaining']) == 0:
+        print('Rate limit exceeded')
         ratelimit_reset = datetime.fromtimestamp(int(response.headers['x-ratelimit-reset']))
         delta = ratelimit_reset - datetime.now()
-        if delta > timedelta(0):
-            print(f'sleeping for {delta}s')
-            time.sleep(delta.total_seconds())
-            print('done sleeping')
+
+        if delta > timedelta(MAX_SLEEP):
+            print(
+                f'Rate limited for {delta} seconds. Terminating workflow, since sleeping for that long seems unreasonable. '
+                f'Retry the job manually, when the rate limit has refreshed.'
+            )
+        elif delta > timedelta(0):
+            print(f'Sleeping for {delta}s')
+            await asyncio.sleep(delta.total_seconds())
+            print('Done sleeping')
+
     elif eligible_for_secondary_limit:
         # https://docs.github.com/en/rest/guides/best-practices-for-integrators#dealing-with-secondary-rate-limits
-        time.sleep(1)
+        await asyncio.sleep(1)
 
 
 async def list_org_packages(*, org_name: str, http_client: AsyncClient) -> list[PackageResponse]:
@@ -180,7 +195,7 @@ async def get_all_pages(*, url: str, http_client: AsyncClient) -> list[dict]:
 
         rels = {rel: url for url, rel in rel_regex.findall(response.headers['link'])}
 
-        await wait_for_ratelimit(response=response)
+        await wait_for_rate_limit(response=response)
 
     return result
 
@@ -221,7 +236,7 @@ async def delete_org_package_versions(
     await semaphore.acquire()
     try:
         response = await http_client.delete(url)
-        await wait_for_ratelimit(response=response, eligible_for_secondary_limit=True)
+        await wait_for_rate_limit(response=response, eligible_for_secondary_limit=True)
         post_deletion_output(response=response, image_name=image_name, version_id=version_id)
     except TimeoutException as e:
         print(f'Request to delete {image_name.value} timed out with error `{e}`')
@@ -244,7 +259,7 @@ async def delete_package_versions(
     await semaphore.acquire()
     try:
         response = await http_client.delete(url)
-        await wait_for_ratelimit(response=response, eligible_for_secondary_limit=True)
+        await wait_for_rate_limit(response=response, eligible_for_secondary_limit=True)
         post_deletion_output(response=response, image_name=image_name, version_id=version_id)
     except TimeoutException as e:
         print(f'Request to delete {image_name.value} timed out with error `{e}`')
