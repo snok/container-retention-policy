@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import re
+import time
+import os
 from asyncio import Semaphore
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from fnmatch import fnmatch
 from sys import argv
@@ -14,7 +17,6 @@ from httpx import AsyncClient, TimeoutException
 from pydantic import BaseModel, conint, validator
 
 if TYPE_CHECKING:
-
     from httpx import Response
 
 BASE_URL = 'https://api.github.com'
@@ -65,6 +67,21 @@ class PackageResponse(BaseModel):
     name: str
     created_at: datetime
     updated_at: datetime | None
+
+
+async def wait_for_ratelimit(*, response: Response, eligible_for_secondary_limit: bool = False) -> None:
+    ratelimit_remaining = int(response.headers['x-ratelimit-remaining'])
+    if ratelimit_remaining == 0:
+        print('ratelimit exceeded')
+        ratelimit_reset = datetime.fromtimestamp(int(response.headers['x-ratelimit-reset']))
+        delta = ratelimit_reset - datetime.now()
+        if delta > timedelta(0):
+            print(f'sleeping for {delta}s')
+            time.sleep(delta.total_seconds())
+            print('done sleeping')
+    elif eligible_for_secondary_limit:
+        # https://docs.github.com/en/rest/guides/best-practices-for-integrators#dealing-with-secondary-rate-limits
+        time.sleep(1)
 
 
 async def list_org_packages(*, org_name: str, http_client: AsyncClient) -> list[PackageResponse]:
@@ -120,11 +137,11 @@ async def list_org_package_versions(
     :param http_client: HTTP client.
     :return: List of image objects.
     """
-    response = await http_client.get(
-        f'{BASE_URL}/orgs/{org_name}/packages/container/{image_name.encoded}/versions?per_page=100'
+    packages = await get_all_pages(
+        url=f'{BASE_URL}/orgs/{org_name}/packages/container/{image_name.encoded}/versions?per_page=100',
+        http_client=http_client,
     )
-    response.raise_for_status()
-    return [PackageVersionResponse(**i) for i in response.json()]
+    return [PackageVersionResponse(**i) for i in packages]
 
 
 async def list_package_versions(*, image_name: ImageName, http_client: AsyncClient) -> list[PackageVersionResponse]:
@@ -135,9 +152,34 @@ async def list_package_versions(*, image_name: ImageName, http_client: AsyncClie
     :param http_client: HTTP client.
     :return: List of image objects.
     """
-    response = await http_client.get(f'{BASE_URL}/user/packages/container/{image_name.encoded}/versions?per_page=100')
-    response.raise_for_status()
-    return [PackageVersionResponse(**i) for i in response.json()]
+    packages = await get_all_pages(
+        url=f'{BASE_URL}/user/packages/container/{image_name.encoded}/versions?per_page=100', http_client=http_client
+    )
+    return [PackageVersionResponse(**i) for i in packages]
+
+
+async def get_all_pages(*, url: str, http_client: AsyncClient) -> list[dict]:
+    """
+    Accumulate all pages of a paginated API endpoint.
+
+    :param url: The full API URL
+    :param http_client: HTTP client.
+    :return: List of objects.
+    """
+    result = []
+    rel_regex = re.compile(r'<([^<>]*)>; rel="(\w+)"')
+    rels = {'next': url}
+
+    while 'next' in rels:
+        response = await http_client.get(rels['next'])
+        response.raise_for_status()
+        result.extend(response.json())
+
+        rels = {rel: url for url, rel in rel_regex.findall(response.headers['link'])}
+
+        await wait_for_ratelimit(response=response)
+
+    return result
 
 
 def post_deletion_output(*, response: Response, image_name: ImageName, version_id: int) -> None:
@@ -176,6 +218,7 @@ async def delete_org_package_versions(
     await semaphore.acquire()
     try:
         response = await http_client.delete(url)
+        await wait_for_ratelimit(response=response, eligible_for_secondary_limit=True)
         post_deletion_output(response=response, image_name=image_name, version_id=version_id)
     except TimeoutException as e:
         print(f'Request to delete {image_name.value} timed out with error `{e}`')
@@ -198,6 +241,7 @@ async def delete_package_versions(
     await semaphore.acquire()
     try:
         response = await http_client.delete(url)
+        await wait_for_ratelimit(response=response, eligible_for_secondary_limit=True)
         post_deletion_output(response=response, image_name=image_name, version_id=version_id)
     except TimeoutException as e:
         print(f'Request to delete {image_name.value} timed out with error `{e}`')
@@ -304,7 +348,6 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
 
     async with sem:
         for version in versions:
-
             # Parse either the update-at timestamp, or the created-at timestamp
             # depending on which on the user has specified that we should use
             updated_or_created_at = getattr(version, inputs.timestamp_to_use.value)
@@ -508,7 +551,9 @@ async def main(
         ('failed', failed),
     ]:
         comma_separated_list = ','.join(l)
-        print(f'::set-output name={name}::{comma_separated_list}')
+
+        with open(os.environ['GITHUB_ENV'], 'a') as f:
+            f.write(f'{name}={comma_separated_list}')
 
 
 if __name__ == '__main__':

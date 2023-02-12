@@ -1,4 +1,6 @@
 import asyncio
+import os
+import tempfile
 from asyncio import Semaphore
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
@@ -28,13 +30,25 @@ from main import main as main_
 from main import post_deletion_output
 
 mock_response = Mock()
+mock_response.headers = {'x-ratelimit-remaining': '1', 'link': ''}
 mock_response.json.return_value = []
 mock_response.is_error = False
 mock_bad_response = Mock()
+mock_bad_response.headers = {'x-ratelimit-remaining': '1', 'link': ''}
 mock_bad_response.is_error = True
 mock_http_client = AsyncMock()
 mock_http_client.get.return_value = mock_response
 mock_http_client.delete.return_value = mock_response
+
+
+@pytest.fixture(autouse=True)
+def github_env():
+    """
+    Create a GITHUB_ENV env value to mock the Github actions equivalent.
+    """
+    with tempfile.NamedTemporaryFile() as temp:
+        os.environ['GITHUB_ENV'] = temp.name
+        yield
 
 
 @pytest.mark.asyncio
@@ -438,11 +452,13 @@ async def test_public_images_with_more_than_5000_downloads(mocker, capsys):
     them once at the end, with the necessary context to act on them if wanted.
     """
     mock_delete_response = Mock()
+    mock_delete_response.headers = {'x-ratelimit-remaining': '1', 'link': ''}
     mock_delete_response.is_error = True
     mock_delete_response.status_code = 400
     mock_delete_response.json = lambda: {'message': main.GITHUB_ASSISTANCE_MSG}
 
     mock_list_response = Mock()
+    mock_list_response.headers = {'x-ratelimit-remaining': '1', 'link': ''}
     mock_list_response.is_error = True
     mock_list_response.status_code = 400
 
@@ -540,8 +556,9 @@ class RotatingStatusCodeMock(Mock):
 
 
 @pytest.mark.asyncio
-async def test_outputs_are_set(mocker, capsys):
+async def test_outputs_are_set(mocker):
     mock_list_response = Mock()
+    mock_list_response.headers = {'x-ratelimit-remaining': '1', 'link': ''}
     mock_list_response.is_error = True
     mock_list_response.status_code = 200
     mock_list_response.json = lambda: [
@@ -572,11 +589,12 @@ async def test_outputs_are_set(mocker, capsys):
             'token': 'test',
         }
     )
-    captured = capsys.readouterr()
-    out = captured.out
+    with open(os.environ['GITHUB_ENV']) as f:
+        env_vars = f.readlines()[0]
+
     for i in [
-        '::set-output name=needs-github-assistance::',
-        '::set-output name=deleted::',
-        '::set-output name=failed::',
+        'needs-github-assistance=',
+        'deleted=',
+        'failed=',
     ]:
-        assert i in out
+        assert i in env_vars
