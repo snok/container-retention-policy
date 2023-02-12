@@ -144,6 +144,30 @@ class PackageVersionResponse(BaseModel):
     updated_at: datetime | None
 
 
+async def get_all_pages(*, url: str, http_client: AsyncClient) -> list[dict]:
+    """
+    Accumulate all pages of a paginated API endpoint.
+
+    :param url: The full API URL
+    :param http_client: HTTP client.
+    :return: List of objects.
+    """
+    result = []
+    rel_regex = re.compile(r'<([^<>]*)>; rel="(\w+)"')
+    rels = {'next': url}
+
+    while 'next' in rels:
+        response = await http_client.get(rels['next'])
+        response.raise_for_status()
+        result.extend(response.json())
+
+        rels = {rel: url for url, rel in rel_regex.findall(response.headers['link'])}
+
+        await wait_for_rate_limit(response=response)
+
+    return result
+
+
 async def list_org_package_versions(
     *, org_name: str, image_name: ImageName, http_client: AsyncClient
 ) -> list[PackageVersionResponse]:
@@ -176,30 +200,6 @@ async def list_package_versions(*, image_name: ImageName, http_client: AsyncClie
     return [PackageVersionResponse(**i) for i in packages]
 
 
-async def get_all_pages(*, url: str, http_client: AsyncClient) -> list[dict]:
-    """
-    Accumulate all pages of a paginated API endpoint.
-
-    :param url: The full API URL
-    :param http_client: HTTP client.
-    :return: List of objects.
-    """
-    result = []
-    rel_regex = re.compile(r'<([^<>]*)>; rel="(\w+)"')
-    rels = {'next': url}
-
-    while 'next' in rels:
-        response = await http_client.get(rels['next'])
-        response.raise_for_status()
-        result.extend(response.json())
-
-        rels = {rel: url for url, rel in rel_regex.findall(response.headers['link'])}
-
-        await wait_for_rate_limit(response=response)
-
-    return result
-
-
 def post_deletion_output(*, response: Response, image_name: ImageName, version_id: int) -> None:
     """
     Output a little info to the user.
@@ -220,6 +220,18 @@ def post_deletion_output(*, response: Response, image_name: ImageName, version_i
         print(f'Deleted old image: {image_name_with_tag}')
 
 
+async def delete_package_version(
+    url: str, semaphore: Semaphore, http_client: AsyncClient, image_name: ImageName, version_id: int
+) -> None:
+    async with semaphore:
+        try:
+            response = await http_client.delete(url)
+            await wait_for_rate_limit(response=response, eligible_for_secondary_limit=True)
+            post_deletion_output(response=response, image_name=image_name, version_id=version_id)
+        except TimeoutException as e:
+            print(f'Request to delete {image_name.value} timed out with error `{e}`')
+
+
 async def delete_org_package_versions(
     *, org_name: str, image_name: ImageName, version_id: int, http_client: AsyncClient, semaphore: Semaphore
 ) -> None:
@@ -233,15 +245,9 @@ async def delete_org_package_versions(
     :return: Nothing - the API returns a 204.
     """
     url = f'{BASE_URL}/orgs/{org_name}/packages/container/{image_name.encoded}/versions/{version_id}'
-    await semaphore.acquire()
-    try:
-        response = await http_client.delete(url)
-        await wait_for_rate_limit(response=response, eligible_for_secondary_limit=True)
-        post_deletion_output(response=response, image_name=image_name, version_id=version_id)
-    except TimeoutException as e:
-        print(f'Request to delete {image_name.value} timed out with error `{e}`')
-    finally:
-        semaphore.release()
+    await delete_package_version(
+        url=url, semaphore=semaphore, http_client=http_client, image_name=image_name, version_id=version_id
+    )
 
 
 async def delete_package_versions(
@@ -256,15 +262,9 @@ async def delete_package_versions(
     :return: Nothing - the API returns a 204.
     """
     url = f'{BASE_URL}/user/packages/container/{image_name.encoded}/versions/{version_id}'
-    await semaphore.acquire()
-    try:
-        response = await http_client.delete(url)
-        await wait_for_rate_limit(response=response, eligible_for_secondary_limit=True)
-        post_deletion_output(response=response, image_name=image_name, version_id=version_id)
-    except TimeoutException as e:
-        print(f'Request to delete {image_name.value} timed out with error `{e}`')
-    finally:
-        semaphore.release()
+    await delete_package_version(
+        url=url, semaphore=semaphore, http_client=http_client, image_name=image_name, version_id=version_id
+    )
 
 
 class GithubAPI:
@@ -501,7 +501,7 @@ async def main(
     :param image_names: The image names to delete versions for. Can be a single
                         image name, or multiple comma-separated image names.
     :param timestamp_to_use: Which timestamp to base our cut-off on. Can be 'updated_at' or 'created_at'.
-    :param cut_off: Can be a human readable relative time like '2 days ago UTC', or a timestamp.
+    :param cut_off: Can be a human-readable relative time like '2 days ago UTC', or a timestamp.
                             Must contain a reference to the timezone.
     :param token: The personal access token to authenticate with.
     :param untagged_only: Whether to only delete untagged images.
@@ -545,7 +545,7 @@ async def main(
         await asyncio.gather(*tasks)
 
     if needs_github_assistance:
-        # Print a human readable list of public images we couldn't handle
+        # Print a human-readable list of public images we couldn't handle
         print('\n')
         print('─' * 110)
         image_list = '\n\t- ' + '\n\t- '.join(needs_github_assistance)
