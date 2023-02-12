@@ -11,19 +11,15 @@ httpx = "^0.23"
 dateparser = "^1.0.0"
 pydantic = "^1.9.0"
 
-[tool.poetry.dev-dependencies]
-types-dateparser = "^1.0.0"
-pytest = "^6.2.4"
-pytest-mock = "^3.6.1"
-pytest-asyncio = "^0.15.1"
-pytest-cov = "^2.12.1"
-coverage = {extras = ["toml"], version = "^6.0.2"}
-black = {version = "^21.12b0", allow-prereleases = true}
-pytest-socket = "^0.5.1"
-dateparser = "^1.1.1"
-
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.0.4"
+types-dateparser = "*"
+pytest = "*"
+pytest-mock = "*"
+pytest-asyncio = "*"
+pytest-cov = "*"
+coverage = {extras = ["toml"], version = "*"}
+pytest-socket = "*"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
