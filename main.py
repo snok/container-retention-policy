@@ -83,19 +83,19 @@ async def wait_for_rate_limit(*, response: Response, eligible_for_secondary_limi
     See docs on rate limits: https://docs.github.com/en/rest/rate-limit?apiVersion=2022-11-28.
     """
     if int(response.headers['x-ratelimit-remaining']) == 0:
-        print('Rate limit exceeded')
         ratelimit_reset = datetime.fromtimestamp(int(response.headers['x-ratelimit-reset']))
         delta = ratelimit_reset - datetime.now()
 
-        if delta > timedelta(MAX_SLEEP):
+        if delta > timedelta(seconds=MAX_SLEEP):
             print(
-                f'Rate limited for {delta} seconds. Terminating workflow, since sleeping for that long seems unreasonable. '
-                f'Retry the job manually, when the rate limit has refreshed.'
+                f'Rate limited for {delta} seconds. '
+                f'Terminating workflow, since that\'s above the maximum allowed sleep time. '
+                f'Retry the job manually, when the rate limit is refreshed.'
             )
-        elif delta > timedelta(0):
-            print(f'Sleeping for {delta}s')
+            exit(1)
+        elif delta > timedelta(seconds=0):
+            print(f'Rate limit exceeded. Sleeping for {delta} seconds')
             await asyncio.sleep(delta.total_seconds())
-            print('Done sleeping')
 
     elif eligible_for_secondary_limit:
         # https://docs.github.com/en/rest/guides/best-practices-for-integrators#dealing-with-secondary-rate-limits

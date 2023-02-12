@@ -69,11 +69,25 @@ async def test_list_org_package_version(http_client):
     await list_org_package_versions(org_name='test', image_name=ImageName('test'), http_client=http_client)
 
 
+async def test_wait_for_rate_limit(ok_response, capsys):
+    # No rate limit hit, no secondary limit
+    start = datetime.now()
+    await wait_for_rate_limit(response=ok_response, eligible_for_secondary_limit=False)
+    assert capsys.readouterr().out == ''  # no output
+    assert (datetime.now() - start).seconds == 0
 
-@pytest.mark.asyncio
-async def test_list_package_version():
-    await list_package_versions(image_name=ImageName('test'), http_client=mock_http_client)
+    # No rate limit hit, with secondary limit - this should sleep for one second
+    start = datetime.now()
+    await wait_for_rate_limit(response=ok_response, eligible_for_secondary_limit=True)
+    assert capsys.readouterr().out == ''  # no output
+    assert (datetime.now() - start).seconds == 1  # ~1 second runtime
 
+    # Run with timeout exceeding max limit - this should exit the program
+    ok_response.headers = {'x-ratelimit-remaining': '0'}
+    ok_response.headers |= {'x-ratelimit-reset': (datetime.now() + timedelta(seconds=MAX_SLEEP + 1)).timestamp()}
+    with pytest.raises(SystemExit):
+        await wait_for_rate_limit(response=ok_response)
+    assert " Terminating workflow, since that's above the maximum allowed sleep time" in capsys.readouterr().out
 
     # Run with timeout below max limit - this should just sleep for a bit
     ok_response.headers |= {'x-ratelimit-reset': (datetime.now() + timedelta(seconds=2)).timestamp()}
