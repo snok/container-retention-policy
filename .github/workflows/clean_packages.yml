@@ -37,8 +37,6 @@ jobs:
           echo "FROM scratch as $randomString" > Dockerfile.test
           cat Dockerfile.test
           docker buildx build . -f Dockerfile.test -t "${{ env.IMAGE }}:latest" --cache-to=type=inline --cache-from="ghcr.io/sondrelg/ghcr-retention-policy-test:latest" --push
-      - name: Build latest
-        run: |
 
   clean-ghcr:
     needs: build-containers
@@ -65,10 +63,10 @@ jobs:
         run: |
           images="$(cat skip-image-versions.txt)"
           echo $images
-          echo "::set-output name=image-versions::$images"
+          echo "image-versions=$images" >> $GITHUB_OUTPUT
 
       - name: Delete images more than 2 seconds old
-        uses: sondrelg/container-retention-policy@sondrelg/experiment
+        uses: snok/container-retention-policy@${{ github.ref_name }}
         id: delete-images
         with:
           image-names: ghcr-retention-policy-test

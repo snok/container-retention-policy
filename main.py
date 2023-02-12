@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 import time
+import os
 from asyncio import Semaphore
 from datetime import datetime, timedelta
 from enum import Enum
@@ -16,7 +17,6 @@ from httpx import AsyncClient, TimeoutException
 from pydantic import BaseModel, conint, validator
 
 if TYPE_CHECKING:
-
     from httpx import Response
 
 BASE_URL = 'https://api.github.com'
@@ -92,7 +92,7 @@ async def list_org_packages(*, org_name: str, http_client: AsyncClient) -> list[
     :param http_client: HTTP client.
     :return: List of packages.
     """
-    response = await http_client.get(f'{BASE_URL}/orgs/{org_name}/packages?package_type=container')
+    response = await http_client.get(f'{BASE_URL}/orgs/{org_name}/packages?package_type=container&per_page=100')
     response.raise_for_status()
     return [PackageResponse(**i) for i in response.json()]
 
@@ -104,7 +104,7 @@ async def list_packages(*, http_client: AsyncClient) -> list[PackageResponse]:
     :param http_client: HTTP client.
     :return: List of packages.
     """
-    response = await http_client.get(f'{BASE_URL}/user/packages?package_type=container')
+    response = await http_client.get(f'{BASE_URL}/user/packages?package_type=container&per_page=100')
     response.raise_for_status()
     return [PackageResponse(**i) for i in response.json()]
 
@@ -352,7 +352,6 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
 
     async with sem:
         for version in versions:
-
             # Parse either the update-at timestamp, or the created-at timestamp
             # depending on which on the user has specified that we should use
             updated_or_created_at = getattr(version, inputs.timestamp_to_use.value)
@@ -550,7 +549,9 @@ async def main(
         ('failed', failed),
     ]:
         comma_separated_list = ','.join(l)
-        print(f'::set-output name={name}::{comma_separated_list}')
+
+        with open(os.environ['GITHUB_ENV'], 'a') as f:
+            f.write(f'{name}={comma_separated_list}')
 
 
 if __name__ == '__main__':

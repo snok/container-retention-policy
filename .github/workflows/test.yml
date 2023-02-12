@@ -13,22 +13,19 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
         with:
-          python-version: "3.10.5"
+          python-version: "3.11.2"
       - uses: actions/cache@v3
-        id: cache-venv
+        id: cache
         with:
-          path: .venv
-          key: venv-0
+          path: |
+            .venv
+            ~/.cache/pre-commit
+          key: venv-1
       - run: |
           python -m venv .venv --upgrade-deps
           source .venv/bin/activate
           pip install pre-commit
-        if: steps.cache-venv.outputs.cache-hit != 'true'
-      - uses: actions/cache@v3
-        id: pre-commit-cache
-        with:
-          path: ~/.cache/pre-commit
-          key: key-0
+        if: steps.cache.outputs.cache-hit != 'true'
       - run: |
           source .venv/bin/activate
           pre-commit run --all-files
@@ -39,21 +36,19 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
         with:
-          python-version: "3.10.5"
+          python-version: "3.11.2"
       - uses: actions/cache@v3
+        id: cache
         with:
-          path: ~/.local
-          key: poetry-cache-0
+          path: |
+            ~/.local
+            .venv
+          key: ${{ hashFiles('**/poetry.lock') }}-1
       - uses: snok/install-poetry@v1
         with:
           virtualenvs-in-project: true
-      - uses: actions/cache@v3
-        id: cache-venv
-        with:
-          path: .venv
-          key: ${{ hashFiles('**/poetry.lock') }}-0
       - run: poetry install --no-interaction --no-root
-        if: steps.cache-venv.outputs.cache-hit != 'true'
+        if: steps.cache.outputs.cache-hit != 'true'
       - run: source $VENV && pytest main_tests.py --cov-report=xml
       - uses: codecov/codecov-action@v3
         with:
