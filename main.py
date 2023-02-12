@@ -15,7 +15,6 @@ from httpx import AsyncClient, TimeoutException
 from pydantic import BaseModel, conint, validator
 
 if TYPE_CHECKING:
-
     from httpx import Response
 
 BASE_URL = 'https://api.github.com'
@@ -309,7 +308,6 @@ async def get_and_delete_old_versions(image_name: ImageName, inputs: Inputs, htt
 
     async with sem:
         for version in versions:
-
             # Parse either the update-at timestamp, or the created-at timestamp
             # depending on which on the user has specified that we should use
             updated_or_created_at = getattr(version, inputs.timestamp_to_use.value)
