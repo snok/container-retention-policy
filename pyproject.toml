@@ -22,6 +22,9 @@ black = {version = "^21.12b0", allow-prereleases = true}
 pytest-socket = "^0.5.1"
 dateparser = "^1.1.1"
 
+[tool.poetry.group.dev.dependencies]
+pre-commit = "^3.0.4"
+
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
