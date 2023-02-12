@@ -4,7 +4,6 @@ import tempfile
 from asyncio import Semaphore
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
-from functools import partial
 from unittest.mock import AsyncMock, Mock
 
 import pytest as pytest
@@ -13,6 +12,7 @@ from pydantic import ValidationError
 
 import main
 from main import (
+    MAX_SLEEP,
     AccountType,
     ImageName,
     Inputs,
@@ -27,18 +27,32 @@ from main import (
     list_package_versions,
 )
 from main import main as main_
-from main import post_deletion_output
+from main import post_deletion_output, wait_for_rate_limit
 
-mock_response = Mock()
-mock_response.headers = {'x-ratelimit-remaining': '1', 'link': ''}
-mock_response.json.return_value = []
-mock_response.is_error = False
-mock_bad_response = Mock()
-mock_bad_response.headers = {'x-ratelimit-remaining': '1', 'link': ''}
-mock_bad_response.is_error = True
-mock_http_client = AsyncMock()
-mock_http_client.get.return_value = mock_response
-mock_http_client.delete.return_value = mock_response
+
+@pytest.fixture
+def ok_response():
+    mock_ok_response = Mock()
+    mock_ok_response.headers = {'x-ratelimit-remaining': '1', 'link': ''}
+    mock_ok_response.json.return_value = []
+    mock_ok_response.is_error = False
+    yield mock_ok_response
+
+
+@pytest.fixture
+def bad_response():
+    mock_bad_response = Mock()
+    mock_bad_response.headers = {'x-ratelimit-remaining': '1', 'link': ''}
+    mock_bad_response.is_error = True
+    yield mock_bad_response
+
+
+@pytest.fixture
+def http_client(ok_response):
+    mock_http_client = AsyncMock()
+    mock_http_client.get.return_value = ok_response
+    mock_http_client.delete.return_value = ok_response
+    yield mock_http_client
 
 
 @pytest.fixture(autouse=True)
@@ -51,9 +65,9 @@ def github_env():
         yield
 
 
-@pytest.mark.asyncio
-async def test_list_org_package_version():
-    await list_org_package_versions(org_name='test', image_name=ImageName('test'), http_client=mock_http_client)
+async def test_list_org_package_version(http_client):
+    await list_org_package_versions(org_name='test', image_name=ImageName('test'), http_client=http_client)
+
 
 
 @pytest.mark.asyncio
@@ -61,57 +75,62 @@ async def test_list_package_version():
     await list_package_versions(image_name=ImageName('test'), http_client=mock_http_client)
 
 
-@pytest.mark.asyncio
-async def test_delete_org_package_version():
+    # Run with timeout below max limit - this should just sleep for a bit
+    ok_response.headers |= {'x-ratelimit-reset': (datetime.now() + timedelta(seconds=2)).timestamp()}
+    await wait_for_rate_limit(response=ok_response)
+    assert 'Rate limit exceeded. Sleeping for' in capsys.readouterr().out
+
+
+async def test_list_package_version(http_client):
+    await list_package_versions(image_name=ImageName('test'), http_client=http_client)
+
+
+async def test_delete_org_package_version(http_client):
     await delete_org_package_versions(
         org_name='test',
         image_name=ImageName('test'),
-        http_client=mock_http_client,
+        http_client=http_client,
         version_id=123,
         semaphore=Semaphore(1),
     )
 
 
-@pytest.mark.asyncio
-async def test_delete_package_version():
+async def test_delete_package_version(http_client):
     await delete_package_versions(
-        image_name=ImageName('test'), http_client=mock_http_client, version_id=123, semaphore=Semaphore(1)
+        image_name=ImageName('test'), http_client=http_client, version_id=123, semaphore=Semaphore(1)
     )
 
 
-@pytest.mark.asyncio
-async def test_delete_package_version_semaphore():
+async def test_delete_package_version_semaphore(http_client):
     """
-    Bit of a useless test, but proves Semaphores work the way we think.
+    A bit of a useless test, but proves Semaphores work the way we think.
     """
     # Test that we're still waiting after 1 second, when the semaphore is empty
     sem = Semaphore(0)
     with pytest.raises(asyncio.TimeoutError):
         await asyncio.wait_for(
             delete_package_versions(
-                image_name=ImageName('test'), http_client=mock_http_client, version_id=123, semaphore=sem
+                image_name=ImageName('test'), http_client=http_client, version_id=123, semaphore=sem
             ),
-            1,
+            2,
         )
 
     # Assert that this would not be the case otherwise
     sem = Semaphore(1)
     await asyncio.wait_for(
-        delete_package_versions(
-            image_name=ImageName('test'), http_client=mock_http_client, version_id=123, semaphore=sem
-        ),
-        1,
+        delete_package_versions(image_name=ImageName('test'), http_client=http_client, version_id=123, semaphore=sem),
+        2,
     )
 
 
-def test_post_deletion_output(capsys):
+def test_post_deletion_output(capsys, ok_response, bad_response):
     # Happy path
-    post_deletion_output(response=mock_response, image_name=ImageName('test'), version_id=123)
+    post_deletion_output(response=ok_response, image_name=ImageName('test'), version_id=123)
     captured = capsys.readouterr()
     assert captured.out == 'Deleted old image: test:123\n'
 
     # Bad response
-    post_deletion_output(response=mock_bad_response, image_name=ImageName('test'), version_id=123)
+    post_deletion_output(response=bad_response, image_name=ImageName('test'), version_id=123)
     captured = capsys.readouterr()
     assert captured.out != 'Deleted old image: test:123\n'
 
@@ -143,7 +162,6 @@ def test_org_name_empty():
         Inputs(**(input_defaults | {'account_type': 'org', 'org_name': ''}))
 
 
-@pytest.mark.asyncio
 async def test_inputs_model_personal(mocker):
     # Mock the personal list function
     mocked_list_package_versions: AsyncMock = mocker.patch.object(main, 'list_package_versions', AsyncMock())
@@ -174,7 +192,6 @@ async def test_inputs_model_personal(mocker):
     mocked_delete_package_versions.assert_awaited_once()
 
 
-@pytest.mark.asyncio
 async def test_inputs_model_org(mocker):
     # Mock the org list function
     mocked_list_package_versions: AsyncMock = mocker.patch.object(main, 'list_org_package_versions', AsyncMock())
@@ -218,41 +235,26 @@ class TestGetAndDeleteOldVersions:
         )
     ]
 
-    @staticmethod
-    async def _mock_list_package_versions(data, *args, **kwargs):
-        """
-        This isn't trying to match the signature of the code we're mocking.
-
-        Rather, we're just hacking this together, to return the data we want.
-        """
-        return data
-
-    @pytest.mark.asyncio
-    async def test_delete_package(self, mocker, capsys):
+    async def test_delete_package(self, mocker, capsys, http_client):
         # Mock the list function
-        p = partial(self._mock_list_package_versions, self.valid_data)
-        mocker.patch.object(main.GithubAPI, 'list_package_versions', p)
+        mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=self.valid_data)
 
         # Call the function
         inputs = _create_inputs_model()
-        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=mock_http_client)
+        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=http_client)
 
         # Check the output
         captured = capsys.readouterr()
         assert captured.out == 'Deleted old image: a:1234567\n'
 
-    @pytest.mark.asyncio
-    async def test_keep_at_least(self, mocker, capsys):
-        mocker.patch.object(
-            main.GithubAPI, 'list_package_versions', partial(self._mock_list_package_versions, self.valid_data)
-        )
+    async def test_keep_at_least(self, mocker, capsys, http_client):
+        mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=self.valid_data)
         inputs = _create_inputs_model(keep_at_least=1)
-        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=mock_http_client)
+        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=http_client)
         captured = capsys.readouterr()
         assert captured.out == 'No more versions to delete for a\n'
 
-    @pytest.mark.asyncio
-    async def test_not_beyond_cutoff(self, mocker, capsys):
+    async def test_not_beyond_cutoff(self, mocker, capsys, http_client):
         response_data = [
             PackageVersionResponse(
                 created_at=datetime.now(timezone(timedelta(hours=1))),
@@ -262,16 +264,13 @@ class TestGetAndDeleteOldVersions:
                 metadata={'container': {'tags': []}, 'package_type': 'container'},
             )
         ]
-        mocker.patch.object(
-            main.GithubAPI, 'list_package_versions', partial(self._mock_list_package_versions, response_data)
-        )
+        mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=response_data)
         inputs = _create_inputs_model()
-        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=mock_http_client)
+        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=http_client)
         captured = capsys.readouterr()
         assert captured.out == 'No more versions to delete for a\n'
 
-    @pytest.mark.asyncio
-    async def test_missing_timestamp(self, mocker, capsys):
+    async def test_missing_timestamp(self, mocker, capsys, http_client):
         data = [
             PackageVersionResponse(
                 created_at=None,
@@ -281,63 +280,58 @@ class TestGetAndDeleteOldVersions:
                 metadata={'container': {'tags': []}, 'package_type': 'container'},
             )
         ]
-        mocker.patch.object(main.GithubAPI, 'list_package_versions', partial(self._mock_list_package_versions, data))
+        mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=data)
         inputs = _create_inputs_model()
-        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=mock_http_client)
+        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=http_client)
         captured = capsys.readouterr()
         assert (
             captured.out
             == 'Skipping image version 1234567. Unable to parse timestamps.\nNo more versions to delete for a\n'
         )
 
-    @pytest.mark.asyncio
-    async def test_empty_list(self, mocker, capsys):
+    async def test_empty_list(self, mocker, capsys, http_client):
         data = []
-        mocker.patch.object(main.GithubAPI, 'list_package_versions', partial(self._mock_list_package_versions, data))
+        mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=data)
         inputs = _create_inputs_model()
-        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=mock_http_client)
+        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=http_client)
         captured = capsys.readouterr()
         assert captured.out == 'No more versions to delete for a\n'
 
-    @pytest.mark.asyncio
-    async def test_skip_tags(self, mocker, capsys):
+    async def test_skip_tags(self, mocker, capsys, http_client):
         data = deepcopy(self.valid_data)
         data[0].metadata = MetadataModel(**{'container': {'tags': ['abc', 'bcd']}, 'package_type': 'container'})
-        mocker.patch.object(main.GithubAPI, 'list_package_versions', partial(self._mock_list_package_versions, data))
+        mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=data)
         inputs = _create_inputs_model(skip_tags='abc')
-        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=mock_http_client)
+        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=http_client)
         captured = capsys.readouterr()
         assert captured.out == 'No more versions to delete for a\n'
 
-    @pytest.mark.asyncio
-    async def test_skip_tags_wildcard(self, mocker, capsys):
+    async def test_skip_tags_wildcard(self, mocker, capsys, http_client):
         data = deepcopy(self.valid_data)
         data[0].metadata = MetadataModel(**{'container': {'tags': ['v1.0.0', 'abc']}, 'package_type': 'container'})
-        mocker.patch.object(main.GithubAPI, 'list_package_versions', partial(self._mock_list_package_versions, data))
+        mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=data)
         inputs = _create_inputs_model(skip_tags='v*')
-        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=mock_http_client)
+        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=http_client)
         captured = capsys.readouterr()
         assert captured.out == 'No more versions to delete for a\n'
 
-    @pytest.mark.asyncio
-    async def test_untagged_only(self, mocker, capsys):
+    async def test_untagged_only(self, mocker, capsys, http_client):
         data = deepcopy(self.valid_data)
         data[0].metadata = MetadataModel(**{'container': {'tags': ['abc', 'bcd']}, 'package_type': 'container'})
-        mocker.patch.object(main.GithubAPI, 'list_package_versions', partial(self._mock_list_package_versions, data))
+        mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=data)
         inputs = _create_inputs_model(untagged_only='true')
-        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=mock_http_client)
+        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=http_client)
         captured = capsys.readouterr()
         assert captured.out == 'No more versions to delete for a\n'
 
-    @pytest.mark.asyncio
-    async def test_filter_tags(self, mocker, capsys):
+    async def test_filter_tags(self, mocker, capsys, http_client):
         data = deepcopy(self.valid_data)
         data[0].metadata = MetadataModel(
             **{'container': {'tags': ['sha-deadbeef', 'edge']}, 'package_type': 'container'}
         )
-        mocker.patch.object(main.GithubAPI, 'list_package_versions', partial(self._mock_list_package_versions, data))
+        mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=data)
         inputs = _create_inputs_model(filter_tags='sha-*')
-        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=mock_http_client)
+        await get_and_delete_old_versions(image_name=ImageName('a'), inputs=inputs, http_client=http_client)
         captured = capsys.readouterr()
         assert captured.out == 'Deleted old image: a:1234567\n'
 
@@ -419,10 +413,9 @@ def test_parse_image_names():
     }
 
 
-@pytest.mark.asyncio
-async def test_main(mocker):
-    mocker.patch.object(AsyncClient, 'get', return_value=mock_response)
-    mocker.patch.object(AsyncClient, 'delete', return_value=mock_response)
+async def test_main(mocker, ok_response):
+    mocker.patch.object(AsyncClient, 'get', return_value=ok_response)
+    mocker.patch.object(AsyncClient, 'delete', return_value=ok_response)
     mocker.patch.object(main, 'get_and_delete_old_versions', AsyncMock())
     await main_(
         **{
@@ -441,7 +434,6 @@ async def test_main(mocker):
     )
 
 
-@pytest.mark.asyncio
 async def test_public_images_with_more_than_5000_downloads(mocker, capsys):
     """
     The `response.is_error` block is set up to output errors when we run into them.
@@ -555,7 +547,6 @@ class RotatingStatusCodeMock(Mock):
         ][self.index - 1]
 
 
-@pytest.mark.asyncio
 async def test_outputs_are_set(mocker):
     mock_list_response = Mock()
     mock_list_response.headers = {'x-ratelimit-remaining': '1', 'link': ''}
