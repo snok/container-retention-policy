@@ -91,48 +91,6 @@ async def wait_for_rate_limit(*, response: Response, eligible_for_secondary_limi
         await asyncio.sleep(1)
 
 
-async def list_org_packages(*, org_name: str, http_client: AsyncClient) -> list[PackageResponse]:
-    """
-    List all packages, for an organization.
-
-    :param org_name: The name of the organization.
-    :param http_client: HTTP client.
-    :return: List of packages.
-    """
-    response = await http_client.get(f'{BASE_URL}/orgs/{org_name}/packages?package_type=container&per_page=100')
-    response.raise_for_status()
-    return [PackageResponse(**i) for i in response.json()]
-
-
-async def list_packages(*, http_client: AsyncClient) -> list[PackageResponse]:
-    """
-    List all packages, for a user.
-
-    :param http_client: HTTP client.
-    :return: List of packages.
-    """
-    response = await http_client.get(f'{BASE_URL}/user/packages?package_type=container&per_page=100')
-    response.raise_for_status()
-    return [PackageResponse(**i) for i in response.json()]
-
-
-class ContainerModel(BaseModel):
-    tags: list[str]
-
-
-class MetadataModel(BaseModel):
-    package_type: Literal['container']
-    container: ContainerModel
-
-
-class PackageVersionResponse(BaseModel):
-    id: int
-    name: str
-    metadata: MetadataModel
-    created_at: datetime | None
-    updated_at: datetime | None
-
-
 async def get_all_pages(*, url: str, http_client: AsyncClient) -> list[dict]:
     """
     Accumulate all pages of a paginated API endpoint.
@@ -157,17 +115,28 @@ async def get_all_pages(*, url: str, http_client: AsyncClient) -> list[dict]:
     return result
 
 
+async def list_org_packages(*, org_name: str, http_client: AsyncClient) -> list[PackageResponse]:
+    """List all packages for an organization."""
+    packages = await get_all_pages(
+        url=f'{BASE_URL}/orgs/{org_name}/packages?package_type=container&per_page=100',
+        http_client=http_client,
+    )
+    return [PackageResponse(**i) for i in packages]
+
+
+async def list_packages(*, http_client: AsyncClient) -> list[PackageResponse]:
+    """List all packages for a user."""
+    packages = await get_all_pages(
+        url=f'{BASE_URL}/user/packages?package_type=container&per_page=100',
+        http_client=http_client,
+    )
+    return [PackageResponse(**i) for i in packages]
+
+
 async def list_org_package_versions(
     *, org_name: str, image_name: str, http_client: AsyncClient
 ) -> list[PackageVersionResponse]:
-    """
-    List image versions, for an organization.
-
-    :param org_name: The name of the organization.
-    :param image_name: The name of the container image.
-    :param http_client: HTTP client.
-    :return: List of image objects.
-    """
+    """List image versions, for an organization."""
     packages = await get_all_pages(
         url=f'{BASE_URL}/orgs/{org_name}/packages/container/{encode_image_name(image_name)}/versions?per_page=100',
         http_client=http_client,
@@ -176,18 +145,29 @@ async def list_org_package_versions(
 
 
 async def list_package_versions(*, image_name: str, http_client: AsyncClient) -> list[PackageVersionResponse]:
-    """
-    List image versions, for a personal account.
-
-    :param image_name: The name of the container image.
-    :param http_client: HTTP client.
-    :return: List of image objects.
-    """
+    """List image versions for a user."""
     packages = await get_all_pages(
         url=f'{BASE_URL}/user/packages/container/{encode_image_name(image_name)}/versions?per_page=100',
         http_client=http_client,
     )
     return [PackageVersionResponse(**i) for i in packages]
+
+
+class ContainerModel(BaseModel):
+    tags: list[str]
+
+
+class MetadataModel(BaseModel):
+    package_type: Literal['container']
+    container: ContainerModel
+
+
+class PackageVersionResponse(BaseModel):
+    id: int
+    name: str
+    metadata: MetadataModel
+    created_at: datetime | None
+    updated_at: datetime | None
 
 
 def post_deletion_output(*, response: Response, image_name: str, version_id: int) -> None:
