@@ -55,12 +55,12 @@ def http_client(ok_response):
 
 
 @pytest.fixture(autouse=True)
-def github_env():
+def github_output():
     """
-    Create a GITHUB_ENV env value to mock the Github actions equivalent.
+    Create a GITHUB_OUTPUT env value to mock the Github actions equivalent.
     """
     with tempfile.NamedTemporaryFile() as temp:
-        os.environ['GITHUB_ENV'] = temp.name
+        os.environ['GITHUB_OUTPUT'] = temp.name
         yield
 
 
@@ -589,12 +589,12 @@ async def test_outputs_are_set(mocker):
             'token': 'test',
         }
     )
-    with open(os.environ['GITHUB_ENV']) as f:
-        env_vars = f.readlines()[0]
+    with open(os.environ['GITHUB_OUTPUT']) as f:
+        out_vars = f.read()
 
     for i in [
         'needs-github-assistance=',
         'deleted=',
         'failed=',
     ]:
-        assert i in env_vars
+        assert i in out_vars
