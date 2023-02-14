@@ -590,7 +590,7 @@ async def test_outputs_are_set(mocker):
         }
     )
     with open(os.environ['GITHUB_OUTPUT']) as f:
-        out_vars = f.readlines()[0]
+        out_vars = f.read()
 
     for i in [
         'needs-github-assistance=',

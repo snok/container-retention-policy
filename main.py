@@ -542,7 +542,7 @@ async def main(
         comma_separated_list = ','.join(l)
 
         with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-            f.write(f'{name}={comma_separated_list}')
+            f.write(f'{name}={comma_separated_list}\n')
 
 
 if __name__ == '__main__':
