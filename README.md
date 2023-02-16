@@ -23,7 +23,7 @@ Supports both organizational and personal accounts.
 To use the action, simply add it to your GitHub workflow, like this:
 
 ```yaml
-- uses: snok/container-retention-policy@v1
+- uses: snok/container-retention-policy@v2
   with:
     image-names: dev, web, test*
     cut-off: two hours ago UTC+2
@@ -66,7 +66,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Delete 'dev' containers older than a week
-        uses: snok/container-retention-policy@v1
+        uses: snok/container-retention-policy@v2
         with:
           image-names: python-dev, js-dev
           cut-off: A week ago UTC
@@ -77,7 +77,7 @@ jobs:
           token: ${{ secrets.PAT }}
 
       - name: Delete all test containers older than a month, using a wildcard
-        uses: snok/container-retention-policy@v1
+        uses: snok/container-retention-policy@v2
         with:
           image-names: python-test*, js-test*
           cut-off: One month ago UTC
@@ -103,7 +103,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Delete old images
-        uses: snok/container-retention-policy@v1
+        uses: snok/container-retention-policy@v2
         with:
           image-names: dev/*
           cut-off: One month ago UTC
@@ -127,7 +127,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Delete old released images
-        uses: snok/container-retention-policy@v1
+        uses: snok/container-retention-policy@v2
         with:
           image-names: dev/*
           cut-off: One month ago UTC
@@ -136,7 +136,7 @@ jobs:
           account-type: personal
           token: ${{ secrets.PAT }}
       - name: Delete old pre-release images
-        uses: snok/container-retention-policy@v1
+        uses: snok/container-retention-policy@v2
         with:
           image-names: dev/*
           cut-off: One week ago UTC
