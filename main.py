@@ -73,7 +73,7 @@ async def wait_for_rate_limit(
 
     See docs on rate limits: https://docs.github.com/en/rest/rate-limit?apiVersion=2022-11-28.
     """
-    if int(response.headers.get('x-ratelimit-remaining', default=0)) == 0:
+    if int(response.headers.get('x-ratelimit-remaining', default=1)) == 0:
         ratelimit_reset = datetime.fromtimestamp(int(response.headers['x-ratelimit-reset']))
         delta = ratelimit_reset - datetime.now()
 
