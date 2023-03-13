@@ -65,13 +65,15 @@ class PackageResponse(BaseModel):
 MAX_SLEEP = 60 * 10  # 10 minutes
 
 
-async def wait_for_rate_limit(*, response: Response, eligible_for_secondary_limit: bool = False) -> None:
+async def wait_for_rate_limit(
+    *, response: Response, eligible_for_secondary_limit: bool = False
+) -> None:
     """
     Sleeps or terminates the workflow if we've hit rate limits.
 
     See docs on rate limits: https://docs.github.com/en/rest/rate-limit?apiVersion=2022-11-28.
     """
-    if int(response.headers['x-ratelimit-remaining']) == 0:
+    if int(response.headers.get('x-ratelimit-remaining', default=0)) == 0:
         ratelimit_reset = datetime.fromtimestamp(int(response.headers['x-ratelimit-reset']))
         delta = ratelimit_reset - datetime.now()
 
@@ -147,7 +149,9 @@ async def list_org_package_versions(
     return [PackageVersionResponse(**i) for i in packages]
 
 
-async def list_package_versions(*, image_name: str, http_client: AsyncClient) -> list[PackageVersionResponse]:
+async def list_package_versions(
+    *, image_name: str, http_client: AsyncClient
+) -> list[PackageVersionResponse]:
     """List image versions for a user."""
     packages = await get_all_pages(
         url=f'{BASE_URL}/user/packages/container/{encode_image_name(image_name)}/versions?per_page=100',
@@ -206,7 +210,12 @@ async def delete_package_version(
 
 
 async def delete_org_package_versions(
-    *, org_name: str, image_name: str, version_id: int, http_client: AsyncClient, semaphore: Semaphore
+    *,
+    org_name: str,
+    image_name: str,
+    version_id: int,
+    http_client: AsyncClient,
+    semaphore: Semaphore,
 ) -> None:
     """
     Delete an image version, for an organization.
@@ -219,7 +228,11 @@ async def delete_org_package_versions(
     """
     url = f'{BASE_URL}/orgs/{org_name}/packages/container/{encode_image_name(image_name)}/versions/{version_id}'
     await delete_package_version(
-        url=url, semaphore=semaphore, http_client=http_client, image_name=image_name, version_id=version_id
+        url=url,
+        semaphore=semaphore,
+        http_client=http_client,
+        image_name=image_name,
+        version_id=version_id,
     )
 
 
@@ -234,9 +247,15 @@ async def delete_package_versions(
     :param http_client: HTTP client.
     :return: Nothing - the API returns a 204.
     """
-    url = f'{BASE_URL}/user/packages/container/{encode_image_name(image_name)}/versions/{version_id}'
+    url = (
+        f'{BASE_URL}/user/packages/container/{encode_image_name(image_name)}/versions/{version_id}'
+    )
     await delete_package_version(
-        url=url, semaphore=semaphore, http_client=http_client, image_name=image_name, version_id=version_id
+        url=url,
+        semaphore=semaphore,
+        http_client=http_client,
+        image_name=image_name,
+        version_id=version_id,
     )
 
 
@@ -256,12 +275,18 @@ class GithubAPI:
 
     @staticmethod
     async def list_package_versions(
-        *, account_type: AccountType, org_name: str | None, image_name: str, http_client: AsyncClient
+        *,
+        account_type: AccountType,
+        org_name: str | None,
+        image_name: str,
+        http_client: AsyncClient,
     ) -> list[PackageVersionResponse]:
         if account_type != AccountType.ORG:
             return await list_package_versions(image_name=image_name, http_client=http_client)
         assert isinstance(org_name, str)
-        return await list_org_package_versions(org_name=org_name, image_name=image_name, http_client=http_client)
+        return await list_org_package_versions(
+            org_name=org_name, image_name=image_name, http_client=http_client
+        )
 
     @staticmethod
     async def delete_package(
@@ -275,7 +300,10 @@ class GithubAPI:
     ) -> None:
         if account_type != AccountType.ORG:
             return await delete_package_versions(
-                image_name=image_name, version_id=version_id, http_client=http_client, semaphore=semaphore
+                image_name=image_name,
+                version_id=version_id,
+                http_client=http_client,
+                semaphore=semaphore,
             )
         assert isinstance(org_name, str)
         return await delete_org_package_versions(
@@ -321,14 +349,19 @@ class Inputs(BaseModel):
         return None
 
 
-async def get_and_delete_old_versions(image_name: str, inputs: Inputs, http_client: AsyncClient) -> None:
+async def get_and_delete_old_versions(
+    image_name: str, inputs: Inputs, http_client: AsyncClient
+) -> None:
     """
     Delete old package versions for an image name.
 
     This function contains more or less all our logic.
     """
     versions = await GithubAPI.list_package_versions(
-        account_type=inputs.account_type, org_name=inputs.org_name, image_name=image_name, http_client=http_client
+        account_type=inputs.account_type,
+        org_name=inputs.org_name,
+        image_name=image_name,
+        http_client=http_client,
     )
 
     # Define list of deletion-tasks to append to
