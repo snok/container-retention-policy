@@ -65,9 +65,7 @@ class PackageResponse(BaseModel):
 MAX_SLEEP = 60 * 10  # 10 minutes
 
 
-async def wait_for_rate_limit(
-    *, response: Response, eligible_for_secondary_limit: bool = False
-) -> None:
+async def wait_for_rate_limit(*, response: Response, eligible_for_secondary_limit: bool = False) -> None:
     """
     Sleeps or terminates the workflow if we've hit rate limits.
 
@@ -149,9 +147,7 @@ async def list_org_package_versions(
     return [PackageVersionResponse(**i) for i in packages]
 
 
-async def list_package_versions(
-    *, image_name: str, http_client: AsyncClient
-) -> list[PackageVersionResponse]:
+async def list_package_versions(*, image_name: str, http_client: AsyncClient) -> list[PackageVersionResponse]:
     """List image versions for a user."""
     packages = await get_all_pages(
         url=f'{BASE_URL}/user/packages/container/{encode_image_name(image_name)}/versions?per_page=100',
@@ -247,9 +243,7 @@ async def delete_package_versions(
     :param http_client: HTTP client.
     :return: Nothing - the API returns a 204.
     """
-    url = (
-        f'{BASE_URL}/user/packages/container/{encode_image_name(image_name)}/versions/{version_id}'
-    )
+    url = f'{BASE_URL}/user/packages/container/{encode_image_name(image_name)}/versions/{version_id}'
     await delete_package_version(
         url=url,
         semaphore=semaphore,
@@ -284,9 +278,7 @@ class GithubAPI:
         if account_type != AccountType.ORG:
             return await list_package_versions(image_name=image_name, http_client=http_client)
         assert isinstance(org_name, str)
-        return await list_org_package_versions(
-            org_name=org_name, image_name=image_name, http_client=http_client
-        )
+        return await list_org_package_versions(org_name=org_name, image_name=image_name, http_client=http_client)
 
     @staticmethod
     async def delete_package(
@@ -349,9 +341,7 @@ class Inputs(BaseModel):
         return None
 
 
-async def get_and_delete_old_versions(
-    image_name: str, inputs: Inputs, http_client: AsyncClient
-) -> None:
+async def get_and_delete_old_versions(image_name: str, inputs: Inputs, http_client: AsyncClient) -> None:
     """
     Delete old package versions for an image name.
 
