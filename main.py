@@ -87,8 +87,23 @@ async def wait_for_rate_limit(*, response: Response, eligible_for_secondary_limi
             await asyncio.sleep(delta.total_seconds())
 
     elif eligible_for_secondary_limit:
+        # https://docs.github.com/en/rest/overview/resources-in-the-rest-api?apiVersion=2022-11-28#secondary-rate-limits
         # https://docs.github.com/en/rest/guides/best-practices-for-integrators#dealing-with-secondary-rate-limits
-        await asyncio.sleep(1)
+        if int(response.headers.get('retry-after', default=1)) == 0:
+            ratelimit_reset = datetime.fromtimestamp(int(response.headers['retry-after']))
+            delta = ratelimit_reset - datetime.now()
+            if delta > timedelta(seconds=MAX_SLEEP):
+                print(
+                    f'Rate limited for {delta} seconds. '
+                    f'Terminating workflow, since that\'s above the maximum allowed sleep time. '
+                    f'Retry the job manually, when the rate limit is refreshed.'
+                )
+                exit(1)
+            elif delta > timedelta(seconds=0):
+                print(f'Secondary Rate limit exceeded. Sleeping for {delta} seconds')
+                await asyncio.sleep(delta.total_seconds())
+        else:
+            await asyncio.sleep(1)
 
 
 async def get_all_pages(*, url: str, http_client: AsyncClient) -> list[dict]:
