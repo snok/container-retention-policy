@@ -76,14 +76,14 @@ runs:
         python ${{ github.action_path }}/main.py \
           "$ACCOUNT_TYPE" \
           "$ORG_NAME" \
-          "$IMAGE_NAMES" \ 
-          "$TIMESTAMP_TO_USE" \ 
-          "$CUT_OFF
+          "$IMAGE_NAMES" \
+          "$TIMESTAMP_TO_USE" \
+          "$CUT_OFF" \
           "$TOKEN" \
           "$UNTAGGED_ONLY" \
           "$SKIP_TAGS" \
-          "$KEEP_AT_LEAST" \ 
-          "$FILTER_TAGS" \ 
+          "$KEEP_AT_LEAST" \
+          "$FILTER_TAGS" \
           "$FILTER_INCLUDE_UNTAGGED"
       env:
           ACCOUNT_TYPE: "${{ inputs.account-type }}"
