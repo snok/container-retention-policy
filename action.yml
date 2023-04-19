@@ -74,14 +74,26 @@ runs:
       id: container-retention-policy
       run: |
         python ${{ github.action_path }}/main.py \
-          "${{ inputs.account-type }}" \
-          "${{ inputs.org-name }}" \
-          "${{ inputs.image-names }}" \
-          "${{ inputs.timestamp-to-use }}" \
-          "${{ inputs.cut-off }}" \
-          "${{ inputs.token }}" \
-          "${{ inputs.untagged-only }}" \
-          "${{ inputs.skip-tags }}" \
-          "${{ inputs.keep-at-least }}" \
-          "${{ inputs.filter-tags }}" \
-          "${{ inputs.filter-include-untagged }}"
+          "$ACCOUNT_TYPE" \
+          "$ORG_NAME" \
+          "$IMAGE_NAMES" \
+          "$TIMESTAMP_TO_USE" \
+          "$CUT_OFF" \
+          "$TOKEN" \
+          "$UNTAGGED_ONLY" \
+          "$SKIP_TAGS" \
+          "$KEEP_AT_LEAST" \
+          "$FILTER_TAGS" \
+          "$FILTER_INCLUDE_UNTAGGED"
+      env:
+          ACCOUNT_TYPE: "${{ inputs.account-type }}"
+          ORG_NAME: "${{ inputs.org-name }}"
+          IMAGE_NAMES: "${{ inputs.image-names }}"
+          TIMESTAMP_TO_USE: "${{ inputs.timestamp-to-use }}"
+          CUT_OFF: "${{ inputs.cut-off }}"
+          TOKEN: "${{ inputs.token }}"
+          UNTAGGED_ONLY: "${{ inputs.untagged-only }}"
+          SKIP_TAGS: "${{ inputs.skip-tags }}"
+          KEEP_AT_LEAST: "${{ inputs.keep-at-least }}"
+          FILTER_TAGS: "${{ inputs.filter-tags }}"
+          FILTER_INCLUDE_UNTAGGED: "${{ inputs.filter-include-untagged }}"
