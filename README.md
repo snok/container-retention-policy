@@ -253,6 +253,13 @@ Supports Unix-shell style wildcards, i.e 'sha-*' to match all tags starting with
 
 Whether to consider untagged images for deletion.
 
+## dry-run
+
+* **Required**: `No`
+* **Default**: `false`
+
+Prints output showing imaages which would be deleted but does not actually delete any images.
+
 # Outputs
 
 ## deleted
