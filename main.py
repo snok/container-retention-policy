@@ -388,9 +388,7 @@ async def get_and_delete_old_versions(image_name: str, inputs: Inputs, http_clie
 
             if inputs.dry_run:
                 delete_image = False
-                image_name_with_tag = f'{image_name}:{version.id}'
-                print(f'Would delete image {image_name_with_tag}.')
-                deleted.append(image_name_with_tag)
+                print(f'Would delete image {image_name}:{version.id}.')
 
             if delete_image:
                 tasks.append(
