@@ -298,6 +298,7 @@ class Inputs(BaseModel):
     keep_at_least: conint(ge=0) = 0  # type: ignore[valid-type]
     filter_tags: list[str]
     filter_include_untagged: bool = True
+    dry_run: bool = False
 
     @validator('skip_tags', 'filter_tags', 'image_names', pre=True)
     def parse_comma_separate_string_as_list(cls, v: str) -> list[str]:
@@ -385,6 +386,10 @@ async def get_and_delete_old_versions(image_name: str, inputs: Inputs, http_clie
                     # Skipping because this image version is tagged with a protected tag
                     delete_image = False
 
+            if inputs.dry_run:
+                delete_image = False
+                print(f'Would delete image {image_name}:{version.id}.')
+
             if delete_image:
                 tasks.append(
                     asyncio.create_task(
@@ -460,6 +465,7 @@ async def main(
     keep_at_least: str,
     filter_tags: str,
     filter_include_untagged: str,
+    dry_run: str = 'false',
 ) -> None:
     """
     Delete old image versions.
@@ -486,6 +492,8 @@ async def main(
     :param filter_tags: Comma-separated list of tags to consider for deletion.
         Supports wildcard '*', '?', '[seq]' and '[!seq]' via Unix shell-style wildcards
     :param filter_include_untagged: Whether to consider untagged images for deletion.
+    :param dry_run: Do not actually delete packages but print output showing which packages would
+        have been deleted.
     """
     inputs = Inputs(
         image_names=image_names,
@@ -498,6 +506,7 @@ async def main(
         keep_at_least=keep_at_least,
         filter_tags=filter_tags,
         filter_include_untagged=filter_include_untagged,
+        dry_run=dry_run,
     )
     async with AsyncClient(
         headers={'accept': 'application/vnd.github.v3+json', 'Authorization': f'Bearer {token}'}
