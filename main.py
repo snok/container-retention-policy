@@ -386,7 +386,7 @@ async def get_and_delete_old_versions(image_name: str, inputs: Inputs, http_clie
                     # Skipping because this image version is tagged with a protected tag
                     delete_image = False
 
-            if inputs.dry_run:
+            if delete_image is True and inputs.dry_run:
                 delete_image = False
                 print(f'Would delete image {image_name}:{version.id}.')
 
