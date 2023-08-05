@@ -71,7 +71,7 @@ async def wait_for_rate_limit(*, response: Response, eligible_for_secondary_limi
 
     See docs on rate limits: https://docs.github.com/en/rest/rate-limit?apiVersion=2022-11-28.
     """
-    if int(response.headers.get('x-ratelimit-remaining', default=1)) == 0:
+    if int(response.headers.get('x-ratelimit-remaining', 1)) == 0:
         ratelimit_reset = datetime.fromtimestamp(int(response.headers['x-ratelimit-reset']))
         delta = ratelimit_reset - datetime.now()
 
@@ -89,7 +89,7 @@ async def wait_for_rate_limit(*, response: Response, eligible_for_secondary_limi
     elif eligible_for_secondary_limit:
         # https://docs.github.com/en/rest/overview/resources-in-the-rest-api?apiVersion=2022-11-28#secondary-rate-limits
         # https://docs.github.com/en/rest/guides/best-practices-for-integrators#dealing-with-secondary-rate-limits
-        if int(response.headers.get('retry-after', default=1)) == 0:
+        if int(response.headers.get('retry-after', 1)) == 0:
             ratelimit_reset = datetime.fromtimestamp(int(response.headers['retry-after']))
             delta = ratelimit_reset - datetime.now()
             if delta > timedelta(seconds=MAX_SLEEP):
