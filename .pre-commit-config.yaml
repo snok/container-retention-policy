@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/ambv/black
-    rev: 23.1.0
+    rev: 23.7.0
     hooks:
       - id: black
         args: ['--quiet']
@@ -24,12 +24,12 @@ repos:
       - id: mixed-line-ending
       - id: trailing-whitespace
   - repo: https://github.com/asottile/pyupgrade
-    rev: v3.3.1
+    rev: v3.10.1
     hooks:
       - id: pyupgrade
         args: ['--py3-plus', '--py36-plus', '--py37-plus', '--py38-plus', '--py39-plus', '--py310-plus', '--py311-plus']
   - repo: https://github.com/pycqa/flake8
-    rev: 6.0.0
+    rev: 6.1.0
     hooks:
       - id: flake8
         additional_dependencies: [
@@ -40,7 +40,7 @@ repos:
           'flake8-type-checking',
         ]
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: 'v1.0.0'
+    rev: 'v1.4.1'
     hooks:
       - id: mypy
         additional_dependencies: [types-dateparser]
