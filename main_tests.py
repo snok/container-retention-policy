@@ -155,6 +155,7 @@ input_defaults = {
     'filter_include_untagged': 'true',
     'token': 'test',
     'account_type': 'personal',
+    'dry_run': 'false',
 }
 
 
@@ -343,6 +344,19 @@ class TestGetAndDeleteOldVersions:
         await get_and_delete_old_versions(image_name='a', inputs=inputs, http_client=http_client)
         captured = capsys.readouterr()
         assert captured.out == 'Deleted old image: a:1234567\n'
+
+    async def test_dry_run(self, mocker, capsys, http_client):
+        data = deepcopy(self.valid_data)
+        data[0].metadata = MetadataModel(
+            **{'container': {'tags': ['sha-deadbeef', 'edge']}, 'package_type': 'container'}
+        )
+        mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=data)
+        mock_delete_package = mocker.patch.object(main.GithubAPI, 'delete_package')
+        inputs = _create_inputs_model(dry_run='true')
+        await get_and_delete_old_versions(image_name='a', inputs=inputs, http_client=http_client)
+        captured = capsys.readouterr()
+        assert captured.out == 'Would delete image a:1234567.\nNo more versions to delete for a\n'
+        mock_delete_package.assert_not_called()
 
 
 def test_inputs_bad_account_type():
