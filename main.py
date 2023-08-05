@@ -71,7 +71,7 @@ async def wait_for_rate_limit(*, response: Response, eligible_for_secondary_limi
 
     See docs on rate limits: https://docs.github.com/en/rest/rate-limit?apiVersion=2022-11-28.
     """
-    if int(response.headers['x-ratelimit-remaining']) == 0:
+    if int(response.headers.get('x-ratelimit-remaining', default=1)) == 0:
         ratelimit_reset = datetime.fromtimestamp(int(response.headers['x-ratelimit-reset']))
         delta = ratelimit_reset - datetime.now()
 
@@ -87,8 +87,23 @@ async def wait_for_rate_limit(*, response: Response, eligible_for_secondary_limi
             await asyncio.sleep(delta.total_seconds())
 
     elif eligible_for_secondary_limit:
+        # https://docs.github.com/en/rest/overview/resources-in-the-rest-api?apiVersion=2022-11-28#secondary-rate-limits
         # https://docs.github.com/en/rest/guides/best-practices-for-integrators#dealing-with-secondary-rate-limits
-        await asyncio.sleep(1)
+        if int(response.headers.get('retry-after', default=1)) == 0:
+            ratelimit_reset = datetime.fromtimestamp(int(response.headers['retry-after']))
+            delta = ratelimit_reset - datetime.now()
+            if delta > timedelta(seconds=MAX_SLEEP):
+                print(
+                    f'Rate limited for {delta} seconds. '
+                    f'Terminating workflow, since that\'s above the maximum allowed sleep time. '
+                    f'Retry the job manually, when the rate limit is refreshed.'
+                )
+                exit(1)
+            elif delta > timedelta(seconds=0):
+                print(f'Secondary Rate limit exceeded. Sleeping for {delta} seconds')
+                await asyncio.sleep(delta.total_seconds())
+        else:
+            await asyncio.sleep(1)
 
 
 async def get_all_pages(*, url: str, http_client: AsyncClient) -> list[dict]:
@@ -206,7 +221,12 @@ async def delete_package_version(
 
 
 async def delete_org_package_versions(
-    *, org_name: str, image_name: str, version_id: int, http_client: AsyncClient, semaphore: Semaphore
+    *,
+    org_name: str,
+    image_name: str,
+    version_id: int,
+    http_client: AsyncClient,
+    semaphore: Semaphore,
 ) -> None:
     """
     Delete an image version, for an organization.
@@ -219,7 +239,11 @@ async def delete_org_package_versions(
     """
     url = f'{BASE_URL}/orgs/{org_name}/packages/container/{encode_image_name(image_name)}/versions/{version_id}'
     await delete_package_version(
-        url=url, semaphore=semaphore, http_client=http_client, image_name=image_name, version_id=version_id
+        url=url,
+        semaphore=semaphore,
+        http_client=http_client,
+        image_name=image_name,
+        version_id=version_id,
     )
 
 
@@ -236,7 +260,11 @@ async def delete_package_versions(
     """
     url = f'{BASE_URL}/user/packages/container/{encode_image_name(image_name)}/versions/{version_id}'
     await delete_package_version(
-        url=url, semaphore=semaphore, http_client=http_client, image_name=image_name, version_id=version_id
+        url=url,
+        semaphore=semaphore,
+        http_client=http_client,
+        image_name=image_name,
+        version_id=version_id,
     )
 
 
@@ -256,7 +284,11 @@ class GithubAPI:
 
     @staticmethod
     async def list_package_versions(
-        *, account_type: AccountType, org_name: str | None, image_name: str, http_client: AsyncClient
+        *,
+        account_type: AccountType,
+        org_name: str | None,
+        image_name: str,
+        http_client: AsyncClient,
     ) -> list[PackageVersionResponse]:
         if account_type != AccountType.ORG:
             return await list_package_versions(image_name=image_name, http_client=http_client)
@@ -275,7 +307,10 @@ class GithubAPI:
     ) -> None:
         if account_type != AccountType.ORG:
             return await delete_package_versions(
-                image_name=image_name, version_id=version_id, http_client=http_client, semaphore=semaphore
+                image_name=image_name,
+                version_id=version_id,
+                http_client=http_client,
+                semaphore=semaphore,
             )
         assert isinstance(org_name, str)
         return await delete_org_package_versions(
@@ -329,7 +364,10 @@ async def get_and_delete_old_versions(image_name: str, inputs: Inputs, http_clie
     This function contains more or less all our logic.
     """
     versions = await GithubAPI.list_package_versions(
-        account_type=inputs.account_type, org_name=inputs.org_name, image_name=image_name, http_client=http_client
+        account_type=inputs.account_type,
+        org_name=inputs.org_name,
+        image_name=image_name,
+        http_client=http_client,
     )
 
     # Define list of deletion-tasks to append to
