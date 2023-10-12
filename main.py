@@ -8,12 +8,12 @@ from datetime import datetime, timedelta
 from enum import Enum
 from fnmatch import fnmatch
 from sys import argv
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Optional
 from urllib.parse import quote_from_bytes
 
 from dateparser import parse
 from httpx import AsyncClient, TimeoutException
-from pydantic import BaseModel, conint, validator
+from pydantic import BaseModel, conint, field_validator
 
 if TYPE_CHECKING:
     from httpx import Response
@@ -327,7 +327,7 @@ class Inputs(BaseModel):
     cut_off: datetime
     timestamp_to_use: TimestampType
     account_type: AccountType
-    org_name: str | None
+    org_name: Optional[str] = None
     untagged_only: bool
     skip_tags: list[str]
     keep_at_least: conint(ge=0) = 0  # type: ignore[valid-type]
@@ -335,11 +335,11 @@ class Inputs(BaseModel):
     filter_include_untagged: bool = True
     dry_run: bool = False
 
-    @validator('skip_tags', 'filter_tags', 'image_names', pre=True)
+    @field_validator('skip_tags', 'filter_tags', 'image_names', mode='before')
     def parse_comma_separate_string_as_list(cls, v: str) -> list[str]:
         return [i.strip() for i in v.split(',')] if v else []
 
-    @validator('cut_off', pre=True)
+    @field_validator('cut_off', mode='before')
     def parse_human_readable_datetime(cls, v: str) -> datetime:
         parsed_cutoff = parse(v)
         if not parsed_cutoff:
@@ -348,9 +348,13 @@ class Inputs(BaseModel):
             raise ValueError('Timezone is required for the cut-off')
         return parsed_cutoff
 
-    @validator('org_name', pre=True)
+    @field_validator('org_name', mode='before')
     def validate_org_name(cls, v: str, values: dict) -> str | None:
-        if values['account_type'] == AccountType.ORG and not v:
+        print("v: {}".format(bool(v)))
+        print("'account-type' in values.data: {}".format('account-type' in values.data))
+        print("values.data['account_type'] == AccountType.ORG: {}".format(values.data['account_type'] == AccountType.ORG))
+        print("values.data: {}".format(values.data))
+        if 'account_type' in values.data and values.data['account_type'] == AccountType.ORG and not v:
             raise ValueError('org-name is required when account-type is org')
         if v:
             return v

@@ -362,8 +362,8 @@ class TestGetAndDeleteOldVersions:
 def test_inputs_bad_account_type():
     # Account type
     _create_inputs_model(account_type='personal')
-    _create_inputs_model(account_type='org')
-    with pytest.raises(ValidationError, match='is not a valid enumeration member'):
+    _create_inputs_model(account_type='org', org_name='myorg')
+    with pytest.raises(ValidationError, match='Input should be \'org\' or \'personal\''):
         _create_inputs_model(account_type='')
 
     # Org name
@@ -374,7 +374,7 @@ def test_inputs_bad_account_type():
     # Timestamp type
     _create_inputs_model(timestamp_to_use='updated_at')
     _create_inputs_model(timestamp_to_use='created_at')
-    with pytest.raises(ValueError, match=' value is not a valid enumeration mem'):
+    with pytest.raises(ValueError, match='Input should be \'updated_at\' or \'created_at\''):
         _create_inputs_model(timestamp_to_use='wat')
 
     # Cut-off
@@ -398,7 +398,7 @@ def test_inputs_bad_account_type():
     assert _create_inputs_model(skip_tags='a , b  ,c').skip_tags == ['a', 'b', 'c']
 
     # Keep at least
-    with pytest.raises(ValueError, match='ensure this value is greater than or equal to 0'):
+    with pytest.raises(ValueError, match='Input should be greater than or equal to 0'):
         _create_inputs_model(keep_at_least='-1')
 
     # Filter tags
