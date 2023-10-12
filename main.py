@@ -3,12 +3,12 @@ from __future__ import annotations
 import asyncio
 import os
 import re
-from asyncio import Semaphore
+from asyncio import Semaphore, Task
 from datetime import datetime, timedelta
 from enum import Enum
 from fnmatch import fnmatch
 from sys import argv
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import quote_from_bytes
 
 from dateparser import parse
@@ -327,7 +327,7 @@ class Inputs(BaseModel):
     cut_off: datetime
     timestamp_to_use: TimestampType
     account_type: AccountType
-    org_name: Optional[str] = None
+    org_name: str | None = None
     untagged_only: bool
     skip_tags: list[str]
     keep_at_least: conint(ge=0) = 0  # type: ignore[valid-type]
@@ -349,11 +349,7 @@ class Inputs(BaseModel):
         return parsed_cutoff
 
     @field_validator('org_name', mode='before')
-    def validate_org_name(cls, v: str, values: dict) -> str | None:
-        print("v: {}".format(bool(v)))
-        print("'account-type' in values.data: {}".format('account-type' in values.data))
-        print("values.data['account_type'] == AccountType.ORG: {}".format(values.data['account_type'] == AccountType.ORG))
-        print("values.data: {}".format(values.data))
+    def validate_org_name(cls, v: str, values: Any) -> str | None:
         if 'account_type' in values.data and values.data['account_type'] == AccountType.ORG and not v:
             raise ValueError('org-name is required when account-type is org')
         if v:
@@ -375,7 +371,7 @@ async def get_and_delete_old_versions(image_name: str, inputs: Inputs, http_clie
     )
 
     # Define list of deletion-tasks to append to
-    tasks = []
+    tasks: list[Task] = []
     simulated_tasks = 0
 
     # Iterate through dicts of image versions
