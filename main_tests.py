@@ -245,6 +245,13 @@ class TestGetAndDeleteOldVersions:
         )
     ]
 
+    @staticmethod
+    def generate_fresh_valid_data_with_id(id):
+        r = deepcopy(TestGetAndDeleteOldVersions.valid_data[0])
+        r.id = id
+        r.created_at = datetime.now(timezone(timedelta()))
+        return r
+
     async def test_delete_package(self, mocker, capsys, http_client):
         # Mock the list function
         mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=self.valid_data)
@@ -263,6 +270,15 @@ class TestGetAndDeleteOldVersions:
         await get_and_delete_old_versions(image_name='a', inputs=inputs, http_client=http_client)
         captured = capsys.readouterr()
         assert captured.out == 'No more versions to delete for a\n'
+
+    async def test_keep_at_least_deletes_not_only_marked(self, mocker, capsys, http_client):
+        data = [self.generate_fresh_valid_data_with_id(id) for id in range(3)]
+        data.append(self.valid_data[0])
+        mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=data)
+        inputs = _create_inputs_model(keep_at_least=2)
+        await get_and_delete_old_versions(image_name='a', inputs=inputs, http_client=http_client)
+        captured = capsys.readouterr()
+        assert captured.out == 'Deleted old image: a:1234567\n'
 
     async def test_not_beyond_cutoff(self, mocker, capsys, http_client):
         response_data = [
