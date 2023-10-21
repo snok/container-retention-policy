@@ -57,7 +57,7 @@ name: Delete old container images
 
 on:
   schedule:
-    - cron: "0 0 1 * *"  # every day at midnight
+    - cron: "0 0 * * *"  # every day at midnight
 
 
 jobs:
