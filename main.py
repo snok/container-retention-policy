@@ -8,12 +8,12 @@ from datetime import datetime, timedelta
 from enum import Enum
 from fnmatch import fnmatch
 from sys import argv
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import quote_from_bytes
 
 from dateparser import parse
 from httpx import AsyncClient, TimeoutException
-from pydantic import BaseModel, conint, field_validator, ValidationInfo
+from pydantic import BaseModel, ValidationInfo, conint, field_validator
 
 if TYPE_CHECKING:
     from httpx import Response
