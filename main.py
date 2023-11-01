@@ -8,12 +8,12 @@ from datetime import datetime, timedelta
 from enum import Enum
 from fnmatch import fnmatch
 from sys import argv
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal, Optional
 from urllib.parse import quote_from_bytes
 
 from dateparser import parse
 from httpx import AsyncClient, TimeoutException
-from pydantic import BaseModel, conint, field_validator
+from pydantic import BaseModel, conint, field_validator, ValidationInfo
 
 if TYPE_CHECKING:
     from httpx import Response
@@ -349,7 +349,7 @@ class Inputs(BaseModel):
         return parsed_cutoff
 
     @field_validator('org_name', mode='before')
-    def validate_org_name(cls, v: str, values: Any) -> str | None:
+    def validate_org_name(cls, v: str, values: ValidationInfo) -> str | None:
         if 'account_type' in values.data and values.data['account_type'] == AccountType.ORG and not v:
             raise ValueError('org-name is required when account-type is org')
         if v:
