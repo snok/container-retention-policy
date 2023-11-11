@@ -46,6 +46,11 @@ inputs:
     description: "Do not actually delete images. Print output showing what would have been deleted."
     required: false
     default: 'false'
+  use-github-token:
+    description: "Whether the supplied token is GITHUB_TOKEN. If true, image-names must the package name of repository from where this action is invoked."
+    required: false
+    default: 'false'
+
 outputs:
   needs-github-assistance:
     description: 'Comma-separated list of image names and tags, for image versions that are public and have more than 5000 downloads.'
@@ -89,7 +94,8 @@ runs:
           "$KEEP_AT_LEAST" \
           "$FILTER_TAGS" \
           "$FILTER_INCLUDE_UNTAGGED" \
-          "$DRY_RUN"
+          "$DRY_RUN" \
+          "$USE_GITHUB_TOKEN"
       env:
           ACCOUNT_TYPE: "${{ inputs.account-type }}"
           ORG_NAME: "${{ inputs.org-name }}"
@@ -103,3 +109,4 @@ runs:
           FILTER_TAGS: "${{ inputs.filter-tags }}"
           FILTER_INCLUDE_UNTAGGED: "${{ inputs.filter-include-untagged }}"
           DRY_RUN: "${{ inputs.dry-run }}"
+          USE_GITHUB_TOKEN: "${{ inputs.use-github-token }}"
