@@ -157,6 +157,9 @@ The names of the container images you want to delete old versions for. Takes one
 comma separated list, and supports wildcards. The action will fetch all packages available, and filter
 down the list of packages to handle based on the image name input.
 
+If `use-github-token` is set, then this **MUST** be a single image and match the repository name from where this action
+is being used from.
+
 ## cut-off
 
 * **Required**: `Yes`
@@ -259,6 +262,18 @@ Whether to consider untagged images for deletion.
 * **Default**: `false`
 
 Prints output showing imaages which would be deleted but does not actually delete any images.
+
+## use-github-token
+
+* **Required**: `No`
+* **Default**: `false`
+
+Whether the token being passed into `token` is `${{ github.GITHUB_TOKEN }}` instead
+of a PAT.
+
+This is for pruning images from a workflow that lives in the same repository: the
+`image-names` parameter **MUST** be set to a single image, and that image **MUST**
+match the repository's package name.
 
 # Outputs
 
