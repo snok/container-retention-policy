@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
-from asyncio import Semaphore
+from asyncio import Semaphore, Task
 from datetime import datetime, timedelta
 from enum import Enum
 from fnmatch import fnmatch
@@ -13,7 +13,7 @@ from urllib.parse import quote_from_bytes
 
 from dateparser import parse
 from httpx import AsyncClient, TimeoutException
-from pydantic import BaseModel, conint, validator
+from pydantic import BaseModel, ValidationInfo, conint, field_validator
 
 if TYPE_CHECKING:
     from httpx import Response
@@ -327,7 +327,7 @@ class Inputs(BaseModel):
     cut_off: datetime
     timestamp_to_use: TimestampType
     account_type: AccountType
-    org_name: str | None
+    org_name: str | None = None
     untagged_only: bool
     skip_tags: list[str]
     keep_at_least: conint(ge=0) = 0  # type: ignore[valid-type]
@@ -335,11 +335,11 @@ class Inputs(BaseModel):
     filter_include_untagged: bool = True
     dry_run: bool = False
 
-    @validator('skip_tags', 'filter_tags', 'image_names', pre=True)
+    @field_validator('skip_tags', 'filter_tags', 'image_names', mode='before')
     def parse_comma_separate_string_as_list(cls, v: str) -> list[str]:
         return [i.strip() for i in v.split(',')] if v else []
 
-    @validator('cut_off', pre=True)
+    @field_validator('cut_off', mode='before')
     def parse_human_readable_datetime(cls, v: str) -> datetime:
         parsed_cutoff = parse(v)
         if not parsed_cutoff:
@@ -348,9 +348,9 @@ class Inputs(BaseModel):
             raise ValueError('Timezone is required for the cut-off')
         return parsed_cutoff
 
-    @validator('org_name', pre=True)
-    def validate_org_name(cls, v: str, values: dict) -> str | None:
-        if values['account_type'] == AccountType.ORG and not v:
+    @field_validator('org_name', mode='before')
+    def validate_org_name(cls, v: str, values: ValidationInfo) -> str | None:
+        if 'account_type' in values.data and values.data['account_type'] == AccountType.ORG and not v:
             raise ValueError('org-name is required when account-type is org')
         if v:
             return v
@@ -371,13 +371,14 @@ async def get_and_delete_old_versions(image_name: str, inputs: Inputs, http_clie
     )
 
     # Define list of deletion-tasks to append to
-    tasks = []
+    tasks: list[Task] = []
+    simulated_tasks = 0
 
     # Iterate through dicts of image versions
     sem = Semaphore(50)
 
     async with sem:
-        for version in versions:
+        for idx, version in enumerate(versions):
             # Parse either the update-at timestamp, or the created-at timestamp
             # depending on which on the user has specified that we should use
             updated_or_created_at = getattr(version, inputs.timestamp_to_use.value)
@@ -410,6 +411,9 @@ async def get_and_delete_old_versions(image_name: str, inputs: Inputs, http_clie
                 # Skipping, because the filter_include_untagged setting is False
                 continue
 
+            # If we got here, most probably we will delete image.
+            # For pseudo-branching we set delete_image to true and
+            # handle cases with delete image by tag filtering in separate pseudo-branch
             delete_image = not inputs.filter_tags
             for filter_tag in inputs.filter_tags:
                 # One thing to note here is that we use fnmatch to support wildcards.
@@ -419,6 +423,13 @@ async def get_and_delete_old_versions(image_name: str, inputs: Inputs, http_clie
                     delete_image = True
                     break
 
+            if inputs.keep_at_least > 0:
+                if idx + 1 - (len(tasks) + simulated_tasks) > inputs.keep_at_least:
+                    delete_image = True
+                else:
+                    delete_image = False
+
+            # Here we will handle exclusion case
             for skip_tag in inputs.skip_tags:
                 if any(fnmatch(tag, skip_tag) for tag in image_tags):
                     # Skipping because this image version is tagged with a protected tag
@@ -426,6 +437,7 @@ async def get_and_delete_old_versions(image_name: str, inputs: Inputs, http_clie
 
             if delete_image is True and inputs.dry_run:
                 delete_image = False
+                simulated_tasks += 1
                 print(f'Would delete image {image_name}:{version.id}.')
 
             if delete_image:
@@ -441,12 +453,6 @@ async def get_and_delete_old_versions(image_name: str, inputs: Inputs, http_clie
                         )
                     )
                 )
-
-    # Trim the version list to the n'th element we want to keep
-    if inputs.keep_at_least > 0:
-        for _i in range(0, min(inputs.keep_at_least, len(tasks))):
-            tasks[0].cancel()
-            tasks.remove(tasks[0])
 
     if not tasks:
         print(f'No more versions to delete for {image_name}')

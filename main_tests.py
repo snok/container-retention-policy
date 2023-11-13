@@ -245,6 +245,13 @@ class TestGetAndDeleteOldVersions:
         )
     ]
 
+    @staticmethod
+    def generate_fresh_valid_data_with_id(id):
+        r = deepcopy(TestGetAndDeleteOldVersions.valid_data[0])
+        r.id = id
+        r.created_at = datetime.now(timezone(timedelta()))
+        return r
+
     async def test_delete_package(self, mocker, capsys, http_client):
         # Mock the list function
         mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=self.valid_data)
@@ -263,6 +270,15 @@ class TestGetAndDeleteOldVersions:
         await get_and_delete_old_versions(image_name='a', inputs=inputs, http_client=http_client)
         captured = capsys.readouterr()
         assert captured.out == 'No more versions to delete for a\n'
+
+    async def test_keep_at_least_deletes_not_only_marked(self, mocker, capsys, http_client):
+        data = [self.generate_fresh_valid_data_with_id(id) for id in range(3)]
+        data.append(self.valid_data[0])
+        mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=data)
+        inputs = _create_inputs_model(keep_at_least=2)
+        await get_and_delete_old_versions(image_name='a', inputs=inputs, http_client=http_client)
+        captured = capsys.readouterr()
+        assert captured.out == 'Deleted old image: a:1234567\n'
 
     async def test_not_beyond_cutoff(self, mocker, capsys, http_client):
         response_data = [
@@ -362,8 +378,8 @@ class TestGetAndDeleteOldVersions:
 def test_inputs_bad_account_type():
     # Account type
     _create_inputs_model(account_type='personal')
-    _create_inputs_model(account_type='org')
-    with pytest.raises(ValidationError, match='is not a valid enumeration member'):
+    _create_inputs_model(account_type='org', org_name='myorg')
+    with pytest.raises(ValidationError, match='Input should be \'org\' or \'personal\''):
         _create_inputs_model(account_type='')
 
     # Org name
@@ -374,7 +390,7 @@ def test_inputs_bad_account_type():
     # Timestamp type
     _create_inputs_model(timestamp_to_use='updated_at')
     _create_inputs_model(timestamp_to_use='created_at')
-    with pytest.raises(ValueError, match=' value is not a valid enumeration mem'):
+    with pytest.raises(ValueError, match='Input should be \'updated_at\' or \'created_at\''):
         _create_inputs_model(timestamp_to_use='wat')
 
     # Cut-off
@@ -398,7 +414,7 @@ def test_inputs_bad_account_type():
     assert _create_inputs_model(skip_tags='a , b  ,c').skip_tags == ['a', 'b', 'c']
 
     # Keep at least
-    with pytest.raises(ValueError, match='ensure this value is greater than or equal to 0'):
+    with pytest.raises(ValueError, match='Input should be greater than or equal to 0'):
         _create_inputs_model(keep_at_least='-1')
 
     # Filter tags
