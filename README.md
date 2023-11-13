@@ -146,6 +146,31 @@ jobs:
           token: ${{ secrets.PAT }}
 ```
 
+An example using `${{ secrets.GITHUB_TOKEN }}` in a repository with package name `my-package`:
+
+```yaml
+name: Delete old container images
+
+on:
+  schedule:
+    - cron: '0 0 0 * *'  # the first day of the month
+
+jobs:
+  clean-ghcr:
+    name: Delete old unused container images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete old images
+        uses: snok/container-retention-policy@v2
+        with:
+          image-names: my-package
+          cut-off: One month ago UTC
+          keep-at-least: 1
+          account-type: personal
+          token: ${{ secrets.GITHUB_TOKEN }}
+          token-type: github-token
+```
+
 # Parameters
 
 ## image-names
@@ -219,7 +244,7 @@ for more details.
 
 * **Required**: `No`
 * **Default**: `pat`
-* **Example:**: `token: github-token`
+* **Example**: `token: github-token`
 * **Valid choices**: `github-token` or `pat`
 
 The type of token being passed into `token`, which is used to authenticate to Github.
