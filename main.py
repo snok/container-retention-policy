@@ -355,8 +355,8 @@ class Inputs(BaseModel):
     @field_validator('image_names', mode='before')
     def validate_image_names(cls, v: str, values: ValidationInfo) -> list[str]:
         images = cls._parse_comma_separate_string_as_list(v)
-        if "token_type" in values.data:
-            token_type = values.data["token_type"]
+        if 'token_type' in values.data:
+            token_type = values.data['token_type']
             if token_type == GithubTokenType.GITHUB_TOKEN and len(images) != 1:
                 raise ValueError('A single image name is required if token_type is github-token')
             if token_type == GithubTokenType.GITHUB_TOKEN and '*' in images[0]:
