@@ -345,7 +345,7 @@ class Inputs(BaseModel):
         return cls._parse_comma_separate_string_as_list(v)
 
     @field_validator('image_names', mode='before')
-    def validate_image_names(cls, v: str, values: dict) -> list[str]:
+    def validate_image_names(cls, v: str, values: ValidationInfo) -> list[str]:
         images = cls._parse_comma_separate_string_as_list(v)
         if values.data['use_github_token'] and len(images) != 1:
             raise ValueError('A single image name is required if use_github_token is set')
