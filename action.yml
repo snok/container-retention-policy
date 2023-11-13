@@ -46,8 +46,8 @@ inputs:
     description: "Do not actually delete images. Print output showing what would have been deleted."
     required: false
     default: 'false'
-  use-github-token:
-    description: "Whether the supplied token is GITHUB_TOKEN. If true, image-names must the package name of repository from where this action is invoked."
+  token-type:
+    description: "The token type. Can be either 'pat' or 'github-token'. If 'github-token', then image-names must the package name of repository from where this action is invoked."
     required: false
     default: 'false'
 
@@ -95,7 +95,7 @@ runs:
           "$FILTER_TAGS" \
           "$FILTER_INCLUDE_UNTAGGED" \
           "$DRY_RUN" \
-          "$USE_GITHUB_TOKEN"
+          "$TOKEN_TYPE"
       env:
           ACCOUNT_TYPE: "${{ inputs.account-type }}"
           ORG_NAME: "${{ inputs.org-name }}"
@@ -109,4 +109,4 @@ runs:
           FILTER_TAGS: "${{ inputs.filter-tags }}"
           FILTER_INCLUDE_UNTAGGED: "${{ inputs.filter-include-untagged }}"
           DRY_RUN: "${{ inputs.dry-run }}"
-          USE_GITHUB_TOKEN: "${{ inputs.use-github-token }}"
+          TOKEN_TYPE: "${{ inputs.token-type }}"
