@@ -378,7 +378,8 @@ class TestGetAndDeleteOldVersions:
 
 def test_inputs_bad_token_type():
     with pytest.raises(ValidationError, match='Input should be \'github-token\' or \'pat\''):
-        _create_inputs_model(token_type='undefined-token-type', image_names="a,b")
+        _create_inputs_model(token_type='undefined-token-type', image_names='a,b')
+
 
 def test_inputs_token_type_as_github_token_with_bad_image_names():
     _create_inputs_model(image_names='a', token_type='github-token')
