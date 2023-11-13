@@ -4,7 +4,7 @@ import tempfile
 from asyncio import Semaphore
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import ANY, AsyncMock, Mock
 
 import pytest as pytest
 from httpx import AsyncClient
@@ -375,6 +375,13 @@ class TestGetAndDeleteOldVersions:
         mock_delete_package.assert_not_called()
 
 
+def test_inputs_use_github_token_with_bad_image_names():
+    _create_inputs_model(image_names='a', use_github_token=True)
+    with pytest.raises(ValidationError, match='A single image name is required if use_github_token is set'):
+        _create_inputs_model(image_names='a*', use_github_token=True)
+        _create_inputs_model(image_names='a,b,c', use_github_token=True)
+
+
 def test_inputs_bad_account_type():
     # Account type
     _create_inputs_model(account_type='personal')
@@ -471,6 +478,34 @@ async def test_main(mocker, ok_response):
             'token': 'test',
         }
     )
+
+
+async def test_main_with_use_github_token(mocker, ok_response):
+    mock_list_package = mocker.patch.object(main.GithubAPI, 'list_packages')
+    mock_filter_image_names = mocker.patch.object(main, 'filter_image_names')
+    mock_get_and_delete_old_versions = mocker.patch.object(main, 'get_and_delete_old_versions')
+    mocker.patch.object(AsyncClient, 'get', return_value=ok_response)
+    mocker.patch.object(AsyncClient, 'delete', return_value=ok_response)
+    await main_(
+        **{
+            'account_type': 'org',
+            'org_name': 'test',
+            'image_names': 'my-package',
+            'timestamp_to_use': 'updated_at',
+            'cut_off': '2 hours ago UTC',
+            'untagged_only': 'false',
+            'skip_tags': '',
+            'keep_at_least': '0',
+            'filter_tags': '',
+            'filter_include_untagged': 'true',
+            'token': 'test',
+            'use_github_token': 'true',
+        }
+    )
+
+    mock_list_package.assert_not_called()
+    mock_filter_image_names.assert_not_called()
+    mock_get_and_delete_old_versions.assert_called_with('my-package', ANY, ANY)
 
 
 async def test_public_images_with_more_than_5000_downloads(mocker, capsys):
