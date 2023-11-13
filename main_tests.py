@@ -154,6 +154,7 @@ input_defaults = {
     'filter_tags': '',
     'filter_include_untagged': 'true',
     'token': 'test',
+    'token_type': 'pat',
     'account_type': 'personal',
     'dry_run': 'false',
 }
@@ -374,6 +375,10 @@ class TestGetAndDeleteOldVersions:
         assert captured.out == 'Would delete image a:1234567.\nNo more versions to delete for a\n'
         mock_delete_package.assert_not_called()
 
+
+def test_inputs_bad_token_type():
+    with pytest.raises(ValidationError, match='Input should be \'github-token\' or \'pat\''):
+        _create_inputs_model(token_type='undefined-token-type', image_names="a,b")
 
 def test_inputs_token_type_as_github_token_with_bad_image_names():
     _create_inputs_model(image_names='a', token_type='github-token')
