@@ -375,11 +375,12 @@ class TestGetAndDeleteOldVersions:
         mock_delete_package.assert_not_called()
 
 
-def test_inputs_use_github_token_with_bad_image_names():
-    _create_inputs_model(image_names='a', use_github_token=True)
-    with pytest.raises(ValidationError, match='A single image name is required if use_github_token is set'):
-        _create_inputs_model(image_names='a*', use_github_token=True)
-        _create_inputs_model(image_names='a,b,c', use_github_token=True)
+def test_inputs_token_type_as_github_token_with_bad_image_names():
+    _create_inputs_model(image_names='a', token_type='github-token')
+    with pytest.raises(ValidationError, match='Wildcards are not allowed if token_type is github-token'):
+        _create_inputs_model(image_names='a*', token_type='github-token')
+    with pytest.raises(ValidationError, match='A single image name is required if token_type is github-token'):
+        _create_inputs_model(image_names='a,b,c', token_type='github-token')
 
 
 def test_inputs_bad_account_type():
@@ -480,7 +481,7 @@ async def test_main(mocker, ok_response):
     )
 
 
-async def test_main_with_use_github_token(mocker, ok_response):
+async def test_main_with_token_type_github_token(mocker, ok_response):
     mock_list_package = mocker.patch.object(main.GithubAPI, 'list_packages')
     mock_filter_image_names = mocker.patch.object(main, 'filter_image_names')
     mock_get_and_delete_old_versions = mocker.patch.object(main, 'get_and_delete_old_versions')
@@ -499,7 +500,7 @@ async def test_main_with_use_github_token(mocker, ok_response):
             'filter_tags': '',
             'filter_include_untagged': 'true',
             'token': 'test',
-            'use_github_token': 'true',
+            'token_type': 'github-token',
         }
     )
 

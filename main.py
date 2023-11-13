@@ -43,6 +43,14 @@ class AccountType(str, Enum):
     PERSONAL = 'personal'
 
 
+class GithubTokenType(str, Enum):
+    """The type of token to use to authenticate to GitHub."""
+
+    GITHUB_TOKEN = 'github-token'
+    # Personal Access Token (PAT)
+    PAT = 'pat'
+
+
 deleted: list[str] = []
 failed: list[str] = []
 needs_github_assistance: list[str] = []
@@ -323,7 +331,7 @@ class GithubAPI:
 
 
 class Inputs(BaseModel):
-    use_github_token: bool = False
+    token_type: GithubTokenType = GithubTokenType.PAT
     image_names: list[str]
     cut_off: datetime
     timestamp_to_use: TimestampType
@@ -347,10 +355,10 @@ class Inputs(BaseModel):
     @field_validator('image_names', mode='before')
     def validate_image_names(cls, v: str, values: ValidationInfo) -> list[str]:
         images = cls._parse_comma_separate_string_as_list(v)
-        if values.data['use_github_token'] and len(images) != 1:
-            raise ValueError('A single image name is required if use_github_token is set')
-        if values.data['use_github_token'] and '*' in images[0]:
-            raise ValueError('A single image name is required if use_github_token is set')
+        if values.data['token_type'] == GithubTokenType.GITHUB_TOKEN and len(images) != 1:
+            raise ValueError('A single image name is required if token_type is github-token')
+        if values.data['token_type'] == GithubTokenType.GITHUB_TOKEN and '*' in images[0]:
+            raise ValueError('Wildcards are not allowed if token_type is github-token')
         return images
 
     @field_validator('cut_off', mode='before')
@@ -524,7 +532,7 @@ async def main(
     filter_tags: str,
     filter_include_untagged: str,
     dry_run: str = 'false',
-    use_github_token: str = 'false',
+    token_type: str = 'pat',
 ) -> None:
     """
     Delete old image versions.
@@ -553,9 +561,10 @@ async def main(
     :param filter_include_untagged: Whether to consider untagged images for deletion.
     :param dry_run: Do not actually delete packages but print output showing which packages would
         have been deleted.
-    :param use_github_token: Whether token is using GITHUB_TOKEN. Requires a single image in
-                             image_names, and the image matches the package name from the
-                             repository where this action is invoked.
+    :param token_type: Token passed into 'token'. Must be 'pat' or 'github-token'. If
+                       'github-token' is used, then 'image_names` must be a single image,
+                       and the image matches the package name from the repository where
+                       this action is invoked.
     """
     inputs = Inputs(
         image_names=image_names,
@@ -569,15 +578,15 @@ async def main(
         filter_tags=filter_tags,
         filter_include_untagged=filter_include_untagged,
         dry_run=dry_run,
-        use_github_token=use_github_token,
+        token_type=token_type,
     )
     async with AsyncClient(
         headers={'accept': 'application/vnd.github.v3+json', 'Authorization': f'Bearer {token}'}
     ) as client:
-        # Get all packages from the user or orgs account
-        if inputs.use_github_token:
+        if inputs.token_type == GithubTokenType.GITHUB_TOKEN:
             packages_to_delete_from = set(inputs.image_names)
         else:
+            # Get all packages from the user or orgs account
             all_packages = await GithubAPI.list_packages(
                 account_type=inputs.account_type,
                 org_name=inputs.org_name,
