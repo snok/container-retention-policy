@@ -212,6 +212,22 @@ with access to the container registry. Specifically, you need to grant it the fo
 - `read:packages`, and
 - `delete:packages`
 
+You can also pass in `${{ secrets.GITHUB_TOKEN }}`; however, please see `token-type`
+for more details.
+
+## token-type
+
+* **Required**: `No`
+* **Default**: `pat`
+* **Example:**: `token: github-token`
+* **Valid choices**: `github-token` or `pat`
+
+The type of token being passed into `token`, which is used to authenticate to Github.
+
+Setting this to `github-token` is useful for pruning images from a workflow that lives
+in the same repository; however, the `image-names` parameter **MUST** be set to a single
+image, and that image **MUST** match the repository's package name.
+
 ## keep-at-least
 
 * **Required**: `No`
@@ -262,19 +278,6 @@ Whether to consider untagged images for deletion.
 * **Default**: `false`
 
 Prints output showing imaages which would be deleted but does not actually delete any images.
-
-## token-type
-
-* **Required**: `No`
-* **Example:**: `token: github-token`
-* **Default**: `pat`
-* **Valid choices**: `github-token` or `pat`
-
-The type of token being passed into `token`, which is used to authenticate to Github.
-
-Setting this to `github-token` is useful for pruning images from a workflow that lives
-in the same repository; however, the `image-names` parameter **MUST** be set to a single
-image, and that image **MUST** match the repository's package name.
 
 # Outputs
 
