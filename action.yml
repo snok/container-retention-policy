@@ -49,7 +49,7 @@ inputs:
   token-type:
     description: "The token type. Can be either 'pat' or 'github-token'. If 'github-token', then image-names must the package name of repository from where this action is invoked."
     required: false
-    default: 'false'
+    default: 'pat'
 
 outputs:
   needs-github-assistance:
