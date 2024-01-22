@@ -302,7 +302,7 @@ Whether to consider untagged images for deletion.
 * **Required**: `No`
 * **Default**: `false`
 
-Prints output showing imaages which would be deleted but does not actually delete any images.
+Prints output showing images which would be deleted but does not actually delete any images.
 
 # Outputs
 
