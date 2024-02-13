@@ -397,6 +397,7 @@ class TestGetAndDeleteOldVersions:
         captured = capsys.readouterr()
         assert 'Would delete image a:8.\n' in captured.out
         assert 'Would delete image a:9.\n' in captured.out
+        assert captured.out.count('Would delete image a:') == 2
 
 
 def test_inputs_bad_token_type():
