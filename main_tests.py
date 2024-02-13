@@ -375,6 +375,29 @@ class TestGetAndDeleteOldVersions:
         assert captured.out == 'Would delete image a:1234567.\nNo more versions to delete for a\n'
         mock_delete_package.assert_not_called()
 
+    async def test_keep_at_least_only_tracks_filter_tags(self, mocker, capsys, http_client):
+        inputs = _create_inputs_model(
+            filter_tags='todelete-*', keep_at_least=3, dry_run='true', cut_off='one hours ago UTC'
+        )
+        packages = []
+        for i in range(5):
+            package = self.generate_fresh_valid_data_with_id(i)
+            package.created_at = datetime.now(timezone.utc) - timedelta(hours=10)
+            packages.append(package)
+        for i in range(5, 10):
+            package = self.generate_fresh_valid_data_with_id(i)
+            package.metadata = MetadataModel(**{'container': {'tags': [f'todelete-{i}']}, 'package_type': 'container'})
+            # set created at to now - 10 hours
+            package.created_at = datetime.now(timezone.utc) - timedelta(hours=10)
+            packages.append(package)
+
+        mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=packages)
+        mock_delete_package = mocker.patch.object(main.GithubAPI, 'delete_package')
+        await get_and_delete_old_versions(image_name='a', inputs=inputs, http_client=http_client)
+        captured = capsys.readouterr()
+        assert 'Would delete image a:8.\n' in captured.out
+        assert 'Would delete image a:9.\n' in captured.out
+
 
 def test_inputs_bad_token_type():
     with pytest.raises(ValidationError, match='Input should be \'github-token\' or \'pat\''):

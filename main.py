@@ -399,84 +399,85 @@ async def get_and_delete_old_versions(image_name: str, inputs: Inputs, http_clie
     simulated_tasks = 0
 
     # Iterate through dicts of image versions
-    sem = Semaphore(50)
+    sem = Semaphore(49)
 
-    async with sem:
-        for idx, version in enumerate(versions):
-            # Parse either the update-at timestamp, or the created-at timestamp
-            # depending on which on the user has specified that we should use
-            updated_or_created_at = getattr(version, inputs.timestamp_to_use.value)
+    kept_images = 0  # in case of filter_tags remember matches we skip
+    for idx, version in enumerate(versions):
+        # Parse either the update-at timestamp, or the created-at timestamp
+        # depending on which on the user has specified that we should use
+        updated_or_created_at = getattr(version, inputs.timestamp_to_use.value)
 
-            if not updated_or_created_at:
-                print(f'Skipping image version {version.id}. Unable to parse timestamps.')
-                continue
+        if not updated_or_created_at:
+            print(f'Skipping image version {version.id}. Unable to parse timestamps.')
+            continue
 
-            if inputs.cut_off < updated_or_created_at:
-                # Skipping because it's above our datetime cut-off
-                # we're only looking to delete containers older than some timestamp
-                continue
+        if inputs.cut_off < updated_or_created_at:
+            # Skipping because it's above our datetime cut-off
+            # we're only looking to delete containers older than some timestamp
+            continue
 
-            # Load the tags for the individual image we're processing
-            if (
-                hasattr(version, 'metadata')
-                and hasattr(version.metadata, 'container')
-                and hasattr(version.metadata.container, 'tags')
-            ):
-                image_tags = version.metadata.container.tags
-            else:
-                image_tags = []
+        # Load the tags for the individual image we're processing
+        if (
+            hasattr(version, 'metadata')
+            and hasattr(version.metadata, 'container')
+            and hasattr(version.metadata.container, 'tags')
+        ):
+            image_tags = version.metadata.container.tags
+        else:
+            image_tags = []
 
-            if inputs.untagged_only and image_tags:
-                # Skipping because no tagged images should be deleted
-                # We could proceed if image_tags was empty, but it's not
-                continue
+        if inputs.untagged_only and image_tags:
+            # Skipping because no tagged images should be deleted
+            # We could proceed if image_tags was empty, but it's not
+            continue
 
-            if not image_tags and not inputs.filter_include_untagged:
-                # Skipping, because the filter_include_untagged setting is False
-                continue
+        if not image_tags and not inputs.filter_include_untagged:
+            # Skipping, because the filter_include_untagged setting is False
+            continue
 
-            # If we got here, most probably we will delete image.
-            # For pseudo-branching we set delete_image to true and
-            # handle cases with delete image by tag filtering in separate pseudo-branch
-            delete_image = not inputs.filter_tags
-            for filter_tag in inputs.filter_tags:
-                # One thing to note here is that we use fnmatch to support wildcards.
-                # A filter-tags setting of 'some-tag-*' should match to both
-                # 'some-tag-1' and 'some-tag-2'.
-                if any(fnmatch(tag, filter_tag) for tag in image_tags):
-                    delete_image = True
-                    break
+        # If we got here, most probably we will delete image.
+        # For pseudo-branching we set delete_image to true and
+        # handle cases with delete image by tag filtering in separate pseudo-branch
+        delete_image = not inputs.filter_tags
+        for filter_tag in inputs.filter_tags:
+            # One thing to note here is that we use fnmatch to support wildcards.
+            # A filter-tags setting of 'some-tag-*' should match to both
+            # 'some-tag-1' and 'some-tag-2'.
+            if any(fnmatch(tag, filter_tag) for tag in image_tags):
+                delete_image = True
+                break
 
-            if inputs.keep_at_least > 0:
-                if idx + 1 - (len(tasks) + simulated_tasks) > inputs.keep_at_least:
-                    delete_image = True
-                else:
-                    delete_image = False
-
-            # Here we will handle exclusion case
-            for skip_tag in inputs.skip_tags:
-                if any(fnmatch(tag, skip_tag) for tag in image_tags):
-                    # Skipping because this image version is tagged with a protected tag
-                    delete_image = False
-
-            if delete_image is True and inputs.dry_run:
-                delete_image = False
-                simulated_tasks += 1
-                print(f'Would delete image {image_name}:{version.id}.')
-
+        if inputs.keep_at_least > 0 and not inputs.filter_tags:
+            delete_image = idx - (len(tasks) + simulated_tasks) >= inputs.keep_at_least
+        elif inputs.keep_at_least > 0 and inputs.filter_tags:
             if delete_image:
-                tasks.append(
-                    asyncio.create_task(
-                        GithubAPI.delete_package(
-                            account_type=inputs.account_type,
-                            org_name=inputs.org_name,
-                            image_name=image_name,
-                            version_id=version.id,
-                            http_client=http_client,
-                            semaphore=sem,
-                        )
+                delete_image = kept_images + len(tasks) + simulated_tasks >= inputs.keep_at_least
+                kept_images += 1
+
+        # Here we will handle exclusion case
+        for skip_tag in inputs.skip_tags:
+            if any(fnmatch(tag, skip_tag) for tag in image_tags):
+                # Skipping because this image version is tagged with a protected tag
+                delete_image = False
+
+        if delete_image is True and inputs.dry_run:
+            delete_image = False
+            simulated_tasks += 1
+            print(f'Would delete image {image_name}:{version.id}.')
+
+        if delete_image:
+            tasks.append(
+                asyncio.create_task(
+                    GithubAPI.delete_package(
+                        account_type=inputs.account_type,
+                        org_name=inputs.org_name,
+                        image_name=image_name,
+                        version_id=version.id,
+                        http_client=http_client,
+                        semaphore=sem,
                     )
                 )
+            )
 
     if not tasks:
         print(f'No more versions to delete for {image_name}')
