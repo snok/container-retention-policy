@@ -447,11 +447,11 @@ async def get_and_delete_old_versions(image_name: str, inputs: Inputs, http_clie
                 delete_image = True
                 break
 
-        if inputs.keep_at_least > 0 and not inputs.filter_tags:
-            delete_image = idx - (len(tasks) + simulated_tasks) >= inputs.keep_at_least
-        elif inputs.keep_at_least > 0 and inputs.filter_tags:
-            if delete_image:
-                delete_image = kept_images + len(tasks) + simulated_tasks >= inputs.keep_at_least
+        if inputs.keep_at_least > 0:
+            if not inputs.filter_tags:
+                delete_image = idx >= inputs.keep_at_least
+            elif delete_image:
+                delete_image = kept_images >= inputs.keep_at_least
                 kept_images += 1
 
         # Here we will handle exclusion case
