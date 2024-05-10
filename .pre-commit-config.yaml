@@ -1,46 +1,66 @@
 repos:
-  - repo: https://github.com/ambv/black
-    rev: 23.7.0
+  - repo: local
     hooks:
-      - id: black
-        args: ['--quiet']
-  - repo: https://github.com/pycqa/isort
-    rev: 5.12.0
+      - id: test
+        name: cargo fmt
+        entry: cargo fmt
+        language: system
+        pass_filenames: false
+
+  - repo: local
     hooks:
-      - id: isort
+      - id: clippy
+        name: cargo clippy
+        entry: cargo clippy
+        language: system
+        pass_filenames: false
+
+  - repo: local
+    hooks:
+      - id: test
+        name: cargo test
+        entry: cargo test
+        language: system
+        pass_filenames: false
+
+  - repo: local
+    hooks:
+      - id: cargo-deny
+        name: cargo deny
+        entry: cargo deny check --hide-inclusion-graph
+        language: system
+        pass_filenames: false
+
+  - repo: local
+    hooks:
+      - id: cargo-udeps
+        name: cargo udeps
+        entry: cargo +nightly udeps
+        language: system
+        pass_filenames: false
+
+  - repo: local
+    hooks:
+      - id: cargo-audit
+        name: cargo audit
+        entry: cargo audit
+        language: system
+        pass_filenames: false
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0
+    rev: v4.5.0
     hooks:
-      - id: check-ast
-      - id: check-added-large-files
       - id: check-merge-conflict
       - id: check-case-conflict
-      - id: check-docstring-first
       - id: check-json
-      - id: check-yaml
-      - id: double-quote-string-fixer
       - id: end-of-file-fixer
       - id: trailing-whitespace
       - id: mixed-line-ending
-      - id: trailing-whitespace
-  - repo: https://github.com/asottile/pyupgrade
-    rev: v3.10.1
+      - id: double-quote-string-fixer
+
+  - repo: https://github.com/sondrelg/disallow-file-endings
+    rev: v0.1.0
     hooks:
-      - id: pyupgrade
-        args: ['--py3-plus', '--py36-plus', '--py37-plus', '--py38-plus', '--py39-plus', '--py310-plus', '--py311-plus']
-  - repo: https://github.com/pycqa/flake8
-    rev: 6.1.0
-    hooks:
-      - id: flake8
-        additional_dependencies: [
-          'flake8-bugbear',
-          'flake8-comprehensions',
-          'flake8-deprecated',
-          'flake8-use-fstring',
-          'flake8-type-checking',
-        ]
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: 'v1.4.1'
-    hooks:
-      - id: mypy
-        additional_dependencies: [types-dateparser]
+      - id: disallow-file-extensions
+        args:
+          - --extensions=.yml
