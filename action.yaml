@@ -1,0 +1,68 @@
+name: 'Container Retention Policy'
+description: 'Define a retention policy for your GHCR-hosted container images'
+branding:
+  icon: "book"
+  color: "blue"
+inputs:
+  account:
+    description: "Set as 'user' for personal accounts and as the organization name for organizations."
+    required: true
+  token:
+    description: "GitHub access token used to authenticate towards the GitHub packages APIs."
+    required: true
+  cut-off:
+    description: "The cut-off for which to delete images older than. For example '2d' for 2 days."
+    required: true
+  image-names:
+    description: "List of package names to consider."
+    required: true
+  image-tags:
+    description: "List of package version names to consider"
+    required: false
+  tag-selection:
+    description: "Specify whether to consider tagged images, untagged images, or both"
+    required: false
+    default: 'both'
+  keep-at-least:
+    description: 'How many image versions to always retain. Newer package versions are prioritized.'
+    required: false
+    default: '0'
+  timestamp-to-use:
+    description: 'Whether to use `updated_at` or `created_at` timestamps when considering the cut-off'
+    required: false
+    default: 'updated_at'
+  dry-run:
+    description: "Do not actually delete images. Print output showing what would have been deleted."
+    required: false
+    default: 'false'
+  rust-log:
+    description: "Take a log level or a list of log levels for different modules."
+    required: false
+    default: 'container_retention_policy=INFO'
+
+outputs:
+  needs-github-assistance:
+    description: 'Comma-separated list of image names and tags, for image versions that are public and have more than 5000 downloads.'
+    value: ${{ steps.container-retention-policy.outputs.needs-github-assistance }}
+  deleted:
+    description: 'Comma-separated list of image names and tags, for image versions that were deleted during the run.'
+    value: ${{ steps.container-retention-policy.outputs.deleted }}
+  failed:
+    description: 'Comma-separated list of image names and tags, for image versions that we failed to delete during the run, for an unknown reason.'
+    value: ${{ steps.container-retention-policy.outputs.failed }}
+
+runs:
+  using: 'docker'
+  image: 'ghcr.io/snok/container-retention-policy:2.0.0'
+  args:
+    - --account="${{ inputs.account }}"
+    - --token="${{ inputs.token }}"
+    - --image-names="${{ inputs.image-names }}"
+    - --image-tags="${{ inputs.image-names }}"
+    - --tag-selection="${{ inputs.tag-selection }}"
+    - --keep-at-least="${{ inputs.keep-at-least }}"
+    - --timestamp-to-use="${{ inputs.timestamp-to-use }}"
+    - --cut-off="${{ inputs.cut-off }}"
+    - --dry-run="${{ inputs.dry-run }}"
+  env:
+    RUST_LOG=${{ inputs.log-level }}
