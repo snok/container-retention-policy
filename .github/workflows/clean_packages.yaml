@@ -7,7 +7,7 @@ jobs:
     name: Build a few images
     runs-on: ubuntu-latest
     env:
-      IMAGE: ghcr.io/sondrelg/ghcr-retention-policy-test
+      IMAGE: ghcr.io/snok/ghcr-retention-policy:multi-arch-test
     steps:
       - uses: actions/checkout@v3
       - uses: docker/setup-buildx-action@v1
@@ -74,6 +74,31 @@ jobs:
           account-type: personal
           token: ${{ secrets.PAT }}
           skip-tags: ${{ steps.image-version.outputs.image-versions }}
+
+      - name: Write skipped tags to cache
+        run: |
+          echo "${{ steps.delete-images.outputs.failed }}" > skip-image-versions.txt
+
+  clean-multi-arch:
+    needs: build-containers
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set multi-arch image shas
+        id: multi-arch-digests
+        run: |
+          one=$(docker manifest inspect ghcr.io/snok/container-retention-policy:multi-arch-test-1 | jq -r '.manifests.[] | .digest' | paste -s -d ', ' -)
+          two=$(docker manifest inspect ghcr.io/snok/container-retention-policy:multi-arch-test-2 | jq -r '.manifests.[] | .digest' | paste -s -d ', ' -)
+          echo "multi-arch-digests=$one,$two" >> $GITHUB_OUTPUT
+
+      - name: Delete images more than 2 seconds old
+        uses: snok/container-retention-policy@${{ github.ref_name }}
+        id: delete-images
+        with:
+          image-names: ghcr-retention-policy
+          cut-off: 2 seconds ago UTC+2
+          account-type: personal
+          token: ${{ secrets.PAT }}
+          skip-tags: ${{ steps.multi-arch-digests.outputs.multi-arch-digests }}
 
       - name: Write skipped tags to cache
         run: |

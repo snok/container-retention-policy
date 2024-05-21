@@ -1,5 +1,10 @@
 This is a [container github action](https://docs.github.com/en/actions/creating-actions/creating-a-docker-container-action).
 
+
+TODO: WHat about reuploads? Can we use created-at?
+
+TODO: Specify that keep-at-least means to keep `n` package versions for each package, after it has satisfied filters.
+
 - [ ] Add note about keep_at_least keeping `n` number of package versions per image, and that it will prioritize keeping newer versions
 
 - [ ] Add explanation of what an image version is
@@ -65,3 +70,162 @@ Discrete features:
 - [ ] Check that the `buffer` does not impact the concurrency limit, and write down what it actually does
 - [ ] Check the wildmatch serde feature
 - [ ] SafeStr for token vale
+
+## Safely handling multi-platform (multi-arch) packages
+
+Multi-platform packages can break if not properly handled. If you host multi-platform packages, make sure to read and implement the fix explained below.
+
+### The problem
+
+GitHub's container registry supports uploads of multi-platform  packages, with commands like:
+
+```
+docker buildx build \
+    -t ghcr.io/snok/container-retention-policy:multi-arch \
+    --platform linux/amd64,linux/arm64 . \
+    --push
+```
+
+However, they do not provide enough metadata on in the packages API to properly handle deletion for multi-platform packages. From the build above, the API will return 5 package versions. From these five, one package version contains our `multi-arch` tag, and four are untagged, with no references to each-other:
+
+```json
+[
+  {
+    "id": 214880827,
+    "name": "sha256:e8530d7d4c44954276715032c027882a2569318bb7f79c5a4fce6c80c0c1018e",
+    "created_at": "2024-05-11T12:42:55Z",
+    "metadata": {
+      "package_type": "container",
+      "container": {
+        "tags": [
+          "multi-arch"
+        ]
+      }
+    }
+  },
+  {
+    "id": 214880825,
+    "name": "sha256:ca5bf1eaa2a393f30d079e8fa005c73318829251613a359d6972bbae90b491fe",
+    "created_at": "2024-05-11T12:42:54Z",
+    "metadata": {
+      "package_type": "container",
+      "container": {
+        "tags": []
+      }
+    }
+  },
+  {
+    "id": 214880822,
+    "name": "sha256:6cff2700a9a29ace200788b556210973bd35a541166e6c8a682421adb0b6e7bb",
+    "created_at": "2024-05-11T12:42:54Z",
+    "metadata": {
+      "package_type": "container",
+      "container": {
+        "tags": []
+      }
+    }
+  },
+  {
+    "id": 214880821,
+    "name": "sha256:f8bc799ae7b6ba95595c32e12075d21328dac783c9c0304cf80c61d41025aeb2",
+    "created_at": "2024-05-11T12:42:53Z",
+    "html_url": "https://github.com/orgs/snok/packages/container/container-retention-policy/214880821",
+    "metadata": {
+      "package_type": "container",
+      "container": {
+        "tags": []
+      }
+    }
+  },
+  {
+    "id": 214880818,
+    "name": "sha256:a86523225e8d21faae518a5ea117e06887963a4a9ac123683d91890af092cf03",
+    "created_at": "2024-05-11T12:42:53Z",
+    "html_url": "https://github.com/orgs/snok/packages/container/container-retention-policy/214880818",
+    "metadata": {
+      "package_type": "container",
+      "container": {
+        "tags": []
+      }
+    }
+  }
+]
+```
+
+If we delete some of these, we'll either delete some platform targets, or the image manifests, which will produce errors when trying to pull the image in general.
+
+### The solution
+
+While the API does not provide enough metadata, the docker-cli does. If we use `docker manifest inspect ghcr.io/snok/container-retention-policy:multi-arch`, we'll get:
+
+```json
+{
+   "schemaVersion": 2,
+   "mediaType": "application/vnd.oci.image.index.v1+json",
+   "manifests": [
+      {
+         "mediaType": "application/vnd.oci.image.manifest.v1+json",
+         "size": 754,
+         "digest": "sha256:f8bc799ae7b6ba95595c32e12075d21328dac783c9c0304cf80c61d41025aeb2",
+         "platform": {
+            "architecture": "amd64",
+            "os": "linux"
+         }
+      },
+      {
+         "mediaType": "application/vnd.oci.image.manifest.v1+json",
+         "size": 754,
+         "digest": "sha256:a86523225e8d21faae518a5ea117e06887963a4a9ac123683d91890af092cf03",
+         "platform": {
+            "architecture": "arm64",
+            "os": "linux"
+         }
+      },
+      {
+         "mediaType": "application/vnd.oci.image.manifest.v1+json",
+         "size": 567,
+         "digest": "sha256:17152a70ea10de6ecd804fffed4b5ebd3abc638e8920efb6fab2993c5a77600a",
+         "platform": {
+            "architecture": "unknown",
+            "os": "unknown"
+         }
+      },
+      {
+         "mediaType": "application/vnd.oci.image.manifest.v1+json",
+         "size": 567,
+         "digest": "sha256:86215617a0ea1f77e9f314b45ffd578020935996612fb497239509b151a6f1ba",
+         "platform": {
+            "architecture": "unknown",
+            "os": "unknown"
+         }
+      }
+   ]
+}
+```
+
+Which lists all the SHAs of the images associated with this tag.
+
+This means, to make sure your multi-platform packages aren't broken, you should do the following, in your workflow:
+
+```yaml
+- name: Login to GitHub Container Registry
+  uses: docker/login-action@v3
+  with:
+    registry: ghcr.io
+    username: ${{ github.actor }}
+    password: ${{ secrets.GITHUB_TOKEN }}
+
+- name: Get multi-platform package version SHAs
+  id: multi-arch-shas
+  run: |
+    package1=$(docker manifest inspect ghcr.io/package1 | jq -r '.manifests.[] | .digest' | paste -s -d ', ' -)
+    package2=$(docker manifest inspect ghcr.io/package2 | jq -r '.manifests.[] | .digest' | paste -s -d ', ' -)
+    echo "multi-arch-digests=$package1,$package2" >> $GITHUB_OUTPUT
+
+- uses: snok/container-retention-policy
+  with:
+    ...
+    skip-shas: ${{ steps.multi-arch-digests.outputs.multi-arch-shas }}
+```
+
+By passing the SHAs of the manifests and specific platform targets to the action, we are able to not delete them.

@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 use std::usize;
 
@@ -11,17 +11,16 @@ use reqwest::{Client, Method, Request, StatusCode};
 use secrecy::ExposeSecret;
 use serde::Deserialize;
 use serde_json::Value;
-use tower::buffer::Buffer;
+use tokio::sync::Mutex;
 use tower::limit::{ConcurrencyLimit, RateLimit};
 use tower::{Service, ServiceBuilder, ServiceExt};
-use tracing::log::error;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 use url::Url;
 
 use crate::input::{Account, Token};
 use crate::responses::{Package, PackageVersion};
 
-pub type RateLimitedService = Buffer<ConcurrencyLimit<RateLimit<Client>>, Request>;
+pub type RateLimitedService = Arc<Mutex<ConcurrencyLimit<RateLimit<Client>>>>;
 
 #[derive(Debug)]
 pub struct ContainerClientBuilder {
@@ -51,13 +50,14 @@ impl ContainerClientBuilder {
 
     pub fn set_http_headers(mut self, token: Token) -> Result<Self> {
         debug!("Constructing headers");
-        let auth_header_value = String::from("Bearer ")
-            + &match token.clone() {
-                Token::GithubToken => std::env::var("GITHUB_TOKEN")
-                    .expect("Failed to load $GITHUB_TOKEN from environment"),
-                Token::PersonalAccessToken(token) => token.expose_secret().to_owned(),
-                Token::OauthToken(token) => token.expose_secret().to_owned(),
-            };
+        let auth_header_value = format!(
+            "Bearer {}",
+            match &token {
+                Token::TemporalToken(token) => token.expose_secret(),
+                Token::ClassicPersonalAccessToken(token) => token.expose_secret(),
+                Token::OauthToken(token) => token.expose_secret(),
+            }
+        );
         let mut headers = HeaderMap::new();
         headers.insert("Authorization", auth_header_value.as_str().parse()?);
         headers.insert("X-GitHub-Api-Version", "2022-11-28".parse()?);
@@ -105,38 +105,35 @@ impl ContainerClientBuilder {
 
         const ONE_MINUTE: Duration = Duration::from_secs(60);
 
-        self.list_packages_service = Some(
+        self.list_packages_service = Some(Arc::new(Mutex::new(
             ServiceBuilder::new()
-                .buffer(5)
                 .concurrency_limit(MAX_CONCURRENCY)
                 .rate_limit(
                     MAX_POINTS_PER_ENDPOINT_PER_MINUTE / GET_REQUEST_POINTS,
                     ONE_MINUTE,
                 )
                 .service(Client::new()),
-        );
+        )));
 
-        self.list_package_versions_service = Some(
+        self.list_package_versions_service = Some(Arc::new(Mutex::new(
             ServiceBuilder::new()
-                .buffer(5)
                 .concurrency_limit(MAX_CONCURRENCY)
                 .rate_limit(
                     MAX_POINTS_PER_ENDPOINT_PER_MINUTE / GET_REQUEST_POINTS,
                     ONE_MINUTE,
                 )
                 .service(Client::new()),
-        );
+        )));
 
-        self.delete_package_versions_service = Some(
+        self.delete_package_versions_service = Some(Arc::new(Mutex::new(
             ServiceBuilder::new()
-                .buffer(5)
                 .concurrency_limit(MAX_CONCURRENCY)
                 .rate_limit(
                     MAX_POINTS_PER_ENDPOINT_PER_MINUTE / DELETE_REQUEST_POINTS,
                     ONE_MINUTE,
                 )
                 .service(Client::new()),
-        );
+        )));
 
         self
     }
@@ -302,11 +299,10 @@ impl ContainerClient {
     }
     pub fn list_all_packages(
         url: Url,
-        mut service: RateLimitedService,
+        service: RateLimitedService,
         headers: HeaderMap,
         token: Token,
     ) -> BoxFuture<'static, Result<Vec<Package>>> {
-        // TODO: Tracing span
         async move {
             debug!("Fetching packages from {url}");
 
@@ -314,9 +310,11 @@ impl ContainerClient {
             let mut request = Request::new(Method::GET, url);
             *request.headers_mut() = headers.clone();
 
+            let mut handle = service.lock().await;
+
             // Fire request
             let response = {
-                let r = service.ready().await;
+                let r = handle.ready().await;
                 match r {
                     Ok(t) => match t.call(request).await {
                         Ok(t) => t,
@@ -338,8 +336,13 @@ impl ContainerClient {
             if response_headers.x_ratelimit_remaining > 1 && response_headers.link.is_some() {
                 if let Some(next_link) = response_headers.next_link() {
                     info!("Fetching more results from {next_link}");
-                    let r = ContainerClient::list_all_packages(next_link, service, headers, token)
-                        .await?;
+                    let r = ContainerClient::list_all_packages(
+                        next_link,
+                        service.clone(),
+                        headers,
+                        token,
+                    )
+                    .await?;
                     result.extend(r);
                 }
             }
@@ -369,20 +372,21 @@ impl ContainerClient {
 
     pub fn list_all_package_versions(
         url: Url,
-        mut service: RateLimitedService,
+        service: RateLimitedService,
         headers: HeaderMap,
         token: Token,
     ) -> BoxFuture<'static, Result<Vec<PackageVersion>>> {
-        // TODO: Tracing span
         async move {
             debug!("Fetching package versions for {}", url.path());
             // Construct initial request
             let mut request = Request::new(Method::GET, url);
             *request.headers_mut() = headers.clone();
 
+            let mut handle = service.lock().await;
+
             // Fire request
             let response = {
-                match service.ready().await {
+                match handle.ready().await {
                     Ok(t) => match t.call(request).await {
                         Ok(t) => t,
                         Err(e) => return Err(eyre!("Failed to fetch package version: {}", e)),
@@ -429,68 +433,117 @@ impl ContainerClient {
     /// Delete a package version.
     /// https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#delete-package-version-for-an-organization
     /// https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#delete-a-package-version-for-the-authenticated-user
-    /// TODO: Handle all the weirdness for when a package is not allowed to be deleted
     pub async fn delete_package_version(
         &self,
         package_name: String,
         package_version: PackageVersion,
         dry_run: bool,
-    ) -> Result<()> {
-        if dry_run {
-            info!(
-                "Dry-run: Would have deleted package version {} for \"{}\" with image tags {:?}",
-                package_version.id, package_name, package_version.metadata.container.tags
-            );
-            return Ok(());
+    ) -> std::result::Result<Vec<String>, Vec<String>> {
+        // Create a vec of all the permutations of package tags stored in this package version
+        // The vec will look something like ["foo:latest", "foo:production", "foo:2024-10-10T08:00:00"] given
+        // it had these three tags, and ["foo:untagged"] if it had no tags. This isn't really how the data model
+        // works, but is what users will expect to see output.
+        let names = if package_version.metadata.container.tags.is_empty() {
+            package_version
+                .metadata
+                .container
+                .tags
+                .iter()
+                .map(|tag| format!("{package_name}:{tag}"))
+                .collect()
         } else {
-            info!(
-                "Deleting package version {} for \"{}\" with image tags {:?}",
-                package_version.id, package_name, package_version.metadata.container.tags
-            );
+            vec![format!("{package_name}:untagged")]
+        };
+
+        // Output information to the user
+        if dry_run {
+            for name in &names {
+                info!(
+                    "dry-run: Would have deleted \"{}\" (package version {})",
+                    name, package_version.id
+                );
+            }
+            return Ok(Vec::new());
+        } else {
+            for name in &names {
+                info!(
+                    "Deleting \"{}\" (package version {})",
+                    name, package_version.id
+                );
+            }
         }
 
-        let mut service = self.delete_package_versions_service.clone();
-        let url = self
+        // Construct URL for this package version
+        let url = match self
             .urls
-            .delete_package_version_url(&package_name, &package_version.id)?;
+            .delete_package_version_url(&package_name, &package_version.id)
+        {
+            Ok(t) => t,
+            Err(e) => {
+                error!(
+                    "Failed to create deletion URL for package {} and version {}: {}",
+                    package_name, package_version.id, e
+                );
+                return Err(names);
+            }
+        };
 
         // Construct initial request
         let mut request = Request::new(Method::DELETE, url);
         *request.headers_mut() = self.headers.clone();
 
+        let mut handle = self.delete_package_versions_service.lock().await;
+
         // Fire request
         let response = {
-            let r = service.ready().await;
+            let r = handle.ready().await;
             match r {
                 Ok(t) => match t.call(request).await {
                     Ok(t) => t,
-                    Err(e) => return Err(eyre!("Failed to delete package version: {}", e)),
+                    Err(e) => {
+                        error!(
+                            "Failed to delete package version {} with error: {}",
+                            package_version.id, e
+                        );
+                        return Err(names);
+                    }
                 },
                 Err(e) => {
-                    return Err(eyre!("Service failed to become ready: {}", e));
+                    error!("Service failed to become ready: {}", e);
+                    return Err(names);
                 }
             }
         };
 
-        // Parse GitHub headers related to pagination and secondary rate limits
-        GithubHeaders::try_from(response.headers(), &self.token)?;
-
-        match response.status() {
-            StatusCode::NO_CONTENT => debug!("Deleted package version {} successfully", package_version.id),
-            StatusCode::UNPROCESSABLE_ENTITY | StatusCode::BAD_REQUEST => error!(
-                "Failed to delete package version {}: {}",
-                package_version.id,
-                response.text().await?
-            ),
-            _ => error!(
-                "Failed to delete package version {} with status {}: {}",
-                package_version.id,
-                response.status(),
-                response.text().await?
-            ),
-        }
-
-        Ok(())
+        return match response.status() {
+            StatusCode::NO_CONTENT => {
+                debug!(
+                    "Deleted package version {} successfully",
+                    package_version.id
+                );
+                Ok(names)
+            }
+            StatusCode::UNPROCESSABLE_ENTITY | StatusCode::BAD_REQUEST => {
+                error!(
+                    "Failed to delete package version {}: {}",
+                    package_version.id,
+                    response.text().await.unwrap()
+                );
+                Err(names)
+            }
+            _ => {
+                error!(
+                    "Failed to delete package version {} with status {}: {}",
+                    package_version.id,
+                    response.status(),
+                    response
+                        .text()
+                        .await
+                        .expect("Failed to read text from response")
+                );
+                Err(names)
+            }
+        };
     }
 }
 
@@ -561,15 +614,14 @@ impl GithubHeaders {
         let scope = self.x_oauth_scopes.clone().unwrap();
 
         match token {
-            Token::GithubToken => {
+            Token::TemporalToken(_) => {
                 scope.contains("read:packages")
                     && scope.contains("delete:packages")
                     && scope.contains("repo")
             }
-            _ => {
+            Token::ClassicPersonalAccessToken(_) | Token::OauthToken(_) => {
                 // TODO: Comment back in if it's true that we need read - test
-                // scope.contains("read:packages") &&
-                scope.contains("delete:packages")
+                scope.contains("read:packages") && scope.contains("delete:packages")
             }
         }
     }
@@ -627,7 +679,7 @@ impl GithubHeaders {
 }
 
 #[cfg(test)]
-mod client_tests {
+mod tests {
     use reqwest::header::HeaderValue;
     use secrecy::Secret;
 
@@ -645,7 +697,11 @@ mod client_tests {
             "read:packages,delete:packages,repo".parse().unwrap(),
         );
 
-        let parsed_headers = GithubHeaders::try_from(&headers, &Token::GithubToken).unwrap();
+        let parsed_headers = GithubHeaders::try_from(
+            &headers,
+            &Token::TemporalToken(Secret::new("foo".to_string())),
+        )
+        .unwrap();
 
         assert_eq!(parsed_headers.x_ratelimit_reset.timezone(), Utc);
         assert_eq!(parsed_headers.x_ratelimit_remaining, 60);
@@ -677,28 +733,27 @@ mod client_tests {
 
     #[tokio::test]
     async fn test_http_headers() {
+        let test_string = "test".to_string();
+
         let mut client_builder = ContainerClientBuilder::new()
-            .set_http_headers(Token::PersonalAccessToken(Secret::new("test".to_string())))
+            .set_http_headers(Token::ClassicPersonalAccessToken(Secret::new(
+                test_string.clone(),
+            )))
             .unwrap();
 
         let set_headers = client_builder.headers.clone().unwrap();
 
-        assert_eq!(
-            set_headers.get("x-github-api-version"),
-            Some(&HeaderValue::from_str("2022-11-28").unwrap())
-        );
-        assert_eq!(
-            set_headers.get("authorization"),
-            Some(&HeaderValue::from_str("Bearer test").unwrap())
-        );
-        assert_eq!(
-            set_headers.get("user-agent"),
-            Some(&HeaderValue::from_str("snok/container-retention-policy").unwrap())
-        );
-        assert_eq!(
-            set_headers.get("accept"),
-            Some(&HeaderValue::from_str("application/vnd.github+json").unwrap())
-        );
+        for (header_key, header_value) in [
+            ("x-github-api-version", "2022-11-28"),
+            ("authorization", &format!("Bearer {test_string}")),
+            ("user-agent", "snok/container-retention-policy"),
+            ("accept", "application/vnd.github+json"),
+        ] {
+            assert_eq!(
+                set_headers.get(header_key),
+                Some(&HeaderValue::from_str(header_value).unwrap())
+            );
+        }
 
         client_builder.remaining_requests = Some(10);
         client_builder.rate_limit_reset = Some(Utc::now());
@@ -709,22 +764,17 @@ mod client_tests {
             .build()
             .unwrap();
 
-        // assert_eq!(
-        //     client.headers.get("x-github-api-version"),
-        //     Some(&HeaderValue::from_str("2022-11-28").unwrap())
-        // );
-        // assert_eq!(
-        //     client.headers.get("authorization"),
-        //     Some(&HeaderValue::from_str("Bearer test").unwrap())
-        // );
-        // assert_eq!(
-        //     client.headers.get("user-agent"),
-        //     Some(&HeaderValue::from_str("snok/container-retention-policy").unwrap())
-        // );
-        // assert_eq!(
-        //     client.headers.get("accept"),
-        //     Some(&HeaderValue::from_str("application/vnd.github+json").unwrap())
-        // );
+        for (header_key, header_value) in [
+            ("x-github-api-version", "2022-11-28"),
+            ("authorization", &format!("Bearer {test_string}")),
+            ("user-agent", "snok/container-retention-policy"),
+            ("accept", "application/vnd.github+json"),
+        ] {
+            assert_eq!(
+                client.headers.get(header_key),
+                Some(&HeaderValue::from_str(header_value).unwrap())
+            );
+        }
     }
 
     #[cfg(test)]
@@ -744,10 +794,10 @@ mod client_tests {
                 "https://api.github.com/user/packages/container/foo/versions?per_page=100"
             );
             assert_eq!(
-                urls.delete_package_version_url("foo", "bar")
+                urls.delete_package_version_url("foo", &123)
                     .unwrap()
                     .as_str(),
-                "https://api.github.com/user/packages/container/foo/versions/bar"
+                "https://api.github.com/user/packages/container/foo/versions/123"
             );
             assert_eq!(
                 urls.package_version_url("foo", &123).unwrap().as_str(),
@@ -767,10 +817,10 @@ mod client_tests {
                 "https://api.github.com/orgs/acme/packages/container/foo/versions?per_page=100"
             );
             assert_eq!(
-                urls.delete_package_version_url("foo", "bar")
+                urls.delete_package_version_url("foo", &123)
                     .unwrap()
                     .as_str(),
-                "https://api.github.com/orgs/acme/packages/container/foo/versions/bar"
+                "https://api.github.com/orgs/acme/packages/container/foo/versions/123"
             );
             assert_eq!(
                 urls.package_version_url("foo", &123).unwrap().as_str(),
@@ -778,6 +828,7 @@ mod client_tests {
             );
         }
     }
+
     #[test]
     fn url_encoding() {
         assert_eq!(Urls::percent_encode("a/b"), "a%2Fb".to_string())

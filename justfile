@@ -43,23 +43,26 @@ setup:
 # Used to give us org. test data
 upload:
     echo $WRITE_AND_DELETE_PACKAGES_CLASSIC_TOKEN | docker login ghcr.io -u sondrelg --password-stdin
-    docker build . --tag ghcr.io/snok/container-retention-policy/test:test --push
+    docker build . --tag ghcr.io/snok/container-retention-policy:multi-arch --push
 
 upload-multi:
     echo $WRITE_AND_DELETE_PACKAGES_CLASSIC_TOKEN | docker login ghcr.io -u sondrelg --password-stdin
     docker buildx build \
                 --platform linux/amd64,linux/arm64 . \
                 -t ghcr.io/snok/container-retention-policy:multi-arch \
+                --annotation "org.opencontainers.image.description=multi-arch-what" \
+                --provenance=true \
                 --push --progress=plain
 
 run:
-    cargo r -- \
+    RUST_LOG=container_retention_policy=trace cargo r -- \
         --account snok \
         --token $DELETE_PACKAGES_CLASSIC_TOKEN \
         --tag-selection both \
-        --image-names "*"  \
-        --image-tags "" \
-        --keep-at-least 0 \
+        --image-names "container-retention-policy*"  \
+        --image-tags "!latest" \
+        --shas-to-skip "" \
+        --keep-at-least 1 \
         --timestamp-to-use updated-at \
-        --cut-off 1w \
-        --dry-run false
+        --cut-off 1s \
+        --dry-run true

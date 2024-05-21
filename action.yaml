@@ -19,6 +19,9 @@ inputs:
   image-tags:
     description: "List of package version names to consider"
     required: false
+  skip-shas:
+    description: "List of package version names to consider"
+    required: false
   tag-selection:
     description: "Specify whether to consider tagged images, untagged images, or both"
     required: false
@@ -59,6 +62,7 @@ runs:
     - --token="${{ inputs.token }}"
     - --image-names="${{ inputs.image-names }}"
     - --image-tags="${{ inputs.image-names }}"
+    - --skip-shas="${{ inputs.skip-shas }}"
     - --tag-selection="${{ inputs.tag-selection }}"
     - --keep-at-least="${{ inputs.keep-at-least }}"
     - --timestamp-to-use="${{ inputs.timestamp-to-use }}"
