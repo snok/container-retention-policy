@@ -69,4 +69,4 @@ runs:
     - --cut-off="${{ inputs.cut-off }}"
     - --dry-run="${{ inputs.dry-run }}"
   env:
-    RUST_LOG=${{ inputs.log-level }}
+    RUST_LOG: ${{ inputs.log-level }}
