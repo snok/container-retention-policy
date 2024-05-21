@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
 use std::usize;
@@ -14,8 +13,7 @@ use serde_json::Value;
 use tower::buffer::Buffer;
 use tower::limit::{ConcurrencyLimit, RateLimit};
 use tower::{Service, ServiceBuilder, ServiceExt};
-use tracing::log::error;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 use url::Url;
 
 use crate::input::{Account, Token};
@@ -51,13 +49,14 @@ impl ContainerClientBuilder {
 
     pub fn set_http_headers(mut self, token: Token) -> Result<Self> {
         debug!("Constructing headers");
-        let auth_header_value = String::from("Bearer ")
-            + &match token.clone() {
-                Token::GithubToken => std::env::var("GITHUB_TOKEN")
-                    .expect("Failed to load $GITHUB_TOKEN from environment"),
-                Token::PersonalAccessToken(token) => token.expose_secret().to_owned(),
-                Token::OauthToken(token) => token.expose_secret().to_owned(),
-            };
+        let auth_header_value = format!(
+            "Bearer {}",
+            match &token {
+                Token::TemporalToken(token) => token.expose_secret(),
+                Token::ClassicPersonalAccessToken(token) => token.expose_secret(),
+                Token::OauthToken(token) => token.expose_secret(),
+            }
+        );
         let mut headers = HeaderMap::new();
         headers.insert("Authorization", auth_header_value.as_str().parse()?);
         headers.insert("X-GitHub-Api-Version", "2022-11-28".parse()?);
@@ -306,7 +305,6 @@ impl ContainerClient {
         headers: HeaderMap,
         token: Token,
     ) -> BoxFuture<'static, Result<Vec<Package>>> {
-        // TODO: Tracing span
         async move {
             debug!("Fetching packages from {url}");
 
@@ -373,7 +371,6 @@ impl ContainerClient {
         headers: HeaderMap,
         token: Token,
     ) -> BoxFuture<'static, Result<Vec<PackageVersion>>> {
-        // TODO: Tracing span
         async move {
             debug!("Fetching package versions for {}", url.path());
             // Construct initial request
@@ -429,7 +426,6 @@ impl ContainerClient {
     /// Delete a package version.
     /// https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#delete-package-version-for-an-organization
     /// https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#delete-a-package-version-for-the-authenticated-user
-    /// TODO: Handle all the weirdness for when a package is not allowed to be deleted
     pub async fn delete_package_version(
         &self,
         package_name: String,
@@ -476,12 +472,17 @@ impl ContainerClient {
         GithubHeaders::try_from(response.headers(), &self.token)?;
 
         match response.status() {
-            StatusCode::NO_CONTENT => debug!("Deleted package version {} successfully", package_version.id),
-            StatusCode::UNPROCESSABLE_ENTITY | StatusCode::BAD_REQUEST => error!(
-                "Failed to delete package version {}: {}",
-                package_version.id,
-                response.text().await?
+            StatusCode::NO_CONTENT => debug!(
+                "Deleted package version {} successfully",
+                package_version.id
             ),
+            StatusCode::UNPROCESSABLE_ENTITY | StatusCode::BAD_REQUEST => {
+                error!(
+                    "Failed to delete package version {}: {}",
+                    package_version.id,
+                    response.text().await.unwrap()
+                );
+            }
             _ => error!(
                 "Failed to delete package version {} with status {}: {}",
                 package_version.id,
@@ -561,15 +562,14 @@ impl GithubHeaders {
         let scope = self.x_oauth_scopes.clone().unwrap();
 
         match token {
-            Token::GithubToken => {
+            Token::TemporalToken(_) => {
                 scope.contains("read:packages")
                     && scope.contains("delete:packages")
                     && scope.contains("repo")
             }
-            _ => {
+            Token::ClassicPersonalAccessToken(_) | Token::OauthToken(_) => {
                 // TODO: Comment back in if it's true that we need read - test
-                // scope.contains("read:packages") &&
-                scope.contains("delete:packages")
+                scope.contains("read:packages") && scope.contains("delete:packages")
             }
         }
     }
@@ -627,7 +627,7 @@ impl GithubHeaders {
 }
 
 #[cfg(test)]
-mod client_tests {
+mod tests {
     use reqwest::header::HeaderValue;
     use secrecy::Secret;
 
@@ -645,7 +645,11 @@ mod client_tests {
             "read:packages,delete:packages,repo".parse().unwrap(),
         );
 
-        let parsed_headers = GithubHeaders::try_from(&headers, &Token::GithubToken).unwrap();
+        let parsed_headers = GithubHeaders::try_from(
+            &headers,
+            &Token::TemporalToken(Secret::new("foo".to_string())),
+        )
+        .unwrap();
 
         assert_eq!(parsed_headers.x_ratelimit_reset.timezone(), Utc);
         assert_eq!(parsed_headers.x_ratelimit_remaining, 60);
@@ -677,28 +681,27 @@ mod client_tests {
 
     #[tokio::test]
     async fn test_http_headers() {
+        let test_string = "test".to_string();
+
         let mut client_builder = ContainerClientBuilder::new()
-            .set_http_headers(Token::PersonalAccessToken(Secret::new("test".to_string())))
+            .set_http_headers(Token::ClassicPersonalAccessToken(Secret::new(
+                test_string.clone(),
+            )))
             .unwrap();
 
         let set_headers = client_builder.headers.clone().unwrap();
 
-        assert_eq!(
-            set_headers.get("x-github-api-version"),
-            Some(&HeaderValue::from_str("2022-11-28").unwrap())
-        );
-        assert_eq!(
-            set_headers.get("authorization"),
-            Some(&HeaderValue::from_str("Bearer test").unwrap())
-        );
-        assert_eq!(
-            set_headers.get("user-agent"),
-            Some(&HeaderValue::from_str("snok/container-retention-policy").unwrap())
-        );
-        assert_eq!(
-            set_headers.get("accept"),
-            Some(&HeaderValue::from_str("application/vnd.github+json").unwrap())
-        );
+        for (header_key, header_value) in [
+            ("x-github-api-version", "2022-11-28"),
+            ("authorization", &format!("Bearer {test_string}")),
+            ("user-agent", "snok/container-retention-policy"),
+            ("accept", "application/vnd.github+json"),
+        ] {
+            assert_eq!(
+                set_headers.get(header_key),
+                Some(&HeaderValue::from_str(header_value).unwrap())
+            );
+        }
 
         client_builder.remaining_requests = Some(10);
         client_builder.rate_limit_reset = Some(Utc::now());
@@ -709,22 +712,17 @@ mod client_tests {
             .build()
             .unwrap();
 
-        // assert_eq!(
-        //     client.headers.get("x-github-api-version"),
-        //     Some(&HeaderValue::from_str("2022-11-28").unwrap())
-        // );
-        // assert_eq!(
-        //     client.headers.get("authorization"),
-        //     Some(&HeaderValue::from_str("Bearer test").unwrap())
-        // );
-        // assert_eq!(
-        //     client.headers.get("user-agent"),
-        //     Some(&HeaderValue::from_str("snok/container-retention-policy").unwrap())
-        // );
-        // assert_eq!(
-        //     client.headers.get("accept"),
-        //     Some(&HeaderValue::from_str("application/vnd.github+json").unwrap())
-        // );
+        for (header_key, header_value) in [
+            ("x-github-api-version", "2022-11-28"),
+            ("authorization", &format!("Bearer {test_string}")),
+            ("user-agent", "snok/container-retention-policy"),
+            ("accept", "application/vnd.github+json"),
+        ] {
+            assert_eq!(
+                client.headers.get(header_key),
+                Some(&HeaderValue::from_str(header_value).unwrap())
+            );
+        }
     }
 
     #[cfg(test)]
@@ -744,10 +742,10 @@ mod client_tests {
                 "https://api.github.com/user/packages/container/foo/versions?per_page=100"
             );
             assert_eq!(
-                urls.delete_package_version_url("foo", "bar")
+                urls.delete_package_version_url("foo", &123)
                     .unwrap()
                     .as_str(),
-                "https://api.github.com/user/packages/container/foo/versions/bar"
+                "https://api.github.com/user/packages/container/foo/versions/123"
             );
             assert_eq!(
                 urls.package_version_url("foo", &123).unwrap().as_str(),
@@ -767,10 +765,10 @@ mod client_tests {
                 "https://api.github.com/orgs/acme/packages/container/foo/versions?per_page=100"
             );
             assert_eq!(
-                urls.delete_package_version_url("foo", "bar")
+                urls.delete_package_version_url("foo", &123)
                     .unwrap()
                     .as_str(),
-                "https://api.github.com/orgs/acme/packages/container/foo/versions/bar"
+                "https://api.github.com/orgs/acme/packages/container/foo/versions/123"
             );
             assert_eq!(
                 urls.package_version_url("foo", &123).unwrap().as_str(),

@@ -24,7 +24,7 @@
 
     ```diff
     - token-type: github-token
-    + token: github-token
+    + token: ${{ secrets.GITHUB_TOKEN }}
     ```
 
 - The `skip-tags` input has been removed. If you previously used `skip-tags: latest`, you should now specify a negative glob pattern in `image-tags`.

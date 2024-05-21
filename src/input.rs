@@ -2,6 +2,7 @@ use clap::ArgAction;
 use clap::{Parser, ValueEnum};
 use color_eyre::eyre::eyre;
 use color_eyre::eyre::Result;
+use regex::Regex;
 use secrecy::{ExposeSecret, Secret};
 use tracing::Level;
 
@@ -26,40 +27,49 @@ pub enum TagSelection {
 /// for a list of existing token types.
 #[derive(Debug, Clone)]
 pub enum Token {
-    // TODO: Check if we can differentiate classic and new PATs
-    PersonalAccessToken(Secret<String>),
+    ClassicPersonalAccessToken(Secret<String>),
     OauthToken(Secret<String>),
-    GithubToken,
+    TemporalToken(Secret<String>),
 }
 
 impl Token {
     fn try_from_secret(value: Secret<String>) -> Result<Self> {
         let inner = value.expose_secret().trim();
-        // TODO: Shouldn't we just let users pass $GITHUB_TOKEN instead of this string literal?
-        if inner == "github-token" {
-            Ok(Self::GithubToken)
-        } else if inner.starts_with("ghp") {
-            Ok(Self::PersonalAccessToken(value))
-        } else if inner.starts_with("gho") {
-            Ok(Self::OauthToken(value))
-        } else {
-            return Err(eyre!("`token` must be the string 'github-token' or a Github token. We accept personal access tokens (prefixes by 'ghp') or oauth tokens (prefixed by 'gho')"));
-        }
+
+        // Classic PAT
+        if Regex::new(r"ghp_[a-zA-Z0-9]{36}$").unwrap().is_match(inner) {
+            return Ok(Self::ClassicPersonalAccessToken(value));
+        };
+
+        // Temporal token - i.e., $GITHUB_TOKEN
+        if Regex::new(r"ghs_[a-zA-Z0-9]{36}$").unwrap().is_match(inner) {
+            return Ok(Self::TemporalToken(value));
+        };
+
+        // GitHub oauth token
+        if Regex::new(r"gho_[a-zA-Z0-9]{36}$").unwrap().is_match(inner) {
+            return Ok(Self::OauthToken(value));
+        };
+        return Err(
+            eyre!(
+                "The `token` value is not valid. Must be $GITHUB_TOKEN, a classic personal access token (prefixed by 'ghp') or oauth token (prefixed by 'gho')."
+            )
+        );
     }
 }
 
 impl PartialEq for Token {
     fn eq(&self, other: &Self) -> bool {
         match self {
-            Self::GithubToken => {
-                if let Self::GithubToken = other {
-                    true
+            Self::TemporalToken(s) => {
+                if let Self::TemporalToken(x) = other {
+                    s.expose_secret() == x.expose_secret()
                 } else {
                     false
                 }
             }
-            Self::PersonalAccessToken(s) => {
-                if let Self::PersonalAccessToken(x) = other {
+            Self::ClassicPersonalAccessToken(s) => {
+                if let Self::ClassicPersonalAccessToken(x) = other {
                     s.expose_secret() == x.expose_secret()
                 } else {
                     false
@@ -106,6 +116,8 @@ pub struct Input {
     #[clap(long)]
     pub image_tags: String,
     #[clap(long)]
+    pub shas_to_skip: String,
+    #[clap(long)]
     pub tag_selection: TagSelection,
     #[clap(long)]
     pub keep_at_least: u32,
@@ -115,7 +127,6 @@ pub struct Input {
     pub timestamp_to_use: Timestamp,
     #[clap(long)]
     pub cut_off: String,
-
     #[arg(short, long, global = true, default_value = "info")]
     pub(crate) log_level: Level,
 }
@@ -136,13 +147,24 @@ impl Input {
             .collect::<Vec<String>>()
     }
 
+    fn is_valid_sha256(hash: &str) -> bool {
+        let re = Regex::new(r"^sha256:[0-9a-fA-F]{64}$").unwrap();
+        re.is_match(hash)
+    }
+
     pub fn validate(self) -> Result<ValidatedInput> {
         let account = Account::try_from_str(&self.account)?;
         let token = Token::try_from_secret(self.token)?;
         let image_names = Self::parse_string_as_list(self.image_names);
         let image_tags = Self::parse_string_as_list(self.image_tags);
+        let shas_to_skip = Self::parse_string_as_list(self.shas_to_skip);
+        for sha in &shas_to_skip {
+            if !Self::is_valid_sha256(sha) {
+                return Err(eyre!("Invalid image SHA received: {sha}"));
+            }
+        }
         match token {
-            Token::GithubToken => {
+            Token::TemporalToken(_) => {
                 // TODO: Double check this is true
                 if image_names.len() != 1 {
                     return Err(eyre!("When `token-type` is set to 'github-token', then `image-names` must contain a single image name which matches the name of the repository the action is running from."));
@@ -160,6 +182,7 @@ impl Input {
             token,
             image_names,
             image_tags,
+            shas_to_skip,
             tag_selection: self.tag_selection,
             keep_at_least: self.keep_at_least,
             dry_run: self.dry_run,
@@ -174,6 +197,7 @@ pub struct ValidatedInput {
     pub token: Token,
     pub image_names: Vec<String>,
     pub image_tags: Vec<String>,
+    pub shas_to_skip: Vec<String>,
     pub tag_selection: TagSelection,
     pub keep_at_least: u32,
     pub dry_run: bool,
@@ -222,16 +246,31 @@ mod tests {
     #[test]
     fn parse_token() {
         assert_eq!(
-            Token::try_from_secret(Secret::new("github-token".to_string())).unwrap(),
-            Token::GithubToken
+            Token::try_from_secret(Secret::new(
+                "ghs_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT".to_string()
+            ))
+            .unwrap(),
+            Token::TemporalToken(Secret::new(
+                "ghs_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT".to_string()
+            ))
         );
         assert_eq!(
-            Token::try_from_secret(Secret::new("ghp_1234567890".to_string())).unwrap(),
-            Token::PersonalAccessToken(Secret::new("ghp_1234567890".to_string()))
+            Token::try_from_secret(Secret::new(
+                "ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT".to_string()
+            ))
+            .unwrap(),
+            Token::ClassicPersonalAccessToken(Secret::new(
+                "ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT".to_string()
+            ))
         );
         assert_eq!(
-            Token::try_from_secret(Secret::new("gho_1234567890".to_string())).unwrap(),
-            Token::OauthToken(Secret::new("gho_1234567890".to_string()))
+            Token::try_from_secret(Secret::new(
+                "gho_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT".to_string()
+            ))
+            .unwrap(),
+            Token::OauthToken(Secret::new(
+                "gho_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT".to_string()
+            ))
         );
     }
 
@@ -314,4 +353,22 @@ mod tests {
             cmd.env("CRP_TEST", "true").args(args).assert().success();
         }
     }
+}
+
+#[test]
+fn is_valid_sha() {
+    assert!(Input::is_valid_sha256(
+        "sha256:86215617a0ea1f77e9f314b45ffd578020935996612fb497239509b151a6f1ba"
+    ));
+    assert!(Input::is_valid_sha256(
+        "sha256:17152a70ea10de6ecd804fffed4b5ebd3abc638e8920efb6fab2993c5a77600a"
+    ));
+    assert!(Input::is_valid_sha256(
+        "sha256:a86523225e8d21faae518a5ea117e06887963a4a9ac123683d91890af092cf03"
+    ));
+    assert!(!Input::is_valid_sha256("foo"));
+    assert!(!Input::is_valid_sha256(
+        "a86523225e8d21faae518a5ea117e06887963a4a9ac123683d91890af092cf03"
+    ));
+    assert!(!Input::is_valid_sha256("sha256"));
 }
