@@ -17,16 +17,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Each build should be different because of the $RANDOM addition
       - name: Build latest
         run: |
           for ((i=1; i<=5; i++))
           do
-            randomString=$(LC_ALL=C tr -dc A-Za-z0-9 </dev/urandom | head -c 10)
-            echo "FROM scratch as $randomString" > Dockerfile
+            randomString=$(LC_ALL=C tr -dc A-Za-z0-9 </dev/urandom | head -c 10 2>/dev/null || echo RANDOM)
+            echo "FROM alpine as builder" > Dockerfile
+            echo "RUN echo \"$randomString\" > test.txt" >> Dockerfile
+            echo "FROM scratch" >> Dockerfile
+            echo "COPY --from=builder /test.txt ." >> Dockerfile
+
+            imageName="ghcr.io/snok/container-retention-policy:test-${i}"
+
             docker buildx build \
               -f Dockerfile \
-              -t "ghcr.io/snok/container-retention-policy:test-${i}" \
+              -t "$imageName" \
               --cache-to=type=inline \
               --cache-from="ghcr.io/snok/container-retention-policy:test" \
               --push \
@@ -34,7 +39,7 @@ jobs:
 
             for ((j=1; j<=3; j++))
             do
-              docker tag "ghcr.io/snok/container-retention-policy:test-${i}" "ghcr.io/snok/container-retention-policy:test-${i}-${j}"
+              docker tag "$imageName" "ghcr.io/snok/container-retention-policy:test-${i}-${j}"
               docker push "ghcr.io/snok/container-retention-policy:test-${i}-${j}"
             done
           done
