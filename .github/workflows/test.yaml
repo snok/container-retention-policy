@@ -20,9 +20,12 @@ jobs:
       - run: rustup toolchain install stable --profile minimal && rustup component add clippy
       - run: rustup toolchain install nightly --profile minimal
       - uses: cargo-bins/cargo-binstall@main
-      - run: cargo binstall cargo-udeps --locked --no-confirm
-      - run: cargo binstall cargo-deny --locked --no-confirm
+      - run: cargo binstall cargo-udeps --locked --no-confirm --force
+      - run: cargo binstall cargo-deny --locked --no-confirm --force
       - run: cargo binstall cargo-audit --locked --no-confirm
       - run: pip install pre-commit && pre-commit install
-
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit/
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
       - run: pre-commit run --all-files

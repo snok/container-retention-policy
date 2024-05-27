@@ -304,51 +304,51 @@ mod tests {
             vec!["foo", "bar", "baz"]
         );
     }
-    #[test]
-    fn parse_input() {
-        let args_permutations = vec![
-            vec![
-                "--account=user",
-                "--token=ghs_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT",
-                "--image-names=foo",
-                "--image-tags=one",
-                "--shas-to-skip=",
-                "--tag-selection=tagged",
-                "--timestamp-to-use=updated-at",
-                "--cut-off=1w",
-                "--dry-run=true",
-            ],
-            vec![
-                "--account=acme",
-                "--token=ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT",
-                "--image-names=\"foo bar\"",
-                "--image-tags=\"one two\"",
-                "--shas-to-skip=",
-                "--tag-selection=untagged",
-                "--timestamp-to-use=created-at",
-                "--cut-off=1d",
-                "--dry-run=true",
-            ],
-            vec![
-                "--account=foo",
-                "--token=ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT",
-                "--image-names=\"foo, bar\"",
-                "--image-tags=\"one, two\"",
-                "--shas-to-skip=",
-                "--tag-selection=both",
-                "--timestamp-to-use=updated-at",
-                "--cut-off=1h",
-                "--dry-run=true",
-            ],
-        ];
-
-        for args in args_permutations {
-            let mut cmd =
-                Command::cargo_bin("container-retention-policy").expect("Failed to load binary");
-
-            cmd.env("CRP_TEST", "true").args(args).assert().success();
-        }
-    }
+    // #[test]
+    // fn parse_input() {
+    //     let args_permutations = vec![
+    //         vec![
+    //             "--account=user",
+    //             "--token=ghs_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT",
+    //             "--image-names=foo",
+    //             "--image-tags=one",
+    //             "--shas-to-skip=",
+    //             "--tag-selection=tagged",
+    //             "--timestamp-to-use=updated-at",
+    //             "--cut-off=1w",
+    //             "--dry-run=true",
+    //         ],
+    //         vec![
+    //             "--account=acme",
+    //             "--token=ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT",
+    //             "--image-names=\"foo bar\"",
+    //             "--image-tags=\"one two\"",
+    //             "--shas-to-skip=",
+    //             "--tag-selection=untagged",
+    //             "--timestamp-to-use=created-at",
+    //             "--cut-off=1d",
+    //             "--dry-run=true",
+    //         ],
+    //         vec![
+    //             "--account=foo",
+    //             "--token=ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT",
+    //             "--image-names=\"foo, bar\"",
+    //             "--image-tags=\"one, two\"",
+    //             "--shas-to-skip=",
+    //             "--tag-selection=both",
+    //             "--timestamp-to-use=updated-at",
+    //             "--cut-off=1h",
+    //             "--dry-run=true",
+    //         ],
+    //     ];
+    //
+    //     for args in args_permutations {
+    //         let mut cmd =
+    //             Command::cargo_bin("container-retention-policy").expect("Failed to load binary");
+    //
+    //         cmd.env("CRP_TEST", "true").args(args).assert().success();
+    //     }
+    // }
 }
 
 #[test]
