@@ -5,8 +5,6 @@ use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::collections::HashMap;
 use std::env;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::process::exit;
 use tokio::task::JoinSet;
 use tracing::{debug, error, info, trace, warn};
@@ -23,49 +21,7 @@ pub mod client;
 pub mod input;
 pub mod responses;
 
-/// Keep n package versions per package name.
-///
-/// Sort by age and prioritize keeping newer versions.
-/// Tagged images are prioritized over untagged.
-fn handle_keep_at_least(
-    mut tagged: Vec<PackageVersion>,
-    mut untagged: Vec<PackageVersion>,
-    keep_at_least: u32,
-) -> (Vec<PackageVersion>, Vec<PackageVersion>) {
-    let mut kept = 0;
-
-    tagged.sort_by_key(|p| {
-        if p.updated_at.is_some() {
-            p.updated_at.unwrap()
-        } else {
-            p.created_at
-        }
-    });
-
-    untagged.sort_by_key(|p| {
-        if p.updated_at.is_some() {
-            p.updated_at.unwrap()
-        } else {
-            p.created_at
-        }
-    });
-
-    while kept < keep_at_least {
-        // Prioritize keeping tagged images
-        if !tagged.is_empty() {
-            tagged.pop();
-            kept += 1;
-        } else if !untagged.is_empty() {
-            untagged.pop();
-            kept += 1;
-        } else {
-            info!("No package versions left to delete after keeping {kept} package versions. The keep-at-least setting specifies to keep at least {keep_at_least} versions.");
-            break;
-        }
-    }
-    (tagged, untagged)
-}
-
+#[derive(Debug)]
 struct PackageVersions {
     untagged: Vec<PackageVersion>,
     tagged: Vec<PackageVersion>,
@@ -91,8 +47,10 @@ fn select_package_versions(
     'outer: for package_version in package_versions {
         if shas_to_skip.contains(&package_version.name) {
             info!(
-                "Skipping package version {}:{}, since it matched a SHA that should be skipped",
-                package_name, package_version.id
+                package_name = package_name,
+                package_version_id = package_version.id,
+                "Skipping package version with SHA {}, as specified in the `shas-to-skip` setting",
+                package_version.name,
             );
             continue;
         }
@@ -103,7 +61,10 @@ fn select_package_versions(
         ) {
             // Handle untagged images here
             (TagSelection::Untagged, true) | (TagSelection::Both, true) => {
-                debug!("Untagged package version {}", package_version.id);
+                trace!(
+                    package_version_id = package_version.id,
+                    "Package version has no tags"
+                );
                 untagged.push(package_version);
                 continue 'outer;
             }
@@ -114,8 +75,8 @@ fn select_package_versions(
                 if matchers.negative.is_empty() && matchers.positive.is_empty() {
                     // No filters implicitly mean match everything
                     debug!(
-                        "Tagged package version wildcard match: {}",
-                        package_version.id
+                        package_version_id = package_version.id,
+                        "Including package version, since no filters were specified"
                     );
                     tagged.push(package_version);
                     continue 'outer;
@@ -128,19 +89,16 @@ fn select_package_versions(
                 'negative: for tag in &package_version.metadata.container.tags {
                     if matchers.negative.iter().any(|matcher| {
                         if matcher.matches(&tag) {
-                            trace!(
-                                "Negative filter `{matcher}` matched tag \"{tag}\". Skipping it"
+                            debug!(
+                                package_version_id = package_version.id,
+                                tag = tag,
+                                filter = matcher.to_string(),
+                                "Package version tag matched a negative filter"
                             );
                             return true;
                         };
-                        debug!("No negative match for `{matcher}` on tag \"{tag}\"");
                         false
                     }) {
-                        // If any negative filter matches any tag on this package, skip it.
-                        debug!(
-                            "Tagged package version negative match: {}",
-                            package_version.id
-                        );
                         negative_match = true;
                         // We could continue the 'outer loop here, but we'd not get
                         // the level of logging we have below.
@@ -150,17 +108,19 @@ fn select_package_versions(
 
                 // Check if any positive matchers match any tags
                 for tag in &package_version.metadata.container.tags {
-                    if matchers.positive.is_empty() {
+                    if matchers.positive.is_empty() && !negative_match {
                         debug!(
-                            "Tagged package version positive wildcard match: {}",
-                            package_version.id
+                            package_version_id = package_version.id,
+                            "Including package version, since no positive filters were specified"
                         );
                         positive_matches += 1;
                     } else if matchers.positive.iter().any(|matcher| {
                         if matcher.matches(&tag) {
                             debug!(
-                                "Tagged package version partial match: {}, for {} on {}",
-                                package_version.id, tag, matcher
+                                package_version_id = package_version.id,
+                                tag = tag,
+                                filter = matcher.to_string(),
+                                "Partial match for positive filter"
                             );
                             return true;
                         }
@@ -175,25 +135,49 @@ fn select_package_versions(
                 match (negative_match, positive_matches) {
                     // Both negative and positive matches
                     (true, positive_matches) if positive_matches > 0 => {
-                        let package_url = urls.package_version_url(package_name, &package_version.id)?;
-                        warn!("Skipping deletion of {package_name}:{tags:?} since it matched the negative image-tags filter, but it also matched a positive filter. If you want this package version to be deleted, make sure to review your image-tags filters to remove the conflict. The package version can be found at {package_url}.");
+                        let package_url =
+                            urls.package_version_url(package_name, &package_version.id)?;
+                        warn!(
+                            package_name=package_name,
+                            package_version_id=package_version.id,
+                            tags=?tags,
+                            "✕ matched a negative `image-tags` filter, but it also matched a positive filter. If you want this package version to be deleted, make sure to review your `image-tags` filters to remove the conflict. The package version can be found at {package_url}. Enable debug logging for more info.");
                     }
                     // Plain negative match
-                    (true, _) => info!("Skipping deletion of package version for package_name={package_name} tags={tags:?} since it matched a negative image-tags filter"),
+                    (true, _) => info!(
+                            package_name=package_name,
+                            package_version_id=package_version.id,
+                            tags=?tags,
+                        "✕ matched a negative `image-tags` filter"),
                     // 100% positive matches
-                    (false, positive_matches) if positive_matches == package_version.metadata.container.tags.len() => {
-                        info!("Will delete package version for package_name={package_name} tags={tags:?} as it matched all image-tags filters");
+                    (false, positive_matches)
+                        if positive_matches == package_version.metadata.container.tags.len() =>
+                    {
+                        info!(
+                            package_name=package_name,
+                            package_version_id=package_version.id,
+                            tags=?tags,
+                            "✓ matched all `image-tags` filters");
                         tagged.push(package_version);
                         continue 'outer;
                     }
                     // 0% positive matches
                     (false, 0) => {
-                        info!("Skipping deletion of package version for package_name={package_name} tags={tags:?} since it matched no image-tags filters");
+                        info!(
+                            package_name=package_name,
+                            package_version_id=package_version.id,
+                            tags=?tags,
+                            "✕ matched no `image-tags` filters");
                     }
                     // Partial positive matches
                     (false, 1..) => {
-                        let package_url = urls.package_version_url(package_name, &package_version.id)?;
-                        warn!("Skipping deletion of package version for package_name={package_name} tags={tags:?}, since some of the tags matched, but not all. If you want this package version to be deleted, make sure to review your image-tags filters to remove the conflict. The package version can be found at {package_url}.");
+                        let package_url =
+                            urls.package_version_url(package_name, &package_version.id)?;
+                        warn!(
+                            package_name=package_name,
+                            package_version_id=package_version.id,
+                            tags=?tags,
+                            "✕ matched some, but not all tags. If you want this package version to be deleted, make sure to review your `image-tags` filters to remove the conflict. The package version can be found at {package_url}. Enable debug logging for more info.");
                     }
                 }
             }
@@ -417,7 +401,7 @@ mod select_package_version_tests {
 
         assert_eq!(negative_result.0.len(), 1);
         assert_eq!(negative_result.1.len(), 0);
-        assert_eq!(negative_result.0, vec![pv(1, "sha256:bar", vec!["bar"]),]);
+        assert_eq!(negative_result.0, vec![pv(1, "sha256:bar", vec!["bar"])]);
 
         // Negative matcher - negative matcher takes precedence over positive
         let negative_result = select_package_versions(
@@ -466,7 +450,7 @@ mod select_package_version_tests {
         });
         assert!(logs_contain("Skipping deletion of package"));
         assert!(logs_contain(
-            "matched the negative image-tags filter, but it also matched a positive filter"
+            "matched the negative `image-tags` filter, but it also matched a positive filter"
         ));
 
         // Plain negative match
@@ -476,7 +460,7 @@ mod select_package_version_tests {
         });
         assert!(logs_contain("Skipping deletion of package"));
         assert!(logs_contain(
-            "since it matched a negative image-tags filter"
+            "since it matched a negative `image-tags` filter"
         ));
 
         // 100% positive match
@@ -488,7 +472,7 @@ mod select_package_version_tests {
             negative: vec![],
         });
         assert!(logs_contain("Will delete"));
-        assert!(logs_contain("as it matched all image-tags filters"));
+        assert!(logs_contain("as it matched all `image-tags` filters"));
 
         // No positive match
         call_f(Matchers {
@@ -496,7 +480,7 @@ mod select_package_version_tests {
             negative: vec![],
         });
         assert!(logs_contain("Skipping deletion of package"));
-        assert!(logs_contain("since it matched no image-tags filters"));
+        assert!(logs_contain("since it matched no `image-tags` filters"));
 
         // Partial positive match
         call_f(Matchers {
@@ -513,22 +497,15 @@ async fn concurrently_fetch_and_filter_package_versions(
     client: &'static ContainerClient,
     image_tags: Vec<String>,
     shas_to_skip: Vec<String>,
-    keep_at_least: u32,
     tag_selection: TagSelection,
 ) -> Result<PackageVersionSummary> {
     // Compute matchers
     let matchers = create_filter_matchers(&image_tags);
 
-    // Handle responses as they come in
-
-    // TODO: Better error handling?
-    // TODO: Do package version filtering in two passes. First make sure NO tags are disqualified from
-    //  negative filters, then do oneOf filtering on the positive matchers
-
     // Create async tasks to make multiple concurrent requests
     let mut set = JoinSet::new();
     for package_name in package_names {
-        set.spawn(client.list_package_versions(package_name.clone()));
+        set.spawn(client.list_package_versions(package_name));
     }
 
     // A note on the general logic here:
@@ -549,7 +526,10 @@ async fn concurrently_fetch_and_filter_package_versions(
     let mut package_version_map = HashMap::new();
 
     while let Some(r) = set.join_next().await {
+        // Get all the package versions for a package
         let (package_name, package_versions) = r??;
+
+        // Filter based on matchers
         let (tagged, untagged) = select_package_versions(
             package_versions,
             tag_selection.clone(),
@@ -558,7 +538,6 @@ async fn concurrently_fetch_and_filter_package_versions(
             &package_name,
             &client.urls,
         )?;
-        let (tagged, untagged) = handle_keep_at_least(tagged, untagged, keep_at_least);
 
         tagged_total_count += tagged.len();
         untagged_total_count += untagged.len();
@@ -620,12 +599,18 @@ fn filter_by_matchers(vec: &Vec<impl PercentEncodable>, matchers: &Matchers) -> 
                 return None;
             };
             if matchers.positive.is_empty() {
-                debug!("No positive matchers defined. Adding `{}`", p.raw_name());
+                debug!(
+                    package_name = p.raw_name(),
+                    "No positive matchers defined. Adding package."
+                );
                 return Some(p.raw_name().to_string());
             }
             if matchers.positive.iter().any(|matcher| {
                 if matcher.matches(p.raw_name()) {
-                    debug!("Positive filter `{matcher}` matched \"{}\"", p.raw_name());
+                    debug!(
+                        package_name = p.raw_name(),
+                        "Positive filter `{matcher}` matched package name"
+                    );
                     return true;
                 }
                 false
@@ -669,13 +654,12 @@ async fn main() {
     debug!("Logging initialized");
 
     // Validate inputs
-    debug!("Parsing and validating arguments");
     let input = Input::parse()
         .validate()
         .expect("Failed to validate arguments");
 
     // TODO: Is there a better way?
-    if std::env::var("CRP_TEST").is_ok() {
+    if env::var("CRP_TEST").is_ok() {
         return;
     }
 
@@ -692,6 +676,7 @@ async fn main() {
             .build()
             .expect("Failed to build client"),
     );
+
     let client: &'static mut ContainerClient = Box::leak(boxed_client);
 
     // Fetch all packages that the account owns
@@ -703,7 +688,7 @@ async fn main() {
     match input.account {
         Account::User => info!("Found {} package(s) for the user", packages.len()),
         Account::Organization(name) => info!(
-            "Found {} package(s) for the {name} organization",
+            "Found {} package(s) for the \"{name}\" organization",
             packages.len()
         ),
     }
@@ -740,7 +725,6 @@ async fn main() {
         client,
         input.image_tags,
         input.shas_to_skip,
-        input.keep_at_least,
         input.tag_selection,
     )
     .await
@@ -759,8 +743,7 @@ async fn main() {
     let deleted_packages =
         concurrently_delete_package_versions(package_versions_summary, client, input.dry_run).await;
 
-    let mut github_output =
-        env::var("GITHUB_OUTPUT").expect("GITHUB_OUTPUT environment variable not set");
+    let mut github_output = env::var("GITHUB_OUTPUT").unwrap_or(String::new());
 
     github_output.push_str(&format!(
         "deleted={}",
@@ -951,129 +934,16 @@ mod test {
             updated_at: None,
         }
     }
-
-    #[test]
-    fn test_handle_keep_at_least_ordering() {
-        let now: DateTime<Utc> = Utc::now();
-        let five_minutes_ago: DateTime<Utc> = now - Duration::minutes(5);
-        let ten_minutes_ago: DateTime<Utc> = now - Duration::minutes(10);
-
-        // Newest is removed (to be kept)
-        let kept = handle_keep_at_least(
-            vec![pv(five_minutes_ago), pv(ten_minutes_ago), pv(now)],
-            Vec::new(),
-            1,
-        );
-        assert_eq!(kept.0.len(), 2);
-        assert_eq!(kept.0, vec![pv(ten_minutes_ago), pv(five_minutes_ago)]);
-        let kept = handle_keep_at_least(
-            Vec::new(),
-            vec![pv(five_minutes_ago), pv(ten_minutes_ago), pv(now)],
-            1,
-        );
-        assert_eq!(kept.1.len(), 2);
-        assert_eq!(kept.1, vec![pv(ten_minutes_ago), pv(five_minutes_ago)]);
-
-        // Tagged is removed (kept) over untagged
-        let kept = handle_keep_at_least(
-            vec![pv(five_minutes_ago), pv(ten_minutes_ago)],
-            vec![pv(now)],
-            2,
-        );
-        assert_eq!(kept.0.len(), 0);
-        assert_eq!(kept.1.len(), 1);
-    }
 }
 
 // TODO: Look up wildmatch serde feature
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
 
     use chrono::Utc;
 
-    use crate::responses::*;
-
     use super::*;
-
-    #[test]
-    fn test_handle_keep_at_least() {
-        // Test case 1: more items than keep_at_least
-        let metadata = Metadata {
-            container: ContainerMetadata { tags: Vec::new() },
-        };
-        let now = Utc::now();
-
-        let tagged = vec![
-            PackageVersion {
-                updated_at: None,
-                created_at: now - Duration::from_secs(2),
-                name: "".to_string(),
-                id: 1,
-                metadata: metadata.clone(),
-            },
-            PackageVersion {
-                updated_at: Some(now - Duration::from_secs(1)),
-                created_at: now - Duration::from_secs(3),
-                name: "".to_string(),
-                id: 1,
-                metadata: metadata.clone(),
-            },
-            PackageVersion {
-                updated_at: Some(now),
-                created_at: now - Duration::from_secs(4),
-                name: "".to_string(),
-                id: 1,
-                metadata: metadata.clone(),
-            },
-        ];
-        let untagged = tagged.clone();
-
-        // Test case 1: more items than keep at least
-        let keep_at_least = 2;
-        let (remaining_tagged, remaining_untagged) =
-            handle_keep_at_least(tagged.clone(), untagged.clone(), keep_at_least);
-        assert_eq!(remaining_tagged.len(), 1);
-        assert_eq!(remaining_untagged.len(), 3);
-
-        // Test case 2: same items as keep_at_least
-        let keep_at_least = 6;
-        let (remaining_tagged, remaining_untagged) =
-            handle_keep_at_least(tagged.clone(), untagged.clone(), keep_at_least);
-        assert_eq!(remaining_tagged.len(), 0);
-        assert_eq!(remaining_untagged.len(), 0);
-
-        // Test case 3: less items than keep_at_least
-        let keep_at_least = 10;
-        // TODO: Capture stdout and assert info log is output
-        let (remaining_tagged, remaining_untagged) =
-            handle_keep_at_least(tagged.clone(), untagged.clone(), keep_at_least);
-        assert_eq!(remaining_tagged.len(), 0);
-        assert_eq!(remaining_untagged.len(), 0);
-
-        // Test case 4: equal items as keep_at_least
-        let keep_at_least = 3;
-        let (remaining_tagged, remaining_untagged) =
-            handle_keep_at_least(tagged.clone(), untagged.clone(), keep_at_least);
-        assert_eq!(remaining_tagged.len(), 0);
-        assert_eq!(remaining_untagged.len(), 3);
-
-        // Test case 5: tagged is empty
-        let tagged_empty = Vec::new();
-        let (remaining_tagged, remaining_untagged) =
-            handle_keep_at_least(tagged_empty.clone(), untagged.clone(), keep_at_least);
-        assert_eq!(remaining_tagged.len(), 0);
-        assert_eq!(remaining_untagged.len(), 0);
-
-        // Test case 6: untagged is empty
-        let untagged_empty = Vec::new();
-        let (remaining_tagged, remaining_untagged) =
-            handle_keep_at_least(tagged.clone(), untagged_empty.clone(), keep_at_least);
-        assert_eq!(remaining_tagged.len(), 0);
-        assert_eq!(remaining_untagged.len(), 0);
-    }
-
     #[test]
     fn test_random_sampling() {
         let data = vec![

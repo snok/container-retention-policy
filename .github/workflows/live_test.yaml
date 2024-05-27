@@ -1,0 +1,50 @@
+name: Produce packages
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "5 * * * *"  # every hour
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: snok/container-retention-policy@${{ github.ref_name }}
+        name: Delete test-1-* images
+        with:
+          account: snok
+          token: ${{ secrets.GITHUB_TOKEN }}
+          cut-off: 2h
+          image-names: container-retention-policy
+          image-tags: test-* !test-2* !test-3* !test-4* !test-5*
+          tag-selection: both
+          timestamp-to-use: created_at
+          dry-run: false
+          rust-log: container_retention_policy=debug
+
+      - uses: snok/container-retention-policy@${{ github.ref_name }}
+        name: Delete test-2-* images
+        with:
+          account: snok
+          token: ${{ secrets.GITHUB_TOKEN }}
+          cut-off: 2h
+          image-names: container-retention-policy
+          image-tags: test-* !test-3* !test-4* !test-5*
+          tag-selection: both
+          timestamp-to-use: created_at
+          dry-run: false
+          rust-log: container_retention_policy=debug
+
+      - uses: snok/container-retention-policy@${{ github.ref_name }}
+        name: Delete remaining test images
+        with:
+          account: snok
+          token: ${{ secrets.GITHUB_TOKEN }}
+          cut-off: 2h
+          image-names: container-retention-policy
+          image-tags: test-*
+          tag-selection: both
+          timestamp-to-use: created_at
+          dry-run: false
+          rust-log: container_retention_policy=debug

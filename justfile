@@ -55,14 +55,13 @@ upload-multi:
                 --push --progress=plain
 
 run:
-    RUST_LOG=container_retention_policy=trace cargo r -- \
+    RUST_LOG=container_retention_policy=info cargo r -- \
         --account snok \
         --token $DELETE_PACKAGES_CLASSIC_TOKEN \
         --tag-selection both \
         --image-names "container-retention-policy*"  \
-        --image-tags "!latest" \
+        --image-tags "!latest !test-1*" \
         --shas-to-skip "" \
-        --keep-at-least 1 \
         --timestamp-to-use updated-at \
         --cut-off 1s \
-        --dry-run true
+        --dry-run false

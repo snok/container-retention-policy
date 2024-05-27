@@ -3,10 +3,6 @@ This is a [container github action](https://docs.github.com/en/actions/creating-
 
 TODO: WHat about reuploads? Can we use created-at?
 
-TODO: Specify that keep-at-least means to keep `n` package versions for each package, after it has satisfied filters.
-
-- [ ] Add note about keep_at_least keeping `n` number of package versions per image, and that it will prioritize keeping newer versions
-
 - [ ] Add explanation of what an image version is
 
 # Things to be aware of
@@ -33,6 +29,9 @@ In addition to the primary rate limit, there are multiple secondary rate limits;
 
 
 All but the last secondary limit might affect us, and the secondary rate limits are subject to change without notice. For this reason, it's recommended to use the returned `x-ratelimit-*` headers to know how to proceed ([source](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api?apiVersion=2022-11-28#checking-the-status-of-your-rate-limit)).
+
+
+
 
 ## Pagination
 
@@ -229,3 +228,6 @@ This means, to make sure your multi-platform packages aren't broken, you should 
 ```
 
 By passing the SHAs of the manifests and specific platform targets to the action, we are able to not delete them.
+
+
+TODO: Make sure that the echo >>GITHUB_OUTPUT actually works when running the action as a container

@@ -150,7 +150,6 @@ input_defaults = {
     'timestamp_to_use': 'created_at',
     'untagged_only': 'false',
     'skip_tags': '',
-    'keep_at_least': '0',
     'filter_tags': '',
     'filter_include_untagged': 'true',
     'token': 'test',
@@ -265,21 +264,6 @@ class TestGetAndDeleteOldVersions:
         captured = capsys.readouterr()
         assert captured.out == 'Deleted old image: a:1234567\n'
 
-    async def test_keep_at_least(self, mocker, capsys, http_client):
-        mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=self.valid_data)
-        inputs = _create_inputs_model(keep_at_least=1)
-        await get_and_delete_old_versions(image_name='a', inputs=inputs, http_client=http_client)
-        captured = capsys.readouterr()
-        assert captured.out == 'No more versions to delete for a\n'
-
-    async def test_keep_at_least_deletes_not_only_marked(self, mocker, capsys, http_client):
-        data = [self.generate_fresh_valid_data_with_id(id) for id in range(3)]
-        data.append(self.valid_data[0])
-        mocker.patch.object(main.GithubAPI, 'list_package_versions', return_value=data)
-        inputs = _create_inputs_model(keep_at_least=2)
-        await get_and_delete_old_versions(image_name='a', inputs=inputs, http_client=http_client)
-        captured = capsys.readouterr()
-        assert captured.out == 'Deleted old image: a:1234567\n'
 
     async def test_not_beyond_cutoff(self, mocker, capsys, http_client):
         response_data = [
@@ -479,7 +463,6 @@ async def test_main(mocker, ok_response):
             'cut_off': '2 hours ago UTC',
             'untagged_only': 'false',
             'skip_tags': '',
-            'keep_at_least': '0',
             'filter_tags': '',
             'filter_include_untagged': 'true',
             'token': 'test',
@@ -502,7 +485,6 @@ async def test_main_with_token_type_github_token(mocker, ok_response):
             'cut_off': '2 hours ago UTC',
             'untagged_only': 'false',
             'skip_tags': '',
-            'keep_at_least': '0',
             'filter_tags': '',
             'filter_include_untagged': 'true',
             'token': 'test',
@@ -587,7 +569,6 @@ async def test_public_images_with_more_than_5000_downloads(mocker, capsys):
             'cut_off': '2 hours ago UTC',
             'untagged_only': 'false',
             'skip_tags': '',
-            'keep_at_least': '0',
             'filter_tags': '',
             'filter_include_untagged': 'true',
             'token': 'test',
@@ -655,7 +636,6 @@ async def test_outputs_are_set(mocker):
             'cut_off': '2 hours ago UTC',
             'untagged_only': 'false',
             'skip_tags': '',
-            'keep_at_least': '0',
             'filter_tags': '',
             'filter_include_untagged': 'true',
             'token': 'test',

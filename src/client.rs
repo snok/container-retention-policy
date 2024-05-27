@@ -49,7 +49,7 @@ impl ContainerClientBuilder {
     }
 
     pub fn set_http_headers(mut self, token: Token) -> Result<Self> {
-        debug!("Constructing headers");
+        debug!("Constructing HTTP headers");
         let auth_header_value = format!(
             "Bearer {}",
             match &token {
@@ -69,7 +69,7 @@ impl ContainerClientBuilder {
     }
 
     pub fn generate_urls(mut self, account: &Account) -> Self {
-        debug!("Constructing urls");
+        debug!("Constructing base urls");
         self.urls = Some(Urls::from_account(account));
         self
     }
@@ -377,7 +377,7 @@ impl ContainerClient {
         token: Token,
     ) -> BoxFuture<'static, Result<Vec<PackageVersion>>> {
         async move {
-            debug!("Fetching package versions for {}", url.path());
+            debug!("Fetching package versions from {}", url);
             // Construct initial request
             let mut request = Request::new(Method::GET, url);
             *request.headers_mut() = headers.clone();
@@ -444,32 +444,31 @@ impl ContainerClient {
         // it had these three tags, and ["foo:untagged"] if it had no tags. This isn't really how the data model
         // works, but is what users will expect to see output.
         let names = if package_version.metadata.container.tags.is_empty() {
+            vec![format!(
+                "\x1b[34m{package_name}\x1b[0m:\x1b[33m<untagged>\x1b[0m"
+            )]
+        } else {
             package_version
                 .metadata
                 .container
                 .tags
                 .iter()
-                .map(|tag| format!("{package_name}:{tag}"))
+                .map(|tag| format!("\x1b[34m{package_name}\x1b[0m:\x1b[32m{tag}\x1b[0m"))
                 .collect()
-        } else {
-            vec![format!("{package_name}:untagged")]
         };
 
         // Output information to the user
         if dry_run {
             for name in &names {
                 info!(
-                    "dry-run: Would have deleted \"{}\" (package version {})",
-                    name, package_version.id
+                    package_version = package_version.id,
+                    "dry-run: Would have deleted {name}",
                 );
             }
             return Ok(Vec::new());
         } else {
             for name in &names {
-                info!(
-                    "Deleting \"{}\" (package version {})",
-                    name, package_version.id
-                );
+                info!(package_version = package_version.id, "Deleting {name}",);
             }
         }
 
