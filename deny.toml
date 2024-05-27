@@ -16,7 +16,8 @@ allow = [
     "Apache-2.0",
     "ISC",
     "BSD-3-Clause",
-    "OpenSSL"
+    "OpenSSL",
+    "MPL-2.0"
 ]
 
 [[licenses.clarify]]

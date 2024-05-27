@@ -1,6 +1,6 @@
 FROM alpine as builder
 
-RUN echo "c6laGp88P3" > test.txt
+RUN echo "lugVvR2ORv" > test.txt
 
 FROM scratch
 

@@ -12,8 +12,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: rustup toolchain install stable --profile minimal
       - uses: swatinem/rust-cache@v2
+
+      # This is already installed on GitHub's runners
       - run: cargo fmt --check
-      - run: cargo clippy
-      - run: cargo test
+
+      - run: rustup toolchain install stable --profile minimal && rustup component add clippy
+      - run: rustup toolchain install nightly --profile minimal
+      - uses: cargo-bins/cargo-binstall@main
+      - run: cargo binstall cargo-udeps --locked --no-confirm
+      - run: cargo binstall cargo-deny --locked --no-confirm
+      - run: cargo binstall cargo-audit --locked --no-confirm
+      - run: pip install pre-commit && pre-commit install
+
+      - run: pre-commit run --all-files

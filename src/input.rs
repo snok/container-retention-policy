@@ -309,9 +309,10 @@ mod tests {
         let args_permutations = vec![
             vec![
                 "--account=user",
-                "--token=github-token",
+                "--token=ghs_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT",
                 "--image-names=foo",
                 "--image-tags=one",
+                "--shas-to-skip=",
                 "--tag-selection=tagged",
                 "--timestamp-to-use=updated-at",
                 "--cut-off=1w",
@@ -319,9 +320,10 @@ mod tests {
             ],
             vec![
                 "--account=acme",
-                "--token=gho_1234567890",
+                "--token=ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT",
                 "--image-names=\"foo bar\"",
                 "--image-tags=\"one two\"",
+                "--shas-to-skip=",
                 "--tag-selection=untagged",
                 "--timestamp-to-use=created-at",
                 "--cut-off=1d",
@@ -329,9 +331,10 @@ mod tests {
             ],
             vec![
                 "--account=foo",
-                "--token=ghp_123456789",
+                "--token=ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT",
                 "--image-names=\"foo, bar\"",
                 "--image-tags=\"one, two\"",
+                "--shas-to-skip=",
                 "--tag-selection=both",
                 "--timestamp-to-use=updated-at",
                 "--cut-off=1h",

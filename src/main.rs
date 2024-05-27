@@ -443,24 +443,20 @@ mod select_package_version_tests {
     #[traced_test]
     #[test]
     fn test_package_selection_match_permutations() {
-        // Negative and positive match
-        call_f(Matchers {
-            positive: vec![WildMatchPattern::<'*', '?'>::new("*")],
-            negative: vec![WildMatchPattern::<'*', '?'>::new("*")],
-        });
-        assert!(logs_contain("Skipping deletion of package"));
-        assert!(logs_contain(
-            "matched the negative `image-tags` filter, but it also matched a positive filter"
-        ));
-
         // Plain negative match
         call_f(Matchers {
             positive: vec![],
             negative: vec![WildMatchPattern::<'*', '?'>::new("foo")],
         });
-        assert!(logs_contain("Skipping deletion of package"));
+        assert!(logs_contain("✕ matched a negative `image-tags` filter"));
+
+        // Negative and positive match
+        call_f(Matchers {
+            positive: vec![WildMatchPattern::<'*', '?'>::new("*")],
+            negative: vec![WildMatchPattern::<'*', '?'>::new("*")],
+        });
         assert!(logs_contain(
-            "since it matched a negative `image-tags` filter"
+            "✕ matched a negative `image-tags` filter, but it also matched a positive filter"
         ));
 
         // 100% positive match
@@ -471,24 +467,21 @@ mod select_package_version_tests {
             ],
             negative: vec![],
         });
-        assert!(logs_contain("Will delete"));
-        assert!(logs_contain("as it matched all `image-tags` filters"));
+        assert!(logs_contain("✓ matched all `image-tags` filters"));
 
         // No positive match
         call_f(Matchers {
             positive: vec![WildMatchPattern::<'*', '?'>::new("random")],
             negative: vec![],
         });
-        assert!(logs_contain("Skipping deletion of package"));
-        assert!(logs_contain("since it matched no `image-tags` filters"));
+        assert!(logs_contain("✕ matched no `image-tags` filters"));
 
         // Partial positive match
         call_f(Matchers {
             positive: vec![WildMatchPattern::<'*', '?'>::new("foo")],
             negative: vec![],
         });
-        assert!(logs_contain("Skipping deletion of package"));
-        assert!(logs_contain("since some of the tags matched, but not all"));
+        assert!(logs_contain("✕ matched some, but not all tags"));
     }
 }
 
@@ -842,7 +835,7 @@ async fn concurrently_delete_package_versions(
 
 #[cfg(test)]
 mod test {
-    use chrono::{DateTime, Duration, Utc};
+    use chrono::{DateTime, Utc};
 
     use crate::responses::*;
 
