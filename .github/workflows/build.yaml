@@ -1,6 +1,7 @@
 name: Produce packages
 
 on:
+  push:
   workflow_dispatch:
   schedule:
     - cron: "0 * * * *"  # every hour
@@ -29,13 +30,7 @@ jobs:
 
             imageName="ghcr.io/snok/container-retention-policy:test-${i}"
 
-            docker buildx build \
-              -f Dockerfile \
-              -t "$imageName" \
-              --cache-to=type=inline \
-              --cache-from="ghcr.io/snok/container-retention-policy:test" \
-              --push \
-              .
+            docker build -f Dockerfile -t "$imageName" --push .
 
             for ((j=1; j<=3; j++))
             do
