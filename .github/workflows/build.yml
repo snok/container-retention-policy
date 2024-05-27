@@ -22,19 +22,15 @@ jobs:
         run: |
           for ((i=1; i<=5; i++))
           do
+            imageName="ghcr.io/snok/container-retention-policy:test-${i}"
             randomString=$(LC_ALL=C tr -dc A-Za-z0-9 </dev/urandom | head -c 10)
             echo "FROM scratch as $randomString" > Dockerfile
-            docker buildx build \
-              -f Dockerfile \
-              -t "ghcr.io/snok/container-retention-policy:test-${i}" \
-              --cache-to=type=inline \
-              --cache-from="ghcr.io/snok/container-retention-policy:test" \
-              --push \
-              .
+            docker buildx build -f Dockerfile -t $imageName --push .
 
             for ((j=1; j<=3; j++))
             do
-              docker tag "ghcr.io/snok/container-retention-policy:test-${i}" "ghcr.io/snok/container-retention-policy:test-${i}-${j}"
-              docker push "ghcr.io/snok/container-retention-policy:test-${i}-${j}"
+              newName="ghcr.io/snok/container-retention-policy:test-${i}-${j}"
+              docker tag $imageName $newName
+              docker push $newName
             done
           done
