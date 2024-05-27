@@ -1,6 +1,7 @@
 name: Produce packages
 
 on:
+  push:
   workflow_dispatch:
   schedule:
     - cron: "5 * * * *"  # every hour
@@ -10,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: snok/container-retention-policy@${{ github.ref_name }}
+      - uses: snok/container-retention-policy@v3-develop
         name: Delete test-1-* images
         with:
           account: snok
@@ -23,7 +24,7 @@ jobs:
           dry-run: false
           rust-log: container_retention_policy=debug
 
-      - uses: snok/container-retention-policy@${{ github.ref_name }}
+      - uses: snok/container-retention-policy@v3-develop
         name: Delete test-2-* images
         with:
           account: snok
@@ -36,7 +37,7 @@ jobs:
           dry-run: false
           rust-log: container_retention_policy=debug
 
-      - uses: snok/container-retention-policy@${{ github.ref_name }}
+      - uses: snok/container-retention-policy@v3-develop
         name: Delete remaining test images
         with:
           account: snok
