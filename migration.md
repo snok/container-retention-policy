@@ -69,6 +69,4 @@
 
   There is no longer timezone support built-into this option. All durations are relative to the current time, UTC.
 
-- The `keep-at-least` input has been dropped, as the new image name and tag filtering, plus the `tag-selection` argument can be used to protect against all or some tagged package versions being deleted.
-
 - The action now (indirectly) supports multi-arch/multi-platform packages. Take a look at the new README for details.

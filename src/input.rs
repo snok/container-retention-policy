@@ -119,6 +119,8 @@ pub struct Input {
     pub shas_to_skip: String,
     #[clap(long)]
     pub tag_selection: TagSelection,
+    #[clap(long)]
+    pub keep_at_least: u32,
     #[clap(long, action(ArgAction::Set))]
     pub dry_run: bool,
     #[clap(long)]
@@ -182,6 +184,7 @@ impl Input {
             image_tags,
             shas_to_skip,
             tag_selection: self.tag_selection,
+            keep_at_least: self.keep_at_least,
             dry_run: self.dry_run,
             timestamp_to_use: self.timestamp_to_use,
             cut_off: self.cut_off,
@@ -196,6 +199,7 @@ pub struct ValidatedInput {
     pub image_tags: Vec<String>,
     pub shas_to_skip: Vec<String>,
     pub tag_selection: TagSelection,
+    pub keep_at_least: u32,
     pub dry_run: bool,
     pub timestamp_to_use: Timestamp,
     pub cut_off: String,

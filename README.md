@@ -30,6 +30,7 @@ To use the action, simply add it to your GitHub workflow, like this:
     timestamp-to-use: updated_at
     account-type: org
     org-name: google
+    keep-at-least: 1
     skip-tags: latest
     token: ${{ secrets.PAT }}
 ```
@@ -71,6 +72,7 @@ jobs:
           cut-off: A week ago UTC
           account-type: org
           org-name: my-org
+          keep-at-least: 1
           untagged-only: true
           token: ${{ secrets.PAT }}
 
@@ -81,6 +83,7 @@ jobs:
           cut-off: One month ago UTC
           account-type: org
           org-name: my-org
+          keep-at-least: 1
           skip-tags: latest
           token: ${{ secrets.PAT }}
 ```
@@ -104,6 +107,7 @@ jobs:
         with:
           image-names: dev/*
           cut-off: One month ago UTC
+          keep-at-least: 1
           account-type: personal
           token: ${{ secrets.PAT }}
 ```
@@ -127,6 +131,7 @@ jobs:
         with:
           image-names: dev/*
           cut-off: One month ago UTC
+          keep-at-least: 5
           filter-tags: "v*.*.*"
           account-type: personal
           token: ${{ secrets.PAT }}
@@ -135,6 +140,7 @@ jobs:
         with:
           image-names: dev/*
           cut-off: One week ago UTC
+          keep-at-least: 1
           filter-tags: "rc*", "dev*"
           account-type: personal
           token: ${{ secrets.PAT }}
@@ -159,6 +165,7 @@ jobs:
         with:
           image-names: my-package
           cut-off: One month ago UTC
+          keep-at-least: 1
           account-type: personal
           token: ${{ secrets.GITHUB_TOKEN }}
           token-type: github-token

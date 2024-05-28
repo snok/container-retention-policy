@@ -62,6 +62,7 @@ run:
         --image-names "container-retention-policy*"  \
         --image-tags "!latest !test-1*" \
         --shas-to-skip "" \
+        --keep-at-least 1 \
         --timestamp-to-use updated-at \
         --cut-off 1s \
         --dry-run false

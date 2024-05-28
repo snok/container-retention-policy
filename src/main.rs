@@ -21,6 +21,49 @@ pub mod client;
 pub mod input;
 pub mod responses;
 
+/// Keep n package versions per package name.
+///
+/// Sort by age and prioritize keeping newer versions.
+/// Tagged images are prioritized over untagged.
+fn handle_keep_at_least(
+    mut tagged: Vec<PackageVersion>,
+    mut untagged: Vec<PackageVersion>,
+    keep_at_least: u32,
+) -> (Vec<PackageVersion>, Vec<PackageVersion>) {
+    let mut kept = 0;
+
+    tagged.sort_by_key(|p| {
+        if p.updated_at.is_some() {
+            p.updated_at.unwrap()
+        } else {
+            p.created_at
+        }
+    });
+
+    untagged.sort_by_key(|p| {
+        if p.updated_at.is_some() {
+            p.updated_at.unwrap()
+        } else {
+            p.created_at
+        }
+    });
+
+    while kept < keep_at_least {
+        // Prioritize keeping tagged images
+        if !tagged.is_empty() {
+            tagged.pop();
+            kept += 1;
+        } else if !untagged.is_empty() {
+            untagged.pop();
+            kept += 1;
+        } else {
+            info!("No package versions left to delete after keeping {kept} package versions. The keep-at-least setting specifies to keep at least {keep_at_least} versions.");
+            break;
+        }
+    }
+    (tagged, untagged)
+}
+
 #[derive(Debug)]
 struct PackageVersions {
     untagged: Vec<PackageVersion>,
@@ -490,6 +533,7 @@ async fn concurrently_fetch_and_filter_package_versions(
     client: &'static ContainerClient,
     image_tags: Vec<String>,
     shas_to_skip: Vec<String>,
+    keep_at_least: u32,
     tag_selection: TagSelection,
 ) -> Result<PackageVersionSummary> {
     // Compute matchers
@@ -531,6 +575,9 @@ async fn concurrently_fetch_and_filter_package_versions(
             &package_name,
             &client.urls,
         )?;
+
+        // TODO: Better tracing
+        let (tagged, untagged) = handle_keep_at_least(tagged, untagged, keep_at_least);
 
         tagged_total_count += tagged.len();
         untagged_total_count += untagged.len();
@@ -718,6 +765,7 @@ async fn main() {
         client,
         input.image_tags,
         input.shas_to_skip,
+        input.keep_at_least,
         input.tag_selection,
     )
     .await
@@ -835,7 +883,7 @@ async fn concurrently_delete_package_versions(
 
 #[cfg(test)]
 mod test {
-    use chrono::{DateTime, Utc};
+    use chrono::{DateTime, Duration, Utc};
 
     use crate::responses::*;
 
@@ -927,16 +975,129 @@ mod test {
             updated_at: None,
         }
     }
+
+    #[test]
+    fn test_handle_keep_at_least_ordering() {
+        let now: DateTime<Utc> = Utc::now();
+        let five_minutes_ago: DateTime<Utc> = now - Duration::minutes(5);
+        let ten_minutes_ago: DateTime<Utc> = now - Duration::minutes(10);
+
+        // Newest is removed (to be kept)
+        let kept = handle_keep_at_least(
+            vec![pv(five_minutes_ago), pv(ten_minutes_ago), pv(now)],
+            Vec::new(),
+            1,
+        );
+        assert_eq!(kept.0.len(), 2);
+        assert_eq!(kept.0, vec![pv(ten_minutes_ago), pv(five_minutes_ago)]);
+        let kept = handle_keep_at_least(
+            Vec::new(),
+            vec![pv(five_minutes_ago), pv(ten_minutes_ago), pv(now)],
+            1,
+        );
+        assert_eq!(kept.1.len(), 2);
+        assert_eq!(kept.1, vec![pv(ten_minutes_ago), pv(five_minutes_ago)]);
+
+        // Tagged is removed (kept) over untagged
+        let kept = handle_keep_at_least(
+            vec![pv(five_minutes_ago), pv(ten_minutes_ago)],
+            vec![pv(now)],
+            2,
+        );
+        assert_eq!(kept.0.len(), 0);
+        assert_eq!(kept.1.len(), 1);
+    }
 }
 
 // TODO: Look up wildmatch serde feature
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
 
     use chrono::Utc;
 
+    use crate::responses::*;
+
     use super::*;
+
+    #[test]
+    fn test_handle_keep_at_least() {
+        // Test case 1: more items than keep_at_least
+        let metadata = Metadata {
+            container: ContainerMetadata { tags: Vec::new() },
+        };
+        let now = Utc::now();
+
+        let tagged = vec![
+            PackageVersion {
+                updated_at: None,
+                created_at: now - Duration::from_secs(2),
+                name: "".to_string(),
+                id: 1,
+                metadata: metadata.clone(),
+            },
+            PackageVersion {
+                updated_at: Some(now - Duration::from_secs(1)),
+                created_at: now - Duration::from_secs(3),
+                name: "".to_string(),
+                id: 1,
+                metadata: metadata.clone(),
+            },
+            PackageVersion {
+                updated_at: Some(now),
+                created_at: now - Duration::from_secs(4),
+                name: "".to_string(),
+                id: 1,
+                metadata: metadata.clone(),
+            },
+        ];
+        let untagged = tagged.clone();
+
+        // Test case 1: more items than keep at least
+        let keep_at_least = 2;
+        let (remaining_tagged, remaining_untagged) =
+            handle_keep_at_least(tagged.clone(), untagged.clone(), keep_at_least);
+        assert_eq!(remaining_tagged.len(), 1);
+        assert_eq!(remaining_untagged.len(), 3);
+
+        // Test case 2: same items as keep_at_least
+        let keep_at_least = 6;
+        let (remaining_tagged, remaining_untagged) =
+            handle_keep_at_least(tagged.clone(), untagged.clone(), keep_at_least);
+        assert_eq!(remaining_tagged.len(), 0);
+        assert_eq!(remaining_untagged.len(), 0);
+
+        // Test case 3: less items than keep_at_least
+        let keep_at_least = 10;
+        // TODO: Capture stdout and assert info log is output
+        let (remaining_tagged, remaining_untagged) =
+            handle_keep_at_least(tagged.clone(), untagged.clone(), keep_at_least);
+        assert_eq!(remaining_tagged.len(), 0);
+        assert_eq!(remaining_untagged.len(), 0);
+
+        // Test case 4: equal items as keep_at_least
+        let keep_at_least = 3;
+        let (remaining_tagged, remaining_untagged) =
+            handle_keep_at_least(tagged.clone(), untagged.clone(), keep_at_least);
+        assert_eq!(remaining_tagged.len(), 0);
+        assert_eq!(remaining_untagged.len(), 3);
+
+        // Test case 5: tagged is empty
+        let tagged_empty = Vec::new();
+        let (remaining_tagged, remaining_untagged) =
+            handle_keep_at_least(tagged_empty.clone(), untagged.clone(), keep_at_least);
+        assert_eq!(remaining_tagged.len(), 0);
+        assert_eq!(remaining_untagged.len(), 0);
+
+        // Test case 6: untagged is empty
+        let untagged_empty = Vec::new();
+        let (remaining_tagged, remaining_untagged) =
+            handle_keep_at_least(tagged.clone(), untagged_empty.clone(), keep_at_least);
+        assert_eq!(remaining_tagged.len(), 0);
+        assert_eq!(remaining_untagged.len(), 0);
+    }
+
     #[test]
     fn test_random_sampling() {
         let data = vec![

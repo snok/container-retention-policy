@@ -27,6 +27,10 @@ inputs:
     description: "Specify whether to consider tagged images, untagged images, or both."
     required: false
     default: 'both'
+  keep-at-least:
+    description: 'How many image versions to always retain. Newer package versions are prioritized.'
+    required: false
+    default: '0'
   timestamp-to-use:
     description: 'Whether to use `updated_at` or `created_at` timestamps when considering the cut-off.'
     required: false
@@ -58,6 +62,7 @@ runs:
     - --image-tags="${{ inputs.image-names }}"
     - --skip-shas="${{ inputs.skip-shas }}"
     - --tag-selection="${{ inputs.tag-selection }}"
+    - --keep-at-least="${{ inputs.keep-at-least }}"
     - --timestamp-to-use="${{ inputs.timestamp-to-use }}"
     - --cut-off="${{ inputs.cut-off }}"
     - --dry-run="${{ inputs.dry-run }}"
