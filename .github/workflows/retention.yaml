@@ -17,7 +17,6 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           cut-off: 4w
           image-names: container-retention-policy
-          image-tags: *
           tag-selection: untagged
           timestamp-to-use: created_at
           dry-run: false

@@ -14,7 +14,7 @@ pub struct ContainerMetadata {
 
 impl PercentEncodable for String {
     fn percent_encoded_name(&self) -> String {
-        urlencoding::encode(&self).to_string()
+        urlencoding::encode(self).to_string()
     }
 
     fn raw_name(&self) -> &str {

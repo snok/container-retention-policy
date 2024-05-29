@@ -26,10 +26,10 @@ pub mod responses;
 /// Sort by age and prioritize keeping newer versions.
 /// Tagged images are prioritized over untagged.
 fn handle_keep_at_least(
+    package_name: &str,
     mut tagged: Vec<PackageVersion>,
-    mut untagged: Vec<PackageVersion>,
     keep_at_least: u32,
-) -> (Vec<PackageVersion>, Vec<PackageVersion>) {
+) -> Vec<PackageVersion> {
     let mut kept = 0;
 
     tagged.sort_by_key(|p| {
@@ -40,28 +40,21 @@ fn handle_keep_at_least(
         }
     });
 
-    untagged.sort_by_key(|p| {
-        if p.updated_at.is_some() {
-            p.updated_at.unwrap()
-        } else {
-            p.created_at
-        }
-    });
-
     while kept < keep_at_least {
         // Prioritize keeping tagged images
-        if !tagged.is_empty() {
-            tagged.pop();
-            kept += 1;
-        } else if !untagged.is_empty() {
-            untagged.pop();
-            kept += 1;
-        } else {
+        if tagged.is_empty() {
             info!("No package versions left to delete after keeping {kept} package versions. The keep-at-least setting specifies to keep at least {keep_at_least} versions.");
             break;
         }
+        tagged.pop();
+        kept += 1;
     }
-    (tagged, untagged)
+
+    info!(
+        package_name=package_name,
+        "Kept {kept} of the {keep_at_least} package versions requested by the `keep-at-least` setting"
+    );
+    tagged
 }
 
 #[derive(Debug)]
@@ -72,13 +65,13 @@ struct PackageVersions {
 
 struct PackageVersionSummary {
     package_version_map: HashMap<String, PackageVersions>,
-    untagged_total_count: usize,
     tagged_total_count: usize,
+    untagged_total_count: usize,
 }
 
 fn select_package_versions(
     package_versions: Vec<PackageVersion>,
-    tag_selection: TagSelection,
+    tag_selection: &TagSelection,
     matchers: &Matchers,
     shas_to_skip: &[String],
     package_name: &str,
@@ -103,7 +96,7 @@ fn select_package_versions(
             package_version.metadata.container.tags.is_empty(),
         ) {
             // Handle untagged images here
-            (TagSelection::Untagged, true) | (TagSelection::Both, true) => {
+            (TagSelection::Untagged | TagSelection::Both, true) => {
                 trace!(
                     package_version_id = package_version.id,
                     "Package version has no tags"
@@ -113,7 +106,7 @@ fn select_package_versions(
             }
 
             // Handle tagged images here
-            (TagSelection::Tagged, false) | (TagSelection::Both, false) => {
+            (TagSelection::Tagged | TagSelection::Both, false) => {
                 // Check if there are any filters to apply
                 if matchers.negative.is_empty() && matchers.positive.is_empty() {
                     // No filters implicitly mean match everything
@@ -131,7 +124,7 @@ fn select_package_versions(
                 // Check for any negative matchers match any tags
                 'negative: for tag in &package_version.metadata.container.tags {
                     if matchers.negative.iter().any(|matcher| {
-                        if matcher.matches(&tag) {
+                        if matcher.matches(tag) {
                             debug!(
                                 package_version_id = package_version.id,
                                 tag = tag,
@@ -158,7 +151,7 @@ fn select_package_versions(
                         );
                         positive_matches += 1;
                     } else if matchers.positive.iter().any(|matcher| {
-                        if matcher.matches(&tag) {
+                        if matcher.matches(tag) {
                             debug!(
                                 package_version_id = package_version.id,
                                 tag = tag,
@@ -184,14 +177,14 @@ fn select_package_versions(
                             package_name=package_name,
                             package_version_id=package_version.id,
                             tags=?tags,
-                            "✕ matched a negative `image-tags` filter, but it also matched a positive filter. If you want this package version to be deleted, make sure to review your `image-tags` filters to remove the conflict. The package version can be found at {package_url}. Enable debug logging for more info.");
+                            "✕ package version matched a negative `image-tags` filter, but it also matched a positive filter. If you want this package version to be deleted, make sure to review your `image-tags` filters to remove the conflict. The package version can be found at {package_url}. Enable debug logging for more info.");
                     }
                     // Plain negative match
                     (true, _) => info!(
                             package_name=package_name,
                             package_version_id=package_version.id,
                             tags=?tags,
-                        "✕ matched a negative `image-tags` filter"),
+                        "✕ package version matched a negative `image-tags` filter"),
                     // 100% positive matches
                     (false, positive_matches)
                         if positive_matches == package_version.metadata.container.tags.len() =>
@@ -200,7 +193,7 @@ fn select_package_versions(
                             package_name=package_name,
                             package_version_id=package_version.id,
                             tags=?tags,
-                            "✓ matched all `image-tags` filters");
+                            "✓ package version matched all `image-tags` filters");
                         tagged.push(package_version);
                         continue 'outer;
                     }
@@ -210,7 +203,7 @@ fn select_package_versions(
                             package_name=package_name,
                             package_version_id=package_version.id,
                             tags=?tags,
-                            "✕ matched no `image-tags` filters");
+                            "✕ package version matched no `image-tags` filters");
                     }
                     // Partial positive matches
                     (false, 1..) => {
@@ -220,7 +213,7 @@ fn select_package_versions(
                             package_name=package_name,
                             package_version_id=package_version.id,
                             tags=?tags,
-                            "✕ matched some, but not all tags. If you want this package version to be deleted, make sure to review your `image-tags` filters to remove the conflict. The package version can be found at {package_url}. Enable debug logging for more info.");
+                            "✕ package version matched some, but not all tags. If you want this package version to be deleted, make sure to review your `image-tags` filters to remove the conflict. The package version can be found at {package_url}. Enable debug logging for more info.");
                     }
                 }
             }
@@ -264,7 +257,7 @@ mod select_package_version_tests {
     ) -> (Vec<PackageVersion>, Vec<PackageVersion>) {
         select_package_versions(
             package_versions,
-            TagSelection::Both,
+            &TagSelection::Both,
             &Matchers {
                 positive: vec![],
                 negative: vec![],
@@ -314,7 +307,7 @@ mod select_package_version_tests {
 
         let both_result = select_package_versions(
             package_versions.clone(),
-            TagSelection::Both,
+            &TagSelection::Both,
             &Matchers {
                 positive: vec![],
                 negative: vec![],
@@ -327,7 +320,7 @@ mod select_package_version_tests {
 
         let untagged_result = select_package_versions(
             package_versions.clone(),
-            TagSelection::Untagged,
+            &TagSelection::Untagged,
             &Matchers {
                 positive: vec![],
                 negative: vec![],
@@ -340,7 +333,7 @@ mod select_package_version_tests {
 
         let tagged_result = select_package_versions(
             package_versions.clone(),
-            TagSelection::Tagged,
+            &TagSelection::Tagged,
             &Matchers {
                 positive: vec![],
                 negative: vec![],
@@ -389,7 +382,7 @@ mod select_package_version_tests {
         // No matchers == *
         let wildcard_result = select_package_versions(
             package_versions.clone(),
-            TagSelection::Both,
+            &TagSelection::Both,
             &Matchers {
                 positive: vec![],
                 negative: vec![],
@@ -407,7 +400,7 @@ mod select_package_version_tests {
         // Positive matcher
         let positive_result = select_package_versions(
             package_versions.clone(),
-            TagSelection::Both,
+            &TagSelection::Both,
             &Matchers {
                 positive: vec![WildMatchPattern::<'*', '?'>::new("ba*")],
                 negative: vec![],
@@ -431,7 +424,7 @@ mod select_package_version_tests {
         // Negative matcher
         let negative_result = select_package_versions(
             package_versions.clone(),
-            TagSelection::Both,
+            &TagSelection::Both,
             &Matchers {
                 positive: vec![WildMatchPattern::<'*', '?'>::new("ba*")],
                 negative: vec![WildMatchPattern::<'*', '?'>::new("baz")],
@@ -449,7 +442,7 @@ mod select_package_version_tests {
         // Negative matcher - negative matcher takes precedence over positive
         let negative_result = select_package_versions(
             package_versions.clone(),
-            TagSelection::Both,
+            &TagSelection::Both,
             &Matchers {
                 positive: vec![WildMatchPattern::<'*', '?'>::new("baz")],
                 negative: vec![WildMatchPattern::<'*', '?'>::new("baz")],
@@ -474,7 +467,7 @@ mod select_package_version_tests {
 
         select_package_versions(
             package_versions.clone(),
-            TagSelection::Both,
+            &TagSelection::Both,
             &matchers,
             &vec![],
             "package",
@@ -491,7 +484,9 @@ mod select_package_version_tests {
             positive: vec![],
             negative: vec![WildMatchPattern::<'*', '?'>::new("foo")],
         });
-        assert!(logs_contain("✕ matched a negative `image-tags` filter"));
+        assert!(logs_contain(
+            "✕ package version matched a negative `image-tags` filter"
+        ));
 
         // Negative and positive match
         call_f(Matchers {
@@ -499,7 +494,7 @@ mod select_package_version_tests {
             negative: vec![WildMatchPattern::<'*', '?'>::new("*")],
         });
         assert!(logs_contain(
-            "✕ matched a negative `image-tags` filter, but it also matched a positive filter"
+            "✕ package version matched a negative `image-tags` filter, but it also matched a positive filter"
         ));
 
         // 100% positive match
@@ -510,21 +505,27 @@ mod select_package_version_tests {
             ],
             negative: vec![],
         });
-        assert!(logs_contain("✓ matched all `image-tags` filters"));
+        assert!(logs_contain(
+            "✓ package version matched all `image-tags` filters"
+        ));
 
         // No positive match
         call_f(Matchers {
             positive: vec![WildMatchPattern::<'*', '?'>::new("random")],
             negative: vec![],
         });
-        assert!(logs_contain("✕ matched no `image-tags` filters"));
+        assert!(logs_contain(
+            "✕ package version matched no `image-tags` filters"
+        ));
 
         // Partial positive match
         call_f(Matchers {
             positive: vec![WildMatchPattern::<'*', '?'>::new("foo")],
             negative: vec![],
         });
-        assert!(logs_contain("✕ matched some, but not all tags"));
+        assert!(logs_contain(
+            "✕ package version matched some, but not all tags"
+        ));
     }
 }
 
@@ -569,15 +570,14 @@ async fn concurrently_fetch_and_filter_package_versions(
         // Filter based on matchers
         let (tagged, untagged) = select_package_versions(
             package_versions,
-            tag_selection.clone(),
+            &tag_selection,
             &matchers,
             &shas_to_skip,
             &package_name,
             &client.urls,
         )?;
 
-        // TODO: Better tracing
-        let (tagged, untagged) = handle_keep_at_least(tagged, untagged, keep_at_least);
+        let tagged = handle_keep_at_least(&package_name, tagged, keep_at_least);
 
         tagged_total_count += tagged.len();
         untagged_total_count += untagged.len();
@@ -598,23 +598,23 @@ struct Matchers {
     negative: Vec<WildMatchPattern<'*', '?'>>,
 }
 
-fn create_filter_matchers(filters: &Vec<String>) -> Matchers {
+fn create_filter_matchers(filters: &[String]) -> Matchers {
     Matchers {
         positive: filters
             .iter()
             .filter_map(|pattern| {
-                if !pattern.starts_with("!") {
-                    Some(WildMatchPattern::<'*', '?'>::new(pattern))
-                } else {
+                if pattern.starts_with('!') {
                     None
+                } else {
+                    Some(WildMatchPattern::<'*', '?'>::new(pattern))
                 }
             })
             .collect(),
         negative: filters
             .iter()
             .filter_map(|pattern| {
-                if pattern.starts_with("!") {
-                    Some(WildMatchPattern::<'*', '?'>::new(&pattern[1..]))
+                if let Some(without_prefix) = pattern.strip_prefix('!') {
+                    Some(WildMatchPattern::<'*', '?'>::new(without_prefix))
                 } else {
                     None
                 }
@@ -623,8 +623,8 @@ fn create_filter_matchers(filters: &Vec<String>) -> Matchers {
     }
 }
 
-fn filter_by_matchers(vec: &Vec<impl PercentEncodable>, matchers: &Matchers) -> Vec<String> {
-    vec.into_iter()
+fn filter_by_matchers(vec: &[impl PercentEncodable], matchers: &Matchers) -> Vec<String> {
+    vec.iter()
         .filter_map(|p| {
             if matchers.negative.iter().any(|matcher| {
                 if matcher.matches(p.raw_name()) {
@@ -657,14 +657,19 @@ fn filter_by_matchers(vec: &Vec<impl PercentEncodable>, matchers: &Matchers) -> 
             }) {
                 return Some(p.raw_name().to_string());
             };
+            debug!(
+                "No match for package {} in {:?}",
+                p.raw_name(),
+                matchers.positive
+            );
             None
         })
         .collect()
 }
 
 fn randomly_sample_packages(
-    vec: Vec<String>,
-    remaining_requests: &usize,
+    vec: &[String],
+    remaining_requests: usize,
     rate_limit_reset: &DateTime<Utc>,
 ) -> Vec<String> {
     let amount_we_can_handle = remaining_requests / 2;
@@ -694,9 +699,9 @@ async fn main() {
     debug!("Logging initialized");
 
     // Validate inputs
-    let input = Input::parse()
-        .validate()
-        .expect("Failed to validate arguments");
+    let input = Input::parse();
+    println!("{:?}", input.image_names);
+    println!("HELLO {:?}", input.image_names);
 
     // TODO: Is there a better way?
     if env::var("CRP_TEST").is_ok() {
@@ -752,8 +757,8 @@ async fn main() {
     // and 1 request to delete the package version.
     if client.remaining_requests < selected_package_names.len() * 2 {
         selected_package_names = randomly_sample_packages(
-            selected_package_names,
-            &client.remaining_requests,
+            &selected_package_names,
+            client.remaining_requests,
             &client.rate_limit_reset,
         );
     }
@@ -784,16 +789,10 @@ async fn main() {
     let deleted_packages =
         concurrently_delete_package_versions(package_versions_summary, client, input.dry_run).await;
 
-    let mut github_output = env::var("GITHUB_OUTPUT").unwrap_or(String::new());
+    let mut github_output = env::var("GITHUB_OUTPUT").unwrap_or_default();
 
-    github_output.push_str(&format!(
-        "deleted={}",
-        deleted_packages.deleted.join(",").to_string()
-    ));
-    github_output.push_str(&format!(
-        "failed={}",
-        deleted_packages.failed.join(",").to_string()
-    ));
+    github_output.push_str(&format!("deleted={}", deleted_packages.deleted.join(",")));
+    github_output.push_str(&format!("failed={}", deleted_packages.failed.join(",")));
     env::set_var("GITHUB_OUTPUT", github_output);
 }
 
@@ -984,28 +983,28 @@ mod test {
 
         // Newest is removed (to be kept)
         let kept = handle_keep_at_least(
-            vec![pv(five_minutes_ago), pv(ten_minutes_ago), pv(now)],
-            Vec::new(),
+            "",
+            vec![pv(five_minutes_ago), pv(now), pv(ten_minutes_ago)],
             1,
         );
-        assert_eq!(kept.0.len(), 2);
-        assert_eq!(kept.0, vec![pv(ten_minutes_ago), pv(five_minutes_ago)]);
-        let kept = handle_keep_at_least(
-            Vec::new(),
-            vec![pv(five_minutes_ago), pv(ten_minutes_ago), pv(now)],
-            1,
-        );
-        assert_eq!(kept.1.len(), 2);
-        assert_eq!(kept.1, vec![pv(ten_minutes_ago), pv(five_minutes_ago)]);
+        assert_eq!(kept.len(), 2);
+        assert_eq!(kept, vec![pv(ten_minutes_ago), pv(five_minutes_ago)]);
 
-        // Tagged is removed (kept) over untagged
         let kept = handle_keep_at_least(
-            vec![pv(five_minutes_ago), pv(ten_minutes_ago)],
-            vec![pv(now)],
-            2,
+            "",
+            vec![pv(five_minutes_ago), pv(ten_minutes_ago), pv(now)],
+            1,
         );
-        assert_eq!(kept.0.len(), 0);
-        assert_eq!(kept.1.len(), 1);
+        assert_eq!(kept.len(), 2);
+        assert_eq!(kept, vec![pv(ten_minutes_ago), pv(five_minutes_ago)]);
+
+        let kept = handle_keep_at_least(
+            "",
+            vec![pv(now), pv(ten_minutes_ago), pv(five_minutes_ago)],
+            1,
+        );
+        assert_eq!(kept.len(), 2);
+        assert_eq!(kept, vec![pv(ten_minutes_ago), pv(five_minutes_ago)]);
     }
 }
 
@@ -1023,7 +1022,6 @@ mod tests {
 
     #[test]
     fn test_handle_keep_at_least() {
-        // Test case 1: more items than keep_at_least
         let metadata = Metadata {
             container: ContainerMetadata { tags: Vec::new() },
         };
@@ -1052,50 +1050,21 @@ mod tests {
                 metadata: metadata.clone(),
             },
         ];
-        let untagged = tagged.clone();
 
         // Test case 1: more items than keep at least
         let keep_at_least = 2;
-        let (remaining_tagged, remaining_untagged) =
-            handle_keep_at_least(tagged.clone(), untagged.clone(), keep_at_least);
+        let remaining_tagged = handle_keep_at_least("", tagged.clone(), keep_at_least);
         assert_eq!(remaining_tagged.len(), 1);
-        assert_eq!(remaining_untagged.len(), 3);
 
         // Test case 2: same items as keep_at_least
         let keep_at_least = 6;
-        let (remaining_tagged, remaining_untagged) =
-            handle_keep_at_least(tagged.clone(), untagged.clone(), keep_at_least);
+        let remaining_tagged = handle_keep_at_least("", tagged.clone(), keep_at_least);
         assert_eq!(remaining_tagged.len(), 0);
-        assert_eq!(remaining_untagged.len(), 0);
 
-        // Test case 3: less items than keep_at_least
+        // Test case 3: fewer items than keep_at_least
         let keep_at_least = 10;
-        // TODO: Capture stdout and assert info log is output
-        let (remaining_tagged, remaining_untagged) =
-            handle_keep_at_least(tagged.clone(), untagged.clone(), keep_at_least);
+        let remaining_tagged = handle_keep_at_least("", tagged.clone(), keep_at_least);
         assert_eq!(remaining_tagged.len(), 0);
-        assert_eq!(remaining_untagged.len(), 0);
-
-        // Test case 4: equal items as keep_at_least
-        let keep_at_least = 3;
-        let (remaining_tagged, remaining_untagged) =
-            handle_keep_at_least(tagged.clone(), untagged.clone(), keep_at_least);
-        assert_eq!(remaining_tagged.len(), 0);
-        assert_eq!(remaining_untagged.len(), 3);
-
-        // Test case 5: tagged is empty
-        let tagged_empty = Vec::new();
-        let (remaining_tagged, remaining_untagged) =
-            handle_keep_at_least(tagged_empty.clone(), untagged.clone(), keep_at_least);
-        assert_eq!(remaining_tagged.len(), 0);
-        assert_eq!(remaining_untagged.len(), 0);
-
-        // Test case 6: untagged is empty
-        let untagged_empty = Vec::new();
-        let (remaining_tagged, remaining_untagged) =
-            handle_keep_at_least(tagged.clone(), untagged_empty.clone(), keep_at_least);
-        assert_eq!(remaining_tagged.len(), 0);
-        assert_eq!(remaining_untagged.len(), 0);
     }
 
     #[test]
@@ -1111,35 +1080,35 @@ mod tests {
             "Eight".to_string(),
         ];
         assert_eq!(
-            randomly_sample_packages(data.clone(), &0_usize, &Utc::now()).len(),
+            randomly_sample_packages(&data, 0_usize, &Utc::now()).len(),
             0
         );
         assert_eq!(
-            randomly_sample_packages(data.clone(), &1_usize, &Utc::now()).len(),
+            randomly_sample_packages(&data, 1_usize, &Utc::now()).len(),
             0
         );
         assert_eq!(
-            randomly_sample_packages(data.clone(), &2_usize, &Utc::now()).len(),
+            randomly_sample_packages(&data, 2_usize, &Utc::now()).len(),
             1
         );
         assert_eq!(
-            randomly_sample_packages(data.clone(), &3_usize, &Utc::now()).len(),
+            randomly_sample_packages(&data, 3_usize, &Utc::now()).len(),
             1
         );
         assert_eq!(
-            randomly_sample_packages(data.clone(), &4_usize, &Utc::now()).len(),
+            randomly_sample_packages(&data, 4_usize, &Utc::now()).len(),
             2
         );
         assert_eq!(
-            randomly_sample_packages(data.clone(), &5_usize, &Utc::now()).len(),
+            randomly_sample_packages(&data, 5_usize, &Utc::now()).len(),
             2
         );
         assert_eq!(
-            randomly_sample_packages(data.clone(), &6_usize, &Utc::now()).len(),
+            randomly_sample_packages(&data, 6_usize, &Utc::now()).len(),
             3
         );
         assert_eq!(
-            randomly_sample_packages(data.clone(), &7_usize, &Utc::now()).len(),
+            randomly_sample_packages(&data, 7_usize, &Utc::now()).len(),
             3
         );
         // TODO: Add a seeded test and assert ordering

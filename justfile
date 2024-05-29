@@ -59,10 +59,26 @@ run:
         --account snok \
         --token $DELETE_PACKAGES_CLASSIC_TOKEN \
         --tag-selection both \
-        --image-names "container-retention-policy*"  \
+        --image-names "container-retention-policy"  \
         --image-tags "!latest !test-1*" \
         --shas-to-skip "" \
-        --keep-at-least 1 \
-        --timestamp-to-use updated-at \
+        --keep-at-least 2 \
+        --timestamp-to-use "updated_at" \
         --cut-off 1s \
-        --dry-run false
+        --dry-run true
+
+docker-run:
+    docker buildx build --platform linux/amd64,linux/arm64 -f Dockerfile -t "ghcr.io/snok/container-retention-policy:v3.0.0-alpha1" --push .
+    docker run \
+      -e RUST_LOG=container_retention_policy=info \
+      ghcr.io/snok/container-retention-policy:v3.0.0-alpha1 ./container-retention-policy  \
+          --account snok \
+          --token $$DELETE_PACKAGES_CLASSIC_TOKEN \
+          --tag-selection both \
+          --image-names "container-retention-policy*"  \
+          --image-tags "!latest, !test-1*" \
+          --shas-to-skip "" \
+          --keep-at-least 2 \
+          --timestamp-to-use updated_at \
+          --cut-off 1s \
+          --dry-run true

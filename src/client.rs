@@ -34,6 +34,12 @@ pub struct ContainerClientBuilder {
     rate_limit_reset: Option<DateTime<Utc>>,
 }
 
+impl Default for ContainerClientBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ContainerClientBuilder {
     pub fn new() -> Self {
         Self {
@@ -53,9 +59,9 @@ impl ContainerClientBuilder {
         let auth_header_value = format!(
             "Bearer {}",
             match &token {
-                Token::TemporalToken(token) => token.expose_secret(),
-                Token::ClassicPersonalAccessToken(token) => token.expose_secret(),
-                Token::OauthToken(token) => token.expose_secret(),
+                Token::TemporalToken(token)
+                | Token::OauthToken(token)
+                | Token::ClassicPersonalAccessToken(token) => token.expose_secret(),
             }
         );
         let mut headers = HeaderMap::new();
@@ -221,16 +227,9 @@ impl Urls {
             Url::parse(&(api_base_url.clone() + "?package_type=container&per_page=100"))
                 .expect("Failed to parse URL");
 
-        match account {
-            Account::User => {
-                api_base_url += "/container";
-                github_base_url += "/container";
-            }
-            Account::Organization(_) => {
-                api_base_url += "/container";
-                github_base_url += "/container";
-            }
-        };
+        api_base_url += "/container";
+        github_base_url += "/container";
+
         Self {
             list_packages_url,
             container_package_base: Url::parse(&api_base_url).expect("Failed to parse URL"),
@@ -310,16 +309,24 @@ impl ContainerClient {
             let mut request = Request::new(Method::GET, url);
             *request.headers_mut() = headers.clone();
 
+            // Get a lock on the tower service which regulates our traffic
             let mut handle = service.lock().await;
 
-            // Fire request
             let response = {
+                // Wait until the service says we're OK to proceed
                 let r = handle.ready().await;
+
                 match r {
-                    Ok(t) => match t.call(request).await {
-                        Ok(t) => t,
-                        Err(e) => return Err(eyre!("Failed to fetch package: {}", e)),
-                    },
+                    Ok(t) => {
+                        // Initiate the request and drop the handle before awaiting the result
+                        // If we don't drop the handle, our request flow becomes synchronous
+                        let fut = t.call(request);
+                        drop(handle);
+                        match fut.await {
+                            Ok(t) => t,
+                            Err(e) => return Err(eyre!("Failed to fetch package: {}", e)),
+                        }
+                    }
                     Err(e) => {
                         return Err(eyre!("Service failed to become ready: {}", e));
                     }
@@ -382,15 +389,24 @@ impl ContainerClient {
             let mut request = Request::new(Method::GET, url);
             *request.headers_mut() = headers.clone();
 
+            // Get a lock on the tower service which regulates our traffic
             let mut handle = service.lock().await;
 
-            // Fire request
             let response = {
-                match handle.ready().await {
-                    Ok(t) => match t.call(request).await {
-                        Ok(t) => t,
-                        Err(e) => return Err(eyre!("Failed to fetch package version: {}", e)),
-                    },
+                // Wait until the service says we're OK to proceed
+                let r = handle.ready().await;
+
+                match r {
+                    Ok(t) => {
+                        // Initiate the request and drop the handle before awaiting the result
+                        // If we don't drop the handle, our request flow becomes synchronous
+                        let fut = t.call(request);
+                        drop(handle);
+                        match fut.await {
+                            Ok(t) => t,
+                            Err(e) => return Err(eyre!("Failed to fetch package version: {}", e)),
+                        }
+                    }
                     Err(e) => {
                         return Err(eyre!("Service failed to become ready: {}", e));
                     }
@@ -466,10 +482,6 @@ impl ContainerClient {
                 );
             }
             return Ok(Vec::new());
-        } else {
-            for name in &names {
-                info!(package_version = package_version.id, "Deleting {name}",);
-            }
         }
 
         // Construct URL for this package version
@@ -491,22 +503,30 @@ impl ContainerClient {
         let mut request = Request::new(Method::DELETE, url);
         *request.headers_mut() = self.headers.clone();
 
+        // Get a lock on the tower service which regulates our traffic
         let mut handle = self.delete_package_versions_service.lock().await;
 
-        // Fire request
         let response = {
+            // Wait until the service says we're OK to proceed
             let r = handle.ready().await;
+
             match r {
-                Ok(t) => match t.call(request).await {
-                    Ok(t) => t,
-                    Err(e) => {
-                        error!(
-                            "Failed to delete package version {} with error: {}",
-                            package_version.id, e
-                        );
-                        return Err(names);
+                Ok(t) => {
+                    // Initiate the request and drop the handle before awaiting the result
+                    // If we don't drop the handle, our request flow becomes synchronous
+                    let fut = t.call(request);
+                    drop(handle);
+                    match fut.await {
+                        Ok(t) => t,
+                        Err(e) => {
+                            error!(
+                                "Failed to delete package version {} with error: {}",
+                                package_version.id, e
+                            );
+                            return Err(names);
+                        }
                     }
-                },
+                }
                 Err(e) => {
                     error!("Service failed to become ready: {}", e);
                     return Err(names);
@@ -514,12 +534,11 @@ impl ContainerClient {
             }
         };
 
-        return match response.status() {
+        match response.status() {
             StatusCode::NO_CONTENT => {
-                debug!(
-                    "Deleted package version {} successfully",
-                    package_version.id
-                );
+                for name in &names {
+                    info!(package_version_id = package_version.id, "Deleted {name}");
+                }
                 Ok(names)
             }
             StatusCode::UNPROCESSABLE_ENTITY | StatusCode::BAD_REQUEST => {
@@ -542,7 +561,7 @@ impl ContainerClient {
                 );
                 Err(names)
             }
-        };
+        }
     }
 }
 
@@ -637,16 +656,16 @@ impl GithubHeaders {
         for (k, v) in value {
             match k.as_str() {
                 "x-ratelimit-remaining" => {
-                    x_rate_limit_remaining = Some(usize::from_str(v.to_str().unwrap()).unwrap())
+                    x_rate_limit_remaining = Some(usize::from_str(v.to_str().unwrap()).unwrap());
                 }
                 "x-ratelimit-used" => {
-                    x_rate_limit_used = Some(u32::from_str(v.to_str().unwrap()).unwrap())
+                    x_rate_limit_used = Some(u32::from_str(v.to_str().unwrap()).unwrap());
                 }
                 "x-ratelimit-reset" => {
                     x_rate_limit_reset = Some(
                         DateTime::from_timestamp(i64::from_str(v.to_str().unwrap()).unwrap(), 0)
                             .unwrap(),
-                    )
+                    );
                 }
                 "x-oauth-scopes" => x_oauth_scopes = Some(v.to_str().unwrap().to_string()),
                 "link" => link = Some(v.to_str().unwrap().to_string()),

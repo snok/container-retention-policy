@@ -1,13 +1,38 @@
 use clap::ArgAction;
 use clap::{Parser, ValueEnum};
-use color_eyre::eyre::eyre;
-use color_eyre::eyre::Result;
+use humantime::Duration;
 use regex::Regex;
 use secrecy::{ExposeSecret, Secret};
+use std::convert::Infallible;
 use tracing::Level;
 
+pub fn vec_of_string_from_str(names: &str) -> Result<Vec<String>, Infallible> {
+    Ok(names
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .filter_map(|t| {
+            let s = t.trim().to_string();
+            if s.is_empty() {
+                None
+            } else {
+                Some(s)
+            }
+        })
+        .collect::<Vec<String>>())
+}
+
+pub fn try_parse_shas_as_list(s: &str) -> Result<Vec<String>, String> {
+    let shas = vec_of_string_from_str(s).unwrap();
+    let re = Regex::new(r"^sha256:[0-9a-fA-F]{64}$").unwrap();
+    for sha in &shas {
+        if !re.is_match(sha) {
+            return Err(format!("Invalid image SHA received: {sha}"));
+        }
+    }
+    Ok(shas)
+}
+
 #[derive(Debug, Clone, ValueEnum, PartialEq)]
-#[clap(rename_all = "kebab-case")]
+#[clap(rename_all = "snake-case")]
 pub enum Timestamp {
     UpdatedAt,
     CreatedAt,
@@ -33,28 +58,26 @@ pub enum Token {
 }
 
 impl Token {
-    fn try_from_secret(value: Secret<String>) -> Result<Self> {
-        let inner = value.expose_secret().trim();
+    fn try_from_str(value: &str) -> Result<Self, String> {
+        let secret = Secret::new(value.to_string());
 
         // Classic PAT
-        if Regex::new(r"ghp_[a-zA-Z0-9]{36}$").unwrap().is_match(inner) {
-            return Ok(Self::ClassicPersonalAccessToken(value));
+        if Regex::new(r"ghp_[a-zA-Z0-9]{36}$").unwrap().is_match(value) {
+            return Ok(Self::ClassicPersonalAccessToken(secret));
         };
 
         // Temporal token - i.e., $GITHUB_TOKEN
-        if Regex::new(r"ghs_[a-zA-Z0-9]{36}$").unwrap().is_match(inner) {
-            return Ok(Self::TemporalToken(value));
+        if Regex::new(r"ghs_[a-zA-Z0-9]{36}$").unwrap().is_match(value) {
+            return Ok(Self::TemporalToken(secret));
         };
 
         // GitHub oauth token
-        if Regex::new(r"gho_[a-zA-Z0-9]{36}$").unwrap().is_match(inner) {
-            return Ok(Self::OauthToken(value));
+        if Regex::new(r"gho_[a-zA-Z0-9]{36}$").unwrap().is_match(value) {
+            return Ok(Self::OauthToken(secret));
         };
-        return Err(
-            eyre!(
-                "The `token` value is not valid. Must be $GITHUB_TOKEN, a classic personal access token (prefixed by 'ghp') or oauth token (prefixed by 'gho')."
-            )
-        );
+        Err(
+            "The `token` value is not valid. Must be $GITHUB_TOKEN, a classic personal access token (prefixed by 'ghp') or oauth token (prefixed by 'gho').".to_string()
+        )
     }
 }
 
@@ -93,103 +116,66 @@ pub enum Account {
 }
 
 impl Account {
-    fn try_from_str(value: &str) -> Result<Self> {
+    fn try_from_str(value: &str) -> Result<Self, String> {
         let value = value.trim();
         if value == "user" {
             Ok(Self::User)
         } else if value.is_empty() {
-            return Err(eyre!("`account` must be set to 'user' for personal accounts, or to the name of your organization"));
+            return Err("`account` must be set to 'user' for personal accounts, or to the name of your organization".to_string());
         } else {
             Ok(Self::Organization(value.to_string()))
         }
     }
 }
 
-#[derive(Debug, Parser)]
+#[derive(Parser)]
+#[clap(version, about, long_about = None)]
+#[clap(propagate_version = true)]
 pub struct Input {
-    #[clap(long)]
-    pub account: String,
-    #[clap(long)]
-    pub token: Secret<String>,
-    #[clap(long)]
-    pub image_names: String,
-    #[clap(long)]
-    pub image_tags: String,
-    #[clap(long)]
-    pub shas_to_skip: String,
-    #[clap(long)]
+    /// The account to delete package versions for
+    #[arg(long, value_parser = Account::try_from_str)]
+    pub account: Account,
+
+    /// The token to use for authentication
+    #[arg(long, value_parser = Token::try_from_str)]
+    pub token: Token,
+
+    /// The package names to target
+    #[arg(long, value_parser = vec_of_string_from_str)]
+    pub image_names: std::vec::Vec<String>,
+
+    /// The container image tags to target
+    #[arg(long, value_parser = vec_of_string_from_str)]
+    pub image_tags: std::vec::Vec<String>,
+
+    /// Package version SHAs to avoid deleting
+    #[arg(long, value_parser = try_parse_shas_as_list)]
+    pub shas_to_skip: std::vec::Vec<String>,
+
+    /// Whether to delete tagged or untagged package versions, or both
+    #[arg(long, value_enum, default_value = "both")]
     pub tag_selection: TagSelection,
-    #[clap(long)]
+
+    /// How many tagged packages to keep, after filtering
+    #[arg(long, long, default_value = "0")]
     pub keep_at_least: u32,
-    #[clap(long, action(ArgAction::Set))]
+
+    /// Whether to delete package versions or not
+    #[arg(long, action(ArgAction::Set), default_value = "false")]
     pub dry_run: bool,
-    #[clap(long)]
+
+    /// Which timestamp to use when considering the cut-off filtering
+    #[arg(long, value_enum, default_value = "updated_at")]
     pub timestamp_to_use: Timestamp,
-    #[clap(long)]
-    pub cut_off: String,
-    #[arg(short, long, global = true, default_value = "info")]
+
+    /// How old package versions should be before being considered
+    // TODO: IMPLEMENT THIS
+    #[arg(long)]
+    pub cut_off: Duration,
+
+    /// The log level to use for the tracing subscriber
+    #[arg(long, global = true, default_value = "info")]
     pub(crate) log_level: Level,
-}
-
-impl Input {
-    pub fn parse_string_as_list(names: String) -> Vec<String> {
-        names
-            .replace(' ', ",")
-            .split(',')
-            .filter_map(|t| {
-                let s = t.trim().to_string();
-                if !s.is_empty() {
-                    Some(s)
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<String>>()
-    }
-
-    fn is_valid_sha256(hash: &str) -> bool {
-        let re = Regex::new(r"^sha256:[0-9a-fA-F]{64}$").unwrap();
-        re.is_match(hash)
-    }
-
-    pub fn validate(self) -> Result<ValidatedInput> {
-        let account = Account::try_from_str(&self.account)?;
-        let token = Token::try_from_secret(self.token)?;
-        let image_names = Self::parse_string_as_list(self.image_names);
-        let image_tags = Self::parse_string_as_list(self.image_tags);
-        let shas_to_skip = Self::parse_string_as_list(self.shas_to_skip);
-        for sha in &shas_to_skip {
-            if !Self::is_valid_sha256(sha) {
-                return Err(eyre!("Invalid image SHA received: {sha}"));
-            }
-        }
-        match token {
-            Token::TemporalToken(_) => {
-                // TODO: Double check this is true
-                if image_names.len() != 1 {
-                    return Err(eyre!("When `token-type` is set to 'github-token', then `image-names` must contain a single image name which matches the name of the repository the action is running from."));
-                } else if image_names[0].contains("*") || image_names[0].contains("?") {
-                    return Err(eyre!(
-                        "Wildcards are not allowed for `token_type: github-token`."
-                    ));
-                }
-            }
-            _ => (),
-        };
-
-        Ok(ValidatedInput {
-            account,
-            token,
-            image_names,
-            image_tags,
-            shas_to_skip,
-            tag_selection: self.tag_selection,
-            keep_at_least: self.keep_at_least,
-            dry_run: self.dry_run,
-            timestamp_to_use: self.timestamp_to_use,
-            cut_off: self.cut_off,
-        })
-    }
 }
 
 pub struct ValidatedInput {
@@ -211,19 +197,69 @@ mod tests {
     use assert_cmd::Command;
 
     #[test]
+    fn test_vec_of_string_from_str() {
+        assert_eq!(
+            vec_of_string_from_str("foo,bar").unwrap(),
+            vec!["foo".to_string(), "bar".to_string()]
+        );
+        assert_eq!(
+            vec_of_string_from_str("foo , bar").unwrap(),
+            vec!["foo".to_string(), "bar".to_string()]
+        );
+        assert_eq!(
+            vec_of_string_from_str("foo , bar,baz").unwrap(),
+            vec!["foo".to_string(), "bar".to_string(), "baz".to_string()]
+        );
+        assert_eq!(
+            vec_of_string_from_str("foo bar").unwrap(),
+            vec!["foo".to_string(), "bar".to_string()]
+        );
+        assert_eq!(
+            vec_of_string_from_str("foo  bar baz").unwrap(),
+            vec!["foo".to_string(), "bar".to_string(), "baz".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_try_parse_shas_as_list() {
+        assert_eq!(
+            try_parse_shas_as_list(
+                "\
+                sha256:86215617a0ea1f77e9f314b45ffd578020935996612fb497239509b151a6f1ba, \
+                sha256:17152a70ea10de6ecd804fffed4b5ebd3abc638e8920efb6fab2993c5a77600a  \
+                sha256:a86523225e8d21faae518a5ea117e06887963a4a9ac123683d91890af092cf03"
+            )
+            .unwrap(),
+            vec![
+                "sha256:86215617a0ea1f77e9f314b45ffd578020935996612fb497239509b151a6f1ba"
+                    .to_string(),
+                "sha256:17152a70ea10de6ecd804fffed4b5ebd3abc638e8920efb6fab2993c5a77600a"
+                    .to_string(),
+                "sha256:a86523225e8d21faae518a5ea117e06887963a4a9ac123683d91890af092cf03"
+                    .to_string(),
+            ]
+        );
+        assert!(try_parse_shas_as_list(
+            "a86523225e8d21faae518a5ea117e06887963a4a9ac123683d91890af092cf03"
+        )
+        .is_err());
+        assert!(try_parse_shas_as_list("foo").is_err());
+    }
+
+    #[test]
     fn parse_timestamp() {
         assert_eq!(
-            Timestamp::from_str("updated-at", true).unwrap(),
+            Timestamp::from_str("updated_at", true).unwrap(),
             Timestamp::UpdatedAt
         );
         assert_eq!(
-            Timestamp::from_str("created-at", true).unwrap(),
+            Timestamp::from_str("created_at", true).unwrap(),
             Timestamp::CreatedAt
         );
         assert!(Timestamp::from_str("createdAt", true).is_err());
         assert!(Timestamp::from_str("updatedAt", true).is_err());
-        assert!(Timestamp::from_str("updated_At", true).is_err());
-        assert!(Timestamp::from_str("Created_At", true).is_err());
+        assert!(Timestamp::from_str("updated-At", true).is_err());
+        assert!(Timestamp::from_str("Created-At", true).is_err());
     }
 
     #[test]
@@ -246,28 +282,19 @@ mod tests {
     #[test]
     fn parse_token() {
         assert_eq!(
-            Token::try_from_secret(Secret::new(
-                "ghs_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT".to_string()
-            ))
-            .unwrap(),
+            Token::try_from_str("ghs_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT").unwrap(),
             Token::TemporalToken(Secret::new(
                 "ghs_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT".to_string()
             ))
         );
         assert_eq!(
-            Token::try_from_secret(Secret::new(
-                "ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT".to_string()
-            ))
-            .unwrap(),
+            Token::try_from_str("ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT").unwrap(),
             Token::ClassicPersonalAccessToken(Secret::new(
                 "ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT".to_string()
             ))
         );
         assert_eq!(
-            Token::try_from_secret(Secret::new(
-                "gho_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT".to_string()
-            ))
-            .unwrap(),
+            Token::try_from_str("gho_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT").unwrap(),
             Token::OauthToken(Secret::new(
                 "gho_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT".to_string()
             ))
@@ -286,89 +313,51 @@ mod tests {
     }
 
     #[test]
-    fn parse_string_as_list() {
-        assert_eq!(
-            Input::parse_string_as_list("foo,bar".to_string()),
-            vec!["foo", "bar"]
-        );
-        assert_eq!(
-            Input::parse_string_as_list("foo , bar".to_string()),
-            vec!["foo", "bar"]
-        );
-        assert_eq!(
-            Input::parse_string_as_list("foo , bar,baz".to_string()),
-            vec!["foo", "bar", "baz"]
-        );
-        assert_eq!(
-            Input::parse_string_as_list("foo bar".to_string()),
-            vec!["foo", "bar"]
-        );
-        assert_eq!(
-            Input::parse_string_as_list("foo  bar baz".to_string()),
-            vec!["foo", "bar", "baz"]
-        );
-    }
-    // #[test]
-    // fn parse_input() {
-    //     let args_permutations = vec![
-    //         vec![
-    //             "--account=user",
-    //             "--token=ghs_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT",
-    //             "--image-names=foo",
-    //             "--image-tags=one",
-    //             "--shas-to-skip=",
-    //             "--tag-selection=tagged",
-    //             "--timestamp-to-use=updated-at",
-    //             "--cut-off=1w",
-    //             "--dry-run=true",
-    //         ],
-    //         vec![
-    //             "--account=acme",
-    //             "--token=ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT",
-    //             "--image-names=\"foo bar\"",
-    //             "--image-tags=\"one two\"",
-    //             "--shas-to-skip=",
-    //             "--tag-selection=untagged",
-    //             "--timestamp-to-use=created-at",
-    //             "--cut-off=1d",
-    //             "--dry-run=true",
-    //         ],
-    //         vec![
-    //             "--account=foo",
-    //             "--token=ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT",
-    //             "--image-names=\"foo, bar\"",
-    //             "--image-tags=\"one, two\"",
-    //             "--shas-to-skip=",
-    //             "--tag-selection=both",
-    //             "--timestamp-to-use=updated-at",
-    //             "--cut-off=1h",
-    //             "--dry-run=true",
-    //         ],
-    //     ];
-    //
-    //     for args in args_permutations {
-    //         let mut cmd =
-    //             Command::cargo_bin("container-retention-policy").expect("Failed to load binary");
-    //
-    //         cmd.env("CRP_TEST", "true").args(args).assert().success();
-    //     }
-    // }
-}
+    fn parse_input() {
+        let args_permutations = vec![
+            vec![
+                "--account=user",
+                "--token=ghs_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT",
+                "--image-names=foo",
+                "--image-tags=one",
+                "--shas-to-skip=",
+                "--keep-at-least=0",
+                "--tag-selection=tagged",
+                "--timestamp-to-use=updated_at",
+                "--cut-off=1w",
+                "--dry-run=true",
+            ],
+            vec![
+                "--account=acme",
+                "--token=ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT",
+                "--image-names=\"foo bar\"",
+                "--image-tags=\"one two\"",
+                "--shas-to-skip=",
+                "--keep-at-least=10",
+                "--tag-selection=untagged",
+                "--timestamp-to-use=created_at",
+                "--cut-off=1d",
+                "--dry-run=true",
+            ],
+            vec![
+                "--account=foo",
+                "--token=ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT",
+                "--image-names=\"foo, bar\"",
+                "--image-tags=\"one, two\"",
+                "--shas-to-skip=",
+                "--keep-at-least=999",
+                "--tag-selection=both",
+                "--timestamp-to-use=updated_at",
+                "--cut-off=1h",
+                "--dry-run=true",
+            ],
+        ];
 
-#[test]
-fn is_valid_sha() {
-    assert!(Input::is_valid_sha256(
-        "sha256:86215617a0ea1f77e9f314b45ffd578020935996612fb497239509b151a6f1ba"
-    ));
-    assert!(Input::is_valid_sha256(
-        "sha256:17152a70ea10de6ecd804fffed4b5ebd3abc638e8920efb6fab2993c5a77600a"
-    ));
-    assert!(Input::is_valid_sha256(
-        "sha256:a86523225e8d21faae518a5ea117e06887963a4a9ac123683d91890af092cf03"
-    ));
-    assert!(!Input::is_valid_sha256("foo"));
-    assert!(!Input::is_valid_sha256(
-        "a86523225e8d21faae518a5ea117e06887963a4a9ac123683d91890af092cf03"
-    ));
-    assert!(!Input::is_valid_sha256("sha256"));
+        for args in args_permutations {
+            let mut cmd =
+                Command::cargo_bin("container-retention-policy").expect("Failed to load binary");
+
+            cmd.env("CRP_TEST", "true").args(args).assert().success();
+        }
+    }
 }

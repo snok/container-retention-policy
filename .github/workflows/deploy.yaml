@@ -1,7 +1,12 @@
-name: Produce packages
+name: Build container image
 
 on:
   workflow_dispatch:
+    inputs:
+      version-tag:
+        description: The image tag to build for
+        required: true
+        type: string
   release:
     types:
       - created
@@ -18,13 +23,16 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build release version
+      - name: Set image tag
+        id: set-image-tag
         run: |
-          imageName="ghcr.io/snok/container-retention-policy:${{ github.ref_name }}"
-          docker buildx build --platform linux/amd64,linux/arm64 -f Dockerfile -t "$imageName" --push .
-
-      - name: Build latest
+          if [ "${{ github.event_name }}" == "release" ]; then
+            echo "image-tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "image-tag=${{ github.event.inputs.version-tag }}" >> $GITHUB_OUTPUT
+          fi
+      - name: Build multi-platform image
         run: |
-          imageName="ghcr.io/snok/container-retention-policy:latest"
+          imageName="ghcr.io/snok/container-retention-policy:${{ steps.set-image-tag.outputs.image-tag }}"
+          docker buildx create --use
           docker buildx build --platform linux/amd64,linux/arm64 -f Dockerfile -t "$imageName" --push .
