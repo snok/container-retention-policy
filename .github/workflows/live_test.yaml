@@ -1,4 +1,4 @@
-name: Produce packages
+name: Test action main branch
 
 on:
   push:
@@ -6,13 +6,12 @@ on:
   schedule:
     - cron: "5 * * * *"  # every hour
 
-# TODO: Update branch name
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: snok/container-retention-policy@v3-develop
+      - uses: snok/container-retention-policy@v3-develop  # TODO: Update branch name to main
         name: Delete test-1-* images
         with:
           account: snok
@@ -25,7 +24,7 @@ jobs:
           dry-run: false
           rust-log: container_retention_policy=debug
 
-      - uses: snok/container-retention-policy@v3-develop
+      - uses: snok/container-retention-policy@v3-develop  # TODO: Update branch name to main
         name: Delete test-2-* images
         with:
           account: snok
@@ -38,7 +37,7 @@ jobs:
           dry-run: false
           rust-log: container_retention_policy=debug
 
-      - uses: snok/container-retention-policy@v3-develop
+      - uses: snok/container-retention-policy@v3-develop  # TODO: Update branch name to main
         name: Delete remaining test images
         with:
           account: snok

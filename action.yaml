@@ -67,4 +67,4 @@ runs:
     - --cut-off="${{ inputs.cut-off }}"
     - --dry-run="${{ inputs.dry-run }}"
   env:
-    RUST_LOG=${{ inputs.rust-log }}
+    RUST_LOG: ${{ inputs.rust-log }}
