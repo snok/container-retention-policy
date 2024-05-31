@@ -145,7 +145,7 @@ impl ContainerClientBuilder {
     }
 
     pub async fn fetch_rate_limit(mut self) -> Result<Self> {
-        debug!("Retrieving the Github API rate limit");
+        debug!("Retrieving Github API rate limit");
 
         if self.headers.is_none() || self.token.is_none() {
             return Err(eyre!(
