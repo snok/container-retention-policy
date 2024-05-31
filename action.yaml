@@ -56,6 +56,7 @@ runs:
   using: 'docker'
   image: 'docker://ghcr.io/snok/container-retention-policy:v3.0.0-alpha1'
   args:
+    - ./container-retention-policy
     - --account="${{ inputs.account }}"
     - --token="${{ inputs.token }}"
     - --image-names="${{ inputs.image-names }}"
