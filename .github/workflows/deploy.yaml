@@ -78,7 +78,7 @@ jobs:
             org.opencontainers.image.version="https://github.com/snok/container-retention-policy"
             org.opencontainers.image.licenses="MIT"
           outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
-          tags: "${{ env.REGISTRY_IMAGE}}:${{ steps.set-image-tag.outputs.image-tag }}-${{ matrix.platform }}"
+          tags: "${{ env.REGISTRY_IMAGE}}:${{ steps.set-image-tag.outputs.image-tag }}-${{ matrix.arch }}"
 
       - name: Export digest
         run: |
@@ -134,8 +134,8 @@ jobs:
         working-directory: /tmp/digests
         run: |
           docker buildx imagetools create "${{ env.REGISTRY_IMAGE}}:${{ steps.set-image-tag.outputs.image-tag }}" \
-            "${{ env.REGISTRY_IMAGE}}:${{ steps.set-image-tag.outputs.image-tag }}-linux/amd64" \
-            "${{ env.REGISTRY_IMAGE}}:${{ steps.set-image-tag.outputs.image-tag }}-linux/arm64"
+            "${{ env.REGISTRY_IMAGE}}:${{ steps.set-image-tag.outputs.image-tag }}-amd64" \
+            "${{ env.REGISTRY_IMAGE}}:${{ steps.set-image-tag.outputs.image-tag }}-arm64"
 
       - name: Inspect image
         run: docker buildx imagetools inspect ${{ env.REGISTRY_IMAGE }}:${{ steps.meta.outputs.version }}
