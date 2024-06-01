@@ -1,4 +1,6 @@
-name: Build container image
+# See https://docs.docker.com/build/ci/github-actions/multi-platform/ for docs
+
+name: Create multi-platform container image
 
 on:
   workflow_dispatch:
@@ -7,22 +9,52 @@ on:
         description: The image tag to build for
         required: true
         type: string
+  push:
+    tags:
+      - 'v*'
   release:
     types:
       - created
       - edited
 
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY_IMAGE: ghcr.io/snok/container-retention-policy
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - linux/amd64
+          - linux/arm64
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            target_dir: x86_64-unknown-linux-musl
+          - platform: linux/arm64
+            arch: arm64
+            target_dir: aarch64-unknown-linux-musl
     steps:
+      - name: Prepare
+        run: |
+          platform=${{ matrix.platform }}
+          echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
+
       - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Set image tag
         id: set-image-tag
         run: |
@@ -31,8 +63,79 @@ jobs:
           else
             echo "image-tag=${{ github.event.inputs.version-tag }}" >> $GITHUB_OUTPUT
           fi
-      - name: Build multi-platform image
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: |
+            org.opencontainers.image.title="Container retention policy"
+            org.opencontainers.image.description="Container image for deleting old Github container packages"
+            org.opencontainers.image.source="https://github.com/snok/container-retention-policy"
+            org.opencontainers.image.url="https://github.com/snok/container-retention-policy"
+            org.opencontainers.image.version="https://github.com/snok/container-retention-policy"
+            org.opencontainers.image.licenses="MIT"
+          outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          tags: "${{ steps.set-image-tag.outputs.image-tag }}-${{ matrix.platform }}"
+
+      - name: Export digest
         run: |
-          imageName="ghcr.io/snok/container-retention-policy:${{ steps.set-image-tag.outputs.image-tag }}"
-          docker buildx create --use
-          docker buildx build --platform linux/amd64,linux/arm64 -f Dockerfile -t "$imageName" --push .
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    runs-on: ubuntu-latest
+    needs:
+      - build
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY_IMAGE }}
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set image tag
+        id: set-image-tag
+        run: |
+          if [ "${{ github.event_name }}" == "release" ]; then
+            echo "image-tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "image-tag=${{ github.event.inputs.version-tag }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create ${{ steps.set-image-tag.outputs.image-tag }} \
+            "${{ steps.set-image-tag.outputs.image-tag }}-linux/amd64" \
+            "${{ steps.set-image-tag.outputs.image-tag }}-linux/arm64"
+
+      - name: Inspect image
+        run: docker buildx imagetools inspect ${{ env.REGISTRY_IMAGE }}:${{ steps.meta.outputs.version }}
