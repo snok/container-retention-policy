@@ -10,7 +10,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
       - uses: snok/container-retention-policy@v3-develop  # TODO: Update branch name to main
         name: Delete test-1-* images
         with:

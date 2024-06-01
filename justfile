@@ -68,10 +68,10 @@ run:
         --dry-run true
 
 docker-run:
-    docker buildx build --platform linux/amd64,linux/arm64 -f Dockerfile -t "ghcr.io/snok/container-retention-policy:v3.0.0-alpha1" --push .
+    docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 -f Dockerfile -t "ghcr.io/snok/container-retention-policy:v3.0.0-alpha2" --push .
     docker run \
-      -e RUST_LOG=container_retention_policy=info \
-      ghcr.io/snok/container-retention-policy:v3.0.0-alpha1 ./container-retention-policy  \
+          -e RUST_LOG=container_retention_policy=info \
+          ghcr.io/snok/container-retention-policy:v3.0.0-alpha2  \
           --account snok \
           --token $DELETE_PACKAGES_CLASSIC_TOKEN \
           --tag-selection both \

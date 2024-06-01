@@ -30,3 +30,12 @@ humantime = "2.1.0"
 [dev-dependencies]
 assert_cmd = "2.0.14"
 tracing-test = "0.2.4"
+
+[profile.release]
+# https://github.com/johnthagen/min-sized-rust
+# Optimize release profile for size, as the runtime of the action
+# is bottlenecked by GitHub's API response times, not the speed of our code.
+lto = true
+strip = true
+opt-level = "z"
+codegen-units = 1
