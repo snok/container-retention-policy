@@ -1,6 +1,7 @@
 name: Test action main branch
 
 on:
+  push:
   workflow_dispatch:
   schedule:
     - cron: "5 * * * *"  # every hour
