@@ -58,10 +58,10 @@ jobs:
       - name: Set image tag
         id: set-image-tag
         run: |
-          if [ "${{ github.event_name }}" == "release" ]; then
-            echo "image-tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
-          else
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             echo "image-tag=${{ github.event.inputs.version-tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "image-tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
           fi
 
       - name: Build and push by digest
@@ -124,10 +124,10 @@ jobs:
       - name: Set image tag
         id: set-image-tag
         run: |
-          if [ "${{ github.event_name }}" == "release" ]; then
-            echo "image-tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
-          else
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             echo "image-tag=${{ github.event.inputs.version-tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "image-tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
           fi
 
       - name: Create manifest list and push
