@@ -9,13 +9,6 @@ on:
         description: The image tag to build for
         required: true
         type: string
-  push:
-    tags:
-      - 'v*'
-  release:
-    types:
-      - created
-      - edited
 
 concurrency:
   group: ${{ github.ref }}
