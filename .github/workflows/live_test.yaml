@@ -1,23 +1,16 @@
 name: Test action main branch
 
 on:
-  push:
+  push:  # TODO: Remove
   workflow_dispatch:
   schedule:
     - cron: "5 * * * *"  # every hour
 
-permissions:
-  contents: write  # This grants 'repo' scope
-  packages: write  # This grants 'packages:write' scope
-
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  windows:
+    runs-on: windows-latest
+    name: Windows with temporal token
     steps:
-      - name: Check Token Scopes
-        run: |
-          curl -i -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/snok/container-retention-policy
-
       - uses: snok/container-retention-policy@v3-develop  # TODO: Update branch name to main
         name: Delete test-1-* images
         with:
@@ -26,33 +19,48 @@ jobs:
           cut-off: 2h
           image-names: container-retention-policy
           image-tags: test-* !test-2* !test-3* !test-4* !test-5*
-          tag-selection: both
+          tag-selection: tagged
           timestamp-to-use: created_at
           dry-run: false
           rust-log: container_retention_policy=debug
+
+  macos:
+    runs-on: arm64
+    name: MacOS with Github app token
+    steps:
+      - name: Generate a token
+        id: generate-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: 911530
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
       - uses: snok/container-retention-policy@v3-develop  # TODO: Update branch name to main
         name: Delete test-2-* images
         with:
           account: snok
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.generate-token.outputs.token }}
           cut-off: 2h
           image-names: container-retention-policy
           image-tags: test-* !test-3* !test-4* !test-5*
-          tag-selection: both
+          tag-selection: tagged
           timestamp-to-use: created_at
           dry-run: false
           rust-log: container_retention_policy=debug
 
+  ubuntu:
+    runs-on: ubuntu-latest
+    name: Ubuntu with classic personal access token
+    steps:
       - uses: snok/container-retention-policy@v3-develop  # TODO: Update branch name to main
         name: Delete remaining test images
         with:
           account: snok
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PAT }}
           cut-off: 2h
           image-names: container-retention-policy
           image-tags: test-*
-          tag-selection: both
+          tag-selection: tagged
           timestamp-to-use: created_at
           dry-run: false
           rust-log: container_retention_policy=debug

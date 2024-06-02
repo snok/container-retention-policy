@@ -2,7 +2,7 @@
 
 # 📘 GHCR Container Retention Policy
 
-A GitHub Action for deleting old image versions from the GitHub container registry.
+A GitHub action for deleting old image versions from the GitHub container registry.
 
 Storage isn't free and registries can often get bloated with unused images. Having a retention policy to prevent clutter
 makes sense in most cases.
@@ -12,14 +12,14 @@ Supports both organizational and personal accounts.
 # Content
 
 - [Usage](#usage)
-- [Examples](#examples)
 - [Parameters](#parameters)
+- [Examples](#examples)
 - [Nice to knows](#nice-to-knows)
 - [Contributing](#contributing)
 
 # Usage
 
-To use the action, simply add it to your GitHub workflow, like this. For the first run, we recommend running the action with `dry-run: true`.
+To use the action, simply add it to your GitHub workflow like this. For your first run, we recommend running the action with `dry-run: true`.
 
 ```yaml
 - uses: snok/container-retention-policy@v3
@@ -28,24 +28,142 @@ To use the action, simply add it to your GitHub workflow, like this. For the fir
     account: snok
     token: ${{ secrets.PAT }}
     image-names: container-retention-policy
-    image-tags: test* !v*
-    tag-selection: untagged
-    cut-off: 2w 1h 2m 1s
+    image-tags: test* dev* # target any image that has a tag starting with the word test or dev
+    tag-selection: both  # delete both tagged and untagged (replaced) images
+    cut-off: 2w 3d
     dry-run: true
 ```
 
 For a personal account, just replace the `snok` account name with the string "user".
 
-You could run this as
-a [scheduled event](https://docs.github.com/en/actions/reference/events-that-trigger-workflows#schedule), or as a part
-of an existing workflow, but for the sake of inspiration, it might also make sense for you to trigger it with a:
+To trigger the workflow, a [scheduled event](https://docs.github.com/en/actions/reference/events-that-trigger-workflows#schedule),
+probably makes sense most of the time.
 
-- [workflow_dispatch](https://docs.github.com/en/actions/reference/events-that-trigger-workflows#workflow_dispatch):
-  trigger it manually in the GitHub repo UI when needed
-- [workflow_run](https://docs.github.com/en/actions/reference/events-that-trigger-workflows#workflow_run): have it run
-  as clean-up after another key workflow completes
-- or triggering it with a
-  webhook ([repository_dispatch](https://docs.github.com/en/actions/reference/events-that-trigger-workflows#repository_dispatch))
+# Parameters
+
+### Account
+
+* **Required**: `Yes`
+* **Example**: `account: acme` for an organization named "acme" or `account: user` for personal accounts
+
+The account field provides the action with information on whether the workflow is run by an organization
+or a user (each have different API endpoints in GitHub's package APIs) - and if it's run by an organization it
+also gives us the organization name, as this is needed for calling the org. API endpoints.
+
+### Token
+
+* **Required**: `Yes`
+* **Example**: `token: ${{ secrets.PAT }}`, `token: ${{ secrets.GITHUB_TOKEN }}`, or `token: $OAUTH_TOKEN`
+
+The token is used to authenticate the action when making API calls to the package APIs.
+
+#### Temporal token `${{ secrets.GITHUB_TOKEN }}` caveats
+
+If you're using a temporal token `${{ secrets.GITHUB_TOKEN }}`, you should note that the filtering operators
+described for `image-names` below *do not apply*. Temporal tokens are not usable for the [list-packages endpoint](https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#list-packages-for-an-organization), so we have
+to work around it by calling the [get-package endpoint](https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#get-a-package-for-an-organization) instead. This means `image-names` needs to contain
+exact names that we can use when constructing the endpoint URLs.
+
+For a temporal token to work, it is necessary for the repository running the workflow to have the `Admin` role
+assigned in the package settings.
+
+#### Oauth and PAT caveats
+
+Oauth tokens and personal access tokens must have the `packages:write` scopes.
+
+### Cut-off
+
+* **Required**: `Yes`
+* **Example**: `cut-off: 1w` or `cut-off: 5h 2s`
+
+Specifies how old package versions need to be before being considered for deletion.
+
+The cut-off value parsing is handled by the [humantime](https://crates.io/crates/humantime) Rust crate.
+Please take a look at their documentation if you have trouble getting it to work.
+
+## image-names
+
+* **Required**: `Yes`
+* **Examples**:
+  * `image-names: container-retention-policy` to select the `container-retention-policy` image
+  * `image-names: dev* test*` to select any image starting with the string `dev` or `test`
+  * `image-names: !v*` to select any image *not* starting with the string `v`
+
+The name(s) of the container image(s) you want to delete package versions for. Supports filtering
+with `*` and `!`, where `*` functions as a wildcard and `!` means to not select image names
+matching the remaining expression. These operators are not available if you're using a temporal token
+for the `token` input. See the `token` parameter section for more info.
+
+### image-tags
+
+* **Required**: `No`
+* **Example**: `image-tags: !latest`
+
+Optionally narrows the selection of package versions based on associated tags. Works the same way as the
+`image-names` parameter. See above for info on supported syntax.
+
+### skip-shas
+
+* **Required**: `No`
+* **Example**: `skip-shas: sha256:610a8286bda2dcc713754078070341b8e696be0b02c0e36b2d48f1447c7162af,sha256:a1b6216dfcb74a02b33a2ed68b5dc9c1bd6aa1552d1e377155e8cb348525c533`
+
+Optionally protects specific package versions by their digest. This parameter was added to support
+proper handling of multi-platform images. See [safely handling multi-platform (multi-arch) packages](#safely-handling-multi-platform-multi-arch-packages) for details.
+
+### tag-selection
+
+* **Required**: `No`
+* **Example**: `tag-selection: both` or `tag-selection: untagged` or `tag-selection: tagged`
+* **Default**: `tag-selection: both`
+
+Optionally lets you select only tagged or untagged images. Both are selected by default.
+
+### keep-at-least
+
+* **Required**: `No`
+* **Example**: `keep-at-least: 5`
+* **Default**: `keep-at-least: 0`
+
+How many images to keep, out of the most recent tagged images selected. If there are 10 tagged package
+versions selected, after filtering on names, tags, and cut-off, and there's a keep-at-least count of 3 set,
+then we will retain the 3 most recently created package versions and delete 7.
+
+This parameter will not prevent deletion of untagged images, because we do not know of a valid use-case for this behavior.
+
+The parameter can be useful, e.g., to protect some number of tagged images, so that rollbacks don't fail
+in Kubernetes. See [making sure there are enough revisions available for rollbacks in Kubernetes](#making-sure-there-are-enough-revisions-available-for-rollbacks-in-kubernetes) for details.
+
+### timestamp-to-use
+
+* **Required**: `No`
+* **Example**: `timestamp-to-use: created_at`
+* **Default**: `timestamp-to-use: updated_at`
+
+Whether we should use the `created_at` or `updated_at` timestamp when filtering based on the `cut-off` parameter.
+
+### dry-run
+
+* **Required**: `No`
+* **Example**: `dry-run: true`
+* **Default**: `dry-run: false`
+
+When `true` we will output which package versions would have been deleted, but not actually delete them.
+
+
+### rust-log
+
+* **Required**: `No`
+* **Examples**:
+  * `rust-log: container_retention_policy=error`
+  * `rust-log: info`
+  * `rust-log: container_retention_policy=debug,hyper_util=info`
+* **Default**: `container_retention_policy=info`
+
+Configures the log-levels of the action.
+
+The action uses the [env_logger](https://docs.rs/env_logger/latest/env_logger/) crate to set log-levels,
+and any expression supported by `env_logger` will work. We recommend running the action with debug logs
+if you experience any weird behavior.
 
 # Examples
 
@@ -275,8 +393,8 @@ This means, you can do the following when implementing this action, to protect a
 - name: Fetch multi-platform package version SHAs
   id: multi-arch-shas
   run: |
-    package1=$(docker manifest inspect ghcr.io/package1 | jq -r '.manifests.[] | .digest' | paste -s -d ', ' -)
-    package2=$(docker manifest inspect ghcr.io/package2 | jq -r '.manifests.[] | .digest' | paste -s -d ', ' -)
+    package1=$(docker manifest inspect ghcr.io/package1 | jq -r '.manifests.[] | .digest' | paste -s -d ' ' -)
+    package2=$(docker manifest inspect ghcr.io/package2 | jq -r '.manifests.[] | .digest' | paste -s -d ' ' -)
     echo "multi-arch-digests=$package1,$package2" >> $GITHUB_OUTPUT
 
 - uses: snok/container-retention-policy
@@ -370,3 +488,5 @@ Discrete features:
 
 
 DOcs on token permisson https://docs.github.com/en/actions/security-guides/automatic-token-authentication#permissions-for-the-github_token
+TODO: Token breakdown
+TODO: Run tests in an OS matrix to make sure arm64 works

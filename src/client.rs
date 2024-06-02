@@ -357,7 +357,7 @@ impl ContainerClient {
             let response_headers = GithubHeaders::try_from(response.headers(), &token)?;
 
             let raw_json = response.text().await?;
-            println!("Raw JSON response: {}", raw_json);
+            // println!("Raw JSON response: {}", raw_json);
 
             // Deserialize content
             let mut result: Vec<Package> = serde_json::from_str(&raw_json)?;
@@ -422,7 +422,7 @@ impl ContainerClient {
         GithubHeaders::try_from(response.headers(), &token)?;
 
         let raw_json = response.text().await?;
-        println!("Raw JSON response: {}", raw_json);
+        // println!("Raw JSON response: {}", raw_json);
 
         // Deserialize content
         Ok(serde_json::from_str(&raw_json)?)
