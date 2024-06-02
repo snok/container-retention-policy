@@ -7,7 +7,8 @@ on:
     - cron: "5 * * * *"  # every hour
 
 permissions:
-  packages: write
+  contents: write  # This grants 'repo' scope
+  packages: write  # This grants 'packages:write' scope
 
 jobs:
   build:
