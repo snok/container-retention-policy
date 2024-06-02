@@ -293,9 +293,9 @@ mod tests {
     #[test]
     fn parse_token() {
         assert_eq!(
-            Token::try_from_str("ghs_WosEG3QZhaGsC1cB54UaTvsDaFGyOQ4TZDC4").unwrap(),
+            Token::try_from_str("ghs_WoEEG3QZhaGsC1ca54UaTvsDaFGyOQ4TZDC4").unwrap(),
             Token::TemporalToken(Secret::new(
-                "ghs_WosEG3QZhaGsC1cB54UaTvsDaFGyOQ4TZDC4".to_string()
+                "ghs_WoEEG3QZhaGsC1ca54UaTvsDaFGyOQ4TZDC4".to_string()
             ))
         );
         assert_eq!(
