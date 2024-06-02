@@ -59,30 +59,30 @@ pub enum Token {
 
 impl Token {
     fn try_from_str(value: &str) -> Result<Self, String> {
-        let secret = Secret::new(value.to_string());
-
-        // TODO: Remove after debugging
-        println!(
-            "Debug: Received token value: {}. Total length: {}",
-            &value[0..10],
-            value.len()
-        );
-        println!("Debug: Received token value: {}", &value[10..20]);
-        println!("Debug: Received token value: {}", &value[20..30]);
-        println!("Debug: Received token value: {}", &value[30..]);
+        let trimmed_value = value.trim_matches('"'); // Remove surrounding quotes
+        let secret = Secret::new(trimmed_value.to_string());
 
         // Classic PAT
-        if Regex::new(r"ghp_[a-zA-Z0-9]{36}$").unwrap().is_match(value) {
+        if Regex::new(r"ghp_[a-zA-Z0-9]{36}$")
+            .unwrap()
+            .is_match(trimmed_value)
+        {
             return Ok(Self::ClassicPersonalAccessToken(secret));
         };
 
         // Temporal token - i.e., $GITHUB_TOKEN
-        if Regex::new(r"ghs_[a-zA-Z0-9]{36}$").unwrap().is_match(value) {
+        if Regex::new(r"ghs_[a-zA-Z0-9]{36}$")
+            .unwrap()
+            .is_match(trimmed_value)
+        {
             return Ok(Self::TemporalToken(secret));
         };
 
         // GitHub oauth token
-        if Regex::new(r"gho_[a-zA-Z0-9]{36}$").unwrap().is_match(value) {
+        if Regex::new(r"gho_[a-zA-Z0-9]{36}$")
+            .unwrap()
+            .is_match(trimmed_value)
+        {
             return Ok(Self::OauthToken(secret));
         };
         Err(
@@ -292,9 +292,9 @@ mod tests {
     #[test]
     fn parse_token() {
         assert_eq!(
-            Token::try_from_str("ghs_WoEEG3QZhaGsC1ca54UaTvsDaFGyOQ4TZDC4").unwrap(),
+            Token::try_from_str("ghs_U4fUiyjT4gUZKJeUEI3AX501oTqIvV0loS62").unwrap(),
             Token::TemporalToken(Secret::new(
-                "ghs_WoEEG3QZhaGsC1ca54UaTvsDaFGyOQ4TZDC4".to_string()
+                "ghs_U4fUiyjT4gUZKJeUEI3AX501oTqIvV0loS62".to_string()
             ))
         );
         assert_eq!(
