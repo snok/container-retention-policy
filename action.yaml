@@ -56,15 +56,15 @@ runs:
   using: 'docker'
   image: 'docker://ghcr.io/snok/container-retention-policy:v3.0.0-alpha3'
   args:
-    - --account="${{ inputs.account }}"
-    - --token="${{ inputs.token }}"
-    - --image-names="${{ inputs.image-names }}"
-    - --image-tags="${{ inputs.image-tags }}"
-    - --shas-to-skip="${{ inputs.skip-shas }}"
-    - --tag-selection="${{ inputs.tag-selection }}"
-    - --keep-at-least="${{ inputs.keep-at-least }}"
-    - --timestamp-to-use="${{ inputs.timestamp-to-use }}"
-    - --cut-off="${{ inputs.cut-off }}"
-    - --dry-run="${{ inputs.dry-run }}"
+    - --account=${{ inputs.account }}
+    - --token=${{ inputs.token }}
+    - --image-names=${{ inputs.image-names }}
+    - --image-tags=${{ inputs.image-tags }}
+    - --shas-to-skip=${{ inputs.skip-shas }}
+    - --tag-selection=${{ inputs.tag-selection }}
+    - --keep-at-least=${{ inputs.keep-at-least }}
+    - --timestamp-to-use=${{ inputs.timestamp-to-use }}
+    - --cut-off=${{ inputs.cut-off }}
+    - --dry-run=${{ inputs.dry-run }}
   env:
     RUST_LOG: ${{ inputs.rust-log }}

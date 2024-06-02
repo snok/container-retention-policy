@@ -37,7 +37,6 @@ pub fn try_parse_shas_as_list(s: &str) -> Result<Vec<String>, String> {
     let shas = vec_of_string_from_str(s).unwrap();
     let re = Regex::new(r"^sha256:[0-9a-fA-F]{64}$").unwrap();
     for sha in &shas {
-        println!("SHA: ={sha}");
         if !re.is_match(sha) {
             return Err(format!("Invalid image SHA received: {sha}"));
         }
