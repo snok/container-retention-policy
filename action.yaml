@@ -60,7 +60,7 @@ runs:
     - --token="${{ inputs.token }}"
     - --image-names="${{ inputs.image-names }}"
     - --image-tags="${{ inputs.image-tags }}"
-    - --skip-shas="${{ inputs.skip-shas }}"
+    - --shas-to-skip="${{ inputs.skip-shas }}"
     - --tag-selection="${{ inputs.tag-selection }}"
     - --keep-at-least="${{ inputs.keep-at-least }}"
     - --timestamp-to-use="${{ inputs.timestamp-to-use }}"
