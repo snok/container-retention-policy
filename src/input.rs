@@ -64,13 +64,12 @@ impl Token {
         // TODO: Remove after debugging
         println!(
             "Debug: Received token value: {}. Total length: {}",
-            &value[0..4],
+            &value[0..10],
             value.len()
         );
-        println!("Debug: Received token value: {}", &value[4..12],);
-        println!("Debug: Received token value: {}", &value[12..22],);
-        println!("Debug: Received token value: {}", &value[22..30],);
-        println!("Debug: Received token value: {}", &value[30..],);
+        println!("Debug: Received token value: {}", &value[10..20]);
+        println!("Debug: Received token value: {}", &value[20..30]);
+        println!("Debug: Received token value: {}", &value[30..]);
 
         // Classic PAT
         if Regex::new(r"ghp_[a-zA-Z0-9]{36}$").unwrap().is_match(value) {
