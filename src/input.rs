@@ -61,6 +61,13 @@ impl Token {
     fn try_from_str(value: &str) -> Result<Self, String> {
         let secret = Secret::new(value.to_string());
 
+        // TODO: Remove after debugging
+        println!(
+            "Debug: Received token value: {}. Total length: {}",
+            &value[0..4],
+            value.len()
+        );
+
         // Classic PAT
         if Regex::new(r"ghp_[a-zA-Z0-9]{36}$").unwrap().is_match(value) {
             return Ok(Self::ClassicPersonalAccessToken(secret));

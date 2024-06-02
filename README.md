@@ -367,3 +367,6 @@ Discrete features:
 - [ ] Check the wildmatch serde feature
 - [ ] SafeStr for token vale
 - [ ] Test Github app token
+
+
+DOcs on token permisson https://docs.github.com/en/actions/security-guides/automatic-token-authentication#permissions-for-the-github_token
