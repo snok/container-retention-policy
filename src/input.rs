@@ -6,8 +6,14 @@ use secrecy::{ExposeSecret, Secret};
 use std::convert::Infallible;
 use tracing::Level;
 
-pub fn vec_of_string_from_str(names: &str) -> Result<Vec<String>, Infallible> {
-    Ok(names
+pub fn vec_of_string_from_str(value: &str) -> Result<Vec<String>, Infallible> {
+    let trimmed = value.trim_matches('"').trim_matches('\''); // Remove surrounding quotes
+
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    Ok(trimmed
         .split(|c: char| c == ',' || c.is_whitespace())
         .filter_map(|t| {
             let s = t.trim().to_string();
@@ -20,10 +26,18 @@ pub fn vec_of_string_from_str(names: &str) -> Result<Vec<String>, Infallible> {
         .collect::<Vec<String>>())
 }
 
+#[test]
+fn test() {
+    let value = "''";
+    let trimmed = value.trim_matches('"').trim_matches('\''); // Remove surrounding quotes
+    println!("trimmed={trimmed}");
+}
+
 pub fn try_parse_shas_as_list(s: &str) -> Result<Vec<String>, String> {
     let shas = vec_of_string_from_str(s).unwrap();
     let re = Regex::new(r"^sha256:[0-9a-fA-F]{64}$").unwrap();
     for sha in &shas {
+        println!("SHA: ={sha}");
         if !re.is_match(sha) {
             return Err(format!("Invalid image SHA received: {sha}"));
         }
@@ -354,7 +368,7 @@ mod tests {
                 "--token=ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT",
                 "--image-names=\"foo, bar\"",
                 "--image-tags=\"one, two\"",
-                "--shas-to-skip=",
+                "--shas-to-skip=''",
                 "--keep-at-least=999",
                 "--tag-selection=both",
                 "--timestamp-to-use=updated_at",
