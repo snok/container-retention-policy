@@ -337,7 +337,9 @@ impl ContainerClient {
             let response_headers = GithubHeaders::try_from(response.headers(), &token)?;
 
             // Deserialize content
-            let mut result: Vec<Package> = response.json().await?;
+            let raw_json = response.text().await?;
+            println!("Raw JSON response: {}", raw_json);
+            let mut result: Vec<Package> = serde_json::from_str(&raw_json)?;
 
             // Handle pagination
             if response_headers.x_ratelimit_remaining > 1 && response_headers.link.is_some() {
