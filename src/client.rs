@@ -775,7 +775,9 @@ impl GithubHeaders {
 
         let headers = Self {
             link,
-            x_ratelimit_remaining: x_rate_limit_remaining.unwrap_or(5000),
+            // It seems that these are none for temporal token requests, so
+            // we set temporal token value defaults.
+            x_ratelimit_remaining: x_rate_limit_remaining.unwrap_or(1000),
             x_ratelimit_used: x_rate_limit_used.unwrap_or(0),
             x_ratelimit_reset: x_rate_limit_reset.unwrap_or(Utc::now()),
             x_oauth_scopes,

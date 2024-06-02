@@ -70,3 +70,5 @@
   There is no longer timezone support built-into this option. All durations are relative to the current time, UTC.
 
 - The action now (indirectly) supports multi-arch/multi-platform packages. Take a look at the new README for details.
+
+needs-assistance-output was deleted

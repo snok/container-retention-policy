@@ -7,7 +7,9 @@ A GitHub action for deleting old image versions from the GitHub container regist
 Storage isn't free and registries can often get bloated with unused images. Having a retention policy to prevent clutter
 makes sense in most cases.
 
-Supports both organizational and personal accounts.
+- ✅ Supports both organizational and personal accounts
+- 👮 Supports several token types for authentication
+- 🌱 The docker image used is only 2.4Mi, and the total runtime is a few seconds
 
 # Content
 
@@ -57,19 +59,39 @@ also gives us the organization name, as this is needed for calling the org. API 
 
 The token is used to authenticate the action when making API calls to the package APIs.
 
-#### Temporal token `${{ secrets.GITHUB_TOKEN }}` caveats
+#### Temporal tokens
 
-If you're using a temporal token `${{ secrets.GITHUB_TOKEN }}`, you should note that the filtering operators
-described for `image-names` below *do not apply*. Temporal tokens are not usable for the [list-packages endpoint](https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#list-packages-for-an-organization), so we have
+If you're using a temporal token (`${{ secrets.GITHUB_TOKEN }}`), you should note that the filtering operators
+described for `image-names` below *can not be used*. Temporal tokens are not usable for the [list-packages endpoint](https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#list-packages-for-an-organization), so we have
 to work around it by calling the [get-package endpoint](https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#get-a-package-for-an-organization) instead. This means `image-names` needs to contain
 exact names that we can use when constructing the endpoint URLs.
 
 For a temporal token to work, it is necessary for the repository running the workflow to have the `Admin` role
 assigned in the package settings.
 
-#### Oauth and PAT caveats
+#### Classic personal access tokens
 
-Oauth tokens and personal access tokens must have the `packages:write` scopes.
+Personal access tokens must have the `packages:write` scopes.
+
+### GitHub app tokens
+
+Github app tokens must have the `packages:write` scopes.
+
+To fetch an app token, you can structure your workflow like this:
+
+```yaml
+- name: Generate a token
+  id: generate-token
+  uses: actions/create-github-app-token@v1
+  with:
+    app-id: ${{ secrets.GH_APP_ID }}
+    private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+- uses: snok/container-retention-policy@v3
+  with:
+    account: snok
+    token: ${{ steps.generate-token.outputs.token }}
+```
 
 ### Cut-off
 
@@ -214,6 +236,54 @@ jobs:
           tag-selection: untagged
           cut-off: 1h
 ```
+
+# Outputs
+
+## deleted
+
+Comma-separated list of `image-name:version-id` for each image deleted.
+
+## failed
+
+Comma-separated list of images that we weren't able to delete. Check
+logs for responses.
+
+# Nice to knows
+
+## Supported operating systems
+
+GitHub actions running containers (like this one) are currently only supported
+by ubuntu-runners. This is a GitHub action limitation.
+
+## Running the application outside the action
+
+The action is a Rust application packaged as a container, so if you prefer
+to run the program elsewhere you may:
+
+- Pull the docker image and run it with:
+
+  ```
+  docker run \
+            -e RUST_LOG=container_retention_policy=info \
+            ghcr.io/snok/container-retention-policy:v3.0.0-alpha2  \
+            --account snok \
+            --token $PAT \
+            --cut-off 1d \
+            --image-names "container-retention-policy*"
+  ```
+
+- Clone the repo, compile it, and run the binary directly:
+
+  ```
+  git clone git@github.com:snok/container-retention-policy.git
+  cargo build --release
+  RUST_LOG=container_retention_policy=info \
+    ./target/releases/container-retention-policy \
+     --account snok \
+     --token $PAT \
+     --cut-off 1d \
+     --image-names "container-retention-policy*"
+  ```
 
 ## Making sure there are enough revisions available for rollbacks in Kubernetes
 
@@ -399,7 +469,6 @@ This means, you can do the following when implementing this action, to protect a
 
 - uses: snok/container-retention-policy
   with:
-    ...
     skip-shas: ${{ steps.multi-arch-digests.outputs.multi-arch-shas }}
 ```
 
@@ -423,13 +492,10 @@ TODO: Ensure we sort keep-at-least by date and keep the most recent.
 
 - [ ] Add explanation of what an image version is
 
-# Things to be aware of
+## Restoring a deleted image
 
-# Development
-
-We use the [GitHub API](https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#list-packages-for-an-organization) to fetch data.
-
-Fine grained tokens are not supported. See https://github.com/github/roadmap/issues/558.
+If you accidentally delete something you shouldn't have, GitHub has a 30-day grace period before actually
+deleting your image version. See [these docs](https://docs.github.com/en/rest/reference/packages#restore-package-version-for-an-organization) for details.
 
 ## Rate limits
 
@@ -444,49 +510,5 @@ In addition to the primary rate limit, there are multiple secondary rate limits;
 - No more than 90 seconds of CPU time per 60 seconds of real time. No real way of knowing what time you've used is provided by GitHub - instead they suggest counting total response times.
 - ~~No more than 80 content-creating requests per minute, and no more than 500 content-creating requests per hour~~
 
-
-
-All but the last secondary limit might affect us, and the secondary rate limits are subject to change without notice. For this reason, it's recommended to use the returned `x-ratelimit-*` headers to know how to proceed ([source](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api?apiVersion=2022-11-28#checking-the-status-of-your-rate-limit)).
-
-## Pagination
-
-## Tokens
-
-We can use three types of tokens:
-
-- `$GITHUB_TOKEN` for
-https://github.blog/2021-04-05-behind-githubs-new-authentication-token-formats/
-
-
-- [ ] Multi-platform support https://github.com/Chizkiyahu/delete-untagged-ghcr-action/pull/16/files
-- Oauth app authorization: https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-appsjus
-
-Discrete features:
-- [x] Percent-url encoding
-- [x] Keeping at least `n` images
-- [x] Get package
-- [x] Get package version
-- [x] Delete package version
-- [x] Handling primary rate limit
-- [x] Handling secondary rate limits: concurrency
-- [x] Handling secondary rate limits: tbd
-- [x] Oauth token support
-- [x] PAT support
-- [x] Github token support
-- [x] Parsing inputs as comma separated or space separate values (adjust data in action.yml?)
-- [ ] Rely on pre-built docker image rather than building image
-- [ ] Handling pagination
-- [ ] Know which scopes are necessary for **each** type of token, and validate the scopes on the first request
-- [ ] Graceful handling and logging of failed rate limit
-- [ ] Graceful handling and logging of package versions that can't be downloaded because they have too many downloads
-- [ ] Action outputs
-- [ ] Support deleting multi-arch images
-- [ ] Check that the `buffer` does not impact the concurrency limit, and write down what it actually does
-- [ ] Check the wildmatch serde feature
-- [ ] SafeStr for token vale
-- [ ] Test Github app token
-
-
-DOcs on token permisson https://docs.github.com/en/actions/security-guides/automatic-token-authentication#permissions-for-the-github_token
-TODO: Token breakdown
-TODO: Run tests in an OS matrix to make sure arm64 works
+All but the last secondary limit might are handled by the action. However, secondary rate limits are subject to
+change without notice. If you run into problems, please open an issue.

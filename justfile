@@ -40,20 +40,6 @@ setup:
   @export RUSTC_WRAPPER=$(which sccache)
   @echo "Run \`echo 'export RUSTC_WRAPPER=\$(which sccache)' >> ~/.bashrc\` to use sccache for caching"
 
-# Used to give us org. test data
-upload:
-    echo $WRITE_AND_DELETE_PACKAGES_CLASSIC_TOKEN | docker login ghcr.io -u sondrelg --password-stdin
-    docker build . --tag ghcr.io/snok/container-retention-policy:multi-arch --push
-
-upload-multi:
-    echo $WRITE_AND_DELETE_PACKAGES_CLASSIC_TOKEN | docker login ghcr.io -u sondrelg --password-stdin
-    docker buildx build \
-                --platform linux/amd64,linux/arm64 . \
-                -t ghcr.io/snok/container-retention-policy:multi-arch \
-                --annotation "org.opencontainers.image.description=multi-arch-what" \
-                --provenance=true \
-                --push --progress=plain
-
 run:
     RUST_LOG=container_retention_policy=debug cargo r -- \
         --account snok \
@@ -66,19 +52,3 @@ run:
         --timestamp-to-use "updated_at" \
         --cut-off 1w \
         --dry-run true
-
-docker-run:
-    docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 -f Dockerfile -t "ghcr.io/snok/container-retention-policy:v3.0.0-alpha2" --push .
-    docker run \
-          -e RUST_LOG=container_retention_policy=info \
-          ghcr.io/snok/container-retention-policy:v3.0.0-alpha2  \
-          --account snok \
-          --token $DELETE_PACKAGES_CLASSIC_TOKEN \
-          --tag-selection both \
-          --image-names "container-retention-policy*"  \
-          --image-tags "!latest, !test-1*" \
-          --shas-to-skip "" \
-          --keep-at-least 2 \
-          --timestamp-to-use updated_at \
-          --cut-off 1s \
-          --dry-run true
