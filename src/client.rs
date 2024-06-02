@@ -421,8 +421,11 @@ impl ContainerClient {
         // Parse GitHub headers related to pagination and secondary rate limits
         GithubHeaders::try_from(response.headers(), &token)?;
 
+        let raw_json = response.text().await?;
+        println!("Raw JSON response: {}", raw_json);
+
         // Deserialize content
-        Ok(response.json().await?)
+        Ok(serde_json::from_str(&raw_json)?)
     }
 
     pub async fn fetch_individual_packages(
