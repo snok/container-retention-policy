@@ -43,7 +43,7 @@ jobs:
         uses: actions/create-github-app-token@v1
         with:
           app-id: 911530
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
 
       - uses: snok/container-retention-policy@v3-develop  # TODO: Update branch name to main
         name: Delete test-2-* images
