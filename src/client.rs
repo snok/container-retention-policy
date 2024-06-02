@@ -772,9 +772,9 @@ impl GithubHeaders {
 
         let headers = Self {
             link,
-            x_ratelimit_remaining: x_rate_limit_remaining.unwrap(),
-            x_ratelimit_used: x_rate_limit_used.unwrap(),
-            x_ratelimit_reset: x_rate_limit_reset.unwrap(),
+            x_ratelimit_remaining: x_rate_limit_remaining.unwrap_or(5000),
+            x_ratelimit_used: x_rate_limit_used.unwrap_or(0),
+            x_ratelimit_reset: x_rate_limit_reset.unwrap_or(Utc::now()),
             x_oauth_scopes,
         };
 
