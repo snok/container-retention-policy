@@ -283,7 +283,7 @@ impl Urls {
     pub fn fetch_package_url(&self, package_name: &str) -> Result<Url> {
         let encoded_package_name = Self::percent_encode(package_name);
         Ok(Url::parse(
-            &(self.github_package_base.to_string() + &format!("/{encoded_package_name}")),
+            &(self.container_package_base.to_string() + &format!("/{encoded_package_name}")),
         )?)
     }
 
