@@ -74,7 +74,7 @@ impl Token {
         };
 
         // Temporal token - i.e., $GITHUB_TOKEN
-        if Regex::new(r"ghs_[a-zA-Z0-9]{36}$").unwrap().is_match(value) {
+        if Regex::new(r"ghs_[a-zA-Z0-9]{38}$").unwrap().is_match(value) {
             return Ok(Self::TemporalToken(secret));
         };
 
@@ -289,9 +289,9 @@ mod tests {
     #[test]
     fn parse_token() {
         assert_eq!(
-            Token::try_from_str("ghs_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT").unwrap(),
+            Token::try_from_str("ghs_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszTaf").unwrap(),
             Token::TemporalToken(Secret::new(
-                "ghs_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT".to_string()
+                "ghs_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszTaf".to_string()
             ))
         );
         assert_eq!(
