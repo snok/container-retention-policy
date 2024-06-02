@@ -9,6 +9,10 @@ on:
         description: The image tag to build for
         required: true
         type: string
+  push:
+    # TODO: Delete this trigger when merging the v3-develop branch
+    tags:
+      - 'v*'
 
 concurrency:
   group: ${{ github.ref }}
