@@ -192,7 +192,6 @@ pub struct Input {
     pub timestamp_to_use: Timestamp,
 
     /// How old package versions should be before being considered
-    // TODO: IMPLEMENT THIS
     #[arg(long)]
     pub cut_off: Duration,
 

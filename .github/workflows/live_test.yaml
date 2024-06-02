@@ -13,6 +13,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - name: Check Token Scopes
+        run: |
+          curl -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/
+
       - uses: snok/container-retention-policy@v3-develop  # TODO: Update branch name to main
         name: Delete test-1-* images
         with:

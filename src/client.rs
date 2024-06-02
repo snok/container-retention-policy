@@ -690,10 +690,9 @@ impl GithubHeaders {
         ));
         }
 
-        // TODO: Test this
-        // if !headers.has_correct_scopes(token) {
-        //     return Err(eyre!("The `token` does not have the scopes needed. Tokens need `read:packages` and `delete:packages`, and Github tokens additionally require `repo`. The scopes found were {:?}", headers.x_oauth_scopes));
-        // };
+        if !headers.has_correct_scopes(token) {
+            return Err(eyre!("The `token` does not have the scopes needed. Tokens need `read:packages` and `delete:packages`, and $GITHUB_TOKENs additionally require `repo`. The scopes found were {:?}", headers.x_oauth_scopes));
+        };
 
         Ok(headers)
     }
