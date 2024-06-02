@@ -324,7 +324,7 @@ impl ContainerClient {
                         drop(handle);
                         match fut.await {
                             Ok(t) => t,
-                            Err(e) => return Err(eyre!("Failed to fetch package: {}", e)),
+                            Err(e) => return Err(eyre!("Request failed: {}", e)),
                         }
                     }
                     Err(e) => {
@@ -332,13 +332,13 @@ impl ContainerClient {
                     }
                 }
             };
-
             // Parse GitHub headers related to pagination and secondary rate limits
             let response_headers = GithubHeaders::try_from(response.headers(), &token)?;
 
-            // Deserialize content
             let raw_json = response.text().await?;
             println!("Raw JSON response: {}", raw_json);
+
+            // Deserialize content
             let mut result: Vec<Package> = serde_json::from_str(&raw_json)?;
 
             // Handle pagination
