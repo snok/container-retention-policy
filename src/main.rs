@@ -16,7 +16,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 use wildmatch::WildMatchPattern;
 
 use crate::client::{ContainerClient, ContainerClientBuilder, Urls};
-use crate::input::{Account, Input, TagSelection, Timestamp};
+use crate::input::{Account, Input, TagSelection, Timestamp, Token};
 use crate::responses::{PackageVersion, PercentEncodable};
 
 pub mod client;
@@ -439,7 +439,7 @@ async fn main() {
     let boxed_client = Box::new(
         ContainerClientBuilder::new()
             .generate_urls(&input.account)
-            .set_http_headers(input.token)
+            .set_http_headers(input.token.clone())
             .expect("Failed to set HTTP headers")
             .create_rate_limited_services()
             .fetch_rate_limit()
@@ -452,10 +452,27 @@ async fn main() {
     let client: &'static mut ContainerClient = Box::leak(boxed_client);
 
     // Fetch all packages that the account owns
-    let packages = client
-        .list_packages(client.urls.list_packages_url.clone())
-        .await
-        .expect("Failed to fetch packages");
+    let packages = if let Token::TemporalToken(_) = input.token {
+        // If a repo is assigned the admin role under Package Settings > Manage Actions Access,
+        // then it can fetch a package's versions directly by name, and delete them. It cannot,
+        // however, list packages, so for this token type we are limited to a single package.
+        for image_name in &input.image_names {
+            if image_name.contains("!") || image_name.contains("*") {
+                panic!("Restrictions in the Github API prevent us from listing packages \
+when using a $GITHUB_TOKEN token. Because of this, filtering with '!' and '*' are not supported for this token type. \
+Image name {image_name} is therefore not valid.");
+            }
+        }
+        client
+            .fetch_individual_packages(&input.image_names, input.token.clone())
+            .await
+            .expect("Failed to fetch packages")
+    } else {
+        client
+            .list_packages(client.urls.list_packages_url.clone())
+            .await
+            .expect("Failed to fetch packages")
+    };
 
     match input.account {
         Account::User => info!("Found {} package(s) for the user", packages.len()),

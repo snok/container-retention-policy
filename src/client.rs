@@ -27,6 +27,7 @@ pub struct ContainerClientBuilder {
     headers: Option<HeaderMap>,
     urls: Option<Urls>,
     token: Option<Token>,
+    fetch_package_service: Option<RateLimitedService>,
     list_packages_service: Option<RateLimitedService>,
     list_package_versions_service: Option<RateLimitedService>,
     delete_package_versions_service: Option<RateLimitedService>,
@@ -45,6 +46,7 @@ impl ContainerClientBuilder {
         Self {
             headers: None,
             urls: None,
+            fetch_package_service: None,
             list_packages_service: None,
             list_package_versions_service: None,
             delete_package_versions_service: None,
@@ -110,6 +112,16 @@ impl ContainerClientBuilder {
         const DELETE_REQUEST_POINTS: u64 = 5;
 
         const ONE_MINUTE: Duration = Duration::from_secs(60);
+
+        self.fetch_package_service = Some(Arc::new(Mutex::new(
+            ServiceBuilder::new()
+                .concurrency_limit(MAX_CONCURRENCY)
+                .rate_limit(
+                    MAX_POINTS_PER_ENDPOINT_PER_MINUTE / GET_REQUEST_POINTS,
+                    ONE_MINUTE,
+                )
+                .service(Client::new()),
+        )));
 
         self.list_packages_service = Some(Arc::new(Mutex::new(
             ServiceBuilder::new()
@@ -188,6 +200,7 @@ impl ContainerClientBuilder {
         let client = ContainerClient {
             headers: self.headers.unwrap(),
             urls: self.urls.unwrap(),
+            fetch_package_service: self.fetch_package_service.unwrap(),
             list_packages_service: self.list_packages_service.unwrap(),
             list_package_versions_service: self.list_package_versions_service.unwrap(),
             delete_package_versions_service: self.delete_package_versions_service.unwrap(),
@@ -237,33 +250,40 @@ impl Urls {
         }
     }
 
-    pub fn list_package_versions_url(&self, image_name: &str) -> Result<Url> {
-        let encoded_image_name = Self::percent_encode(image_name);
+    pub fn list_package_versions_url(&self, package_name: &str) -> Result<Url> {
+        let encoded_package_name = Self::percent_encode(package_name);
         Ok(Url::parse(
             &(self.container_package_base.to_string()
-                + &format!("/{encoded_image_name}/versions?per_page=100")),
+                + &format!("/{encoded_package_name}/versions?per_page=100")),
         )?)
     }
 
     pub fn delete_package_version_url(
         &self,
-        image_name: &str,
+        package_name: &str,
         package_version_name: &u32,
     ) -> Result<Url> {
-        let encoded_image_name = Self::percent_encode(image_name);
+        let encoded_package_name = Self::percent_encode(package_name);
         let encoded_package_version_name = Self::percent_encode(&package_version_name.to_string());
         Ok(Url::parse(
             &(self.container_package_base.to_string()
-                + &format!("/{encoded_image_name}/versions/{encoded_package_version_name}")),
+                + &format!("/{encoded_package_name}/versions/{encoded_package_version_name}")),
         )?)
     }
 
-    pub fn package_version_url(&self, image_name: &str, package_id: &u32) -> Result<Url> {
-        let encoded_image_name = Self::percent_encode(image_name);
+    pub fn package_version_url(&self, package_name: &str, package_id: &u32) -> Result<Url> {
+        let encoded_package_name = Self::percent_encode(package_name);
         let encoded_package_version_name = Self::percent_encode(&package_id.to_string());
         Ok(Url::parse(
             &(self.github_package_base.to_string()
-                + &format!("/{encoded_image_name}/{encoded_package_version_name}")),
+                + &format!("/{encoded_package_name}/{encoded_package_version_name}")),
+        )?)
+    }
+
+    pub fn fetch_package_url(&self, package_name: &str) -> Result<Url> {
+        let encoded_package_name = Self::percent_encode(package_name);
+        Ok(Url::parse(
+            &(self.github_package_base.to_string() + &format!("/{encoded_package_name}")),
         )?)
     }
 
@@ -277,6 +297,7 @@ impl Urls {
 pub struct ContainerClient {
     headers: HeaderMap,
     pub urls: Urls,
+    fetch_package_service: RateLimitedService,
     list_packages_service: RateLimitedService,
     list_package_versions_service: RateLimitedService,
     delete_package_versions_service: RateLimitedService,
@@ -361,14 +382,88 @@ impl ContainerClient {
         .boxed()
     }
 
+    pub async fn fetch_individual_package(
+        &self,
+        url: Url,
+        headers: &HeaderMap,
+        service: RateLimitedService,
+        token: Token,
+    ) -> Result<Package> {
+        debug!("Fetching package from {url}");
+
+        let mut request = Request::new(Method::GET, url);
+        *request.headers_mut() = headers.clone();
+
+        // Get a lock on the tower service which regulates our traffic
+        let mut handle = service.lock().await;
+
+        let response = {
+            // Wait until the service says we're OK to proceed
+            let r = handle.ready().await;
+
+            match r {
+                Ok(t) => {
+                    // Initiate the request and drop the handle before awaiting the result
+                    // If we don't drop the handle, our request flow becomes synchronous
+                    let fut = t.call(request);
+                    drop(handle);
+                    match fut.await {
+                        Ok(t) => t,
+                        Err(e) => return Err(eyre!("Request failed: {}", e)),
+                    }
+                }
+                Err(e) => {
+                    return Err(eyre!("Service failed to become ready: {}", e));
+                }
+            }
+        };
+
+        // Parse GitHub headers related to pagination and secondary rate limits
+        GithubHeaders::try_from(response.headers(), &token)?;
+
+        // Deserialize content
+        Ok(response.json().await?)
+    }
+
+    pub async fn fetch_individual_packages(
+        &self,
+        package_names: &[String],
+        token: Token,
+    ) -> Result<Vec<Package>> {
+        // Create async tasks to make multiple concurrent requests
+        let mut futures = Vec::new();
+
+        for package_name in package_names {
+            let url = self.urls.fetch_package_url(package_name)?;
+            let fut = self.fetch_individual_package(
+                url,
+                &self.headers,
+                self.fetch_package_service.clone(),
+                token.clone(),
+            );
+            futures.push(fut);
+        }
+
+        let mut packages = Vec::new();
+
+        for fut in futures.into_iter() {
+            match fut.await {
+                Ok(package) => packages.push(package),
+                Err(e) => return Err(e),
+            }
+        }
+
+        Ok(packages)
+    }
+
     /// Recursively fetch package versions, until the last page of pagination is hit.
     pub async fn list_package_versions(
         &self,
-        image_name: String,
+        package_name: String,
     ) -> Result<(String, Vec<PackageVersion>)> {
-        let url = self.urls.list_package_versions_url(&image_name)?;
+        let url = self.urls.list_package_versions_url(&package_name)?;
         Ok((
-            image_name.to_string(),
+            package_name.to_string(),
             Self::list_all_package_versions(
                 url,
                 self.list_package_versions_service.clone(),
