@@ -181,7 +181,7 @@ pub struct Input {
 
     /// How many tagged packages to keep, after filtering
     #[arg(long, long, default_value = "0")]
-    pub keep_at_least: u32,
+    pub keep_n_most_recent: u32,
 
     /// Whether to delete package versions or not
     #[arg(long, action(ArgAction::Set), default_value = "false")]
@@ -207,7 +207,7 @@ pub struct ValidatedInput {
     pub image_tags: Vec<String>,
     pub shas_to_skip: Vec<String>,
     pub tag_selection: TagSelection,
-    pub keep_at_least: u32,
+    pub keep_n_most_recent: u32,
     pub dry_run: bool,
     pub timestamp_to_use: Timestamp,
     pub cut_off: String,
@@ -343,7 +343,7 @@ mod tests {
                 "--image-names=foo",
                 "--image-tags=one",
                 "--shas-to-skip=",
-                "--keep-at-least=0",
+                "--keep-n-most-recent=0",
                 "--tag-selection=tagged",
                 "--timestamp-to-use=updated_at",
                 "--cut-off=1w",
@@ -355,7 +355,7 @@ mod tests {
                 "--image-names=\"foo bar\"",
                 "--image-tags=\"one two\"",
                 "--shas-to-skip=",
-                "--keep-at-least=10",
+                "--keep-n-most-recent=10",
                 "--tag-selection=untagged",
                 "--timestamp-to-use=created_at",
                 "--cut-off=1d",
@@ -367,7 +367,7 @@ mod tests {
                 "--image-names=\"foo, bar\"",
                 "--image-tags=\"one, two\"",
                 "--shas-to-skip=''",
-                "--keep-at-least=999",
+                "--keep-n-most-recent=999",
                 "--tag-selection=both",
                 "--timestamp-to-use=updated_at",
                 "--cut-off=1h",

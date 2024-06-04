@@ -28,13 +28,12 @@ pub mod responses;
 /// Sort by age and prioritize keeping newer versions.
 /// Only package versions containing tags are kept, as we
 /// don't know of a valid use case for keeping untagged versions.
-fn handle_keep_at_least(
+fn handle_keep_n_most_recent(
     package_name: &str,
     mut tagged: Vec<PackageVersion>,
-    keep_at_least: u32,
+    keep_n_most_recent: u32,
 ) -> Vec<PackageVersion> {
     let mut kept = 0;
-    // TODO: RENAME TO --keep-most-recent
     tagged.sort_by_key(|p| {
         if p.updated_at.is_some() {
             p.updated_at.unwrap()
@@ -43,10 +42,10 @@ fn handle_keep_at_least(
         }
     });
 
-    while kept < keep_at_least {
+    while kept < keep_n_most_recent {
         // Prioritize keeping tagged images
         if tagged.is_empty() {
-            info!("No package versions left to delete after keeping {kept} package versions. The keep-at-least setting specifies to keep at least {keep_at_least} versions.");
+            info!("No package versions left to delete after keeping {kept} package versions. The keep-n-most-recent setting specifies to keep at least {keep_n_most_recent} versions.");
             break;
         }
         tagged.pop();
@@ -55,7 +54,7 @@ fn handle_keep_at_least(
 
     info!(
         package_name=package_name,
-        "Kept {kept} of the {keep_at_least} package versions requested by the `keep-at-least` setting"
+        "Kept {kept} of the {keep_n_most_recent} package versions requested by the `keep-n-most-recent` setting"
     );
     tagged
 }
@@ -263,7 +262,7 @@ async fn concurrently_fetch_and_filter_package_versions(
     client: &'static ContainerClient,
     image_tags: Vec<String>,
     shas_to_skip: Vec<String>,
-    keep_at_least: u32,
+    keep_n_most_recent: u32,
     tag_selection: TagSelection,
     cut_off: &HumantimeDuration,
     timestamp_to_use: &Timestamp,
@@ -310,7 +309,7 @@ async fn concurrently_fetch_and_filter_package_versions(
             &client.urls,
         )?;
 
-        let tagged = handle_keep_at_least(&package_name, tagged, keep_at_least);
+        let tagged = handle_keep_n_most_recent(&package_name, tagged, keep_n_most_recent);
 
         tagged_total_count += tagged.len();
         untagged_total_count += untagged.len();
@@ -514,7 +513,7 @@ Image name {image_name} is therefore not valid.");
         client,
         input.image_tags,
         input.shas_to_skip,
-        input.keep_at_least,
+        input.keep_n_most_recent,
         input.tag_selection,
         &input.cut_off,
         &input.timestamp_to_use,
@@ -722,13 +721,13 @@ mod test {
     }
 
     #[test]
-    fn test_handle_keep_at_least_ordering() {
+    fn test_handle_keep_n_most_recent_ordering() {
         let now: DateTime<Utc> = Utc::now();
         let five_minutes_ago: DateTime<Utc> = now - Duration::minutes(5);
         let ten_minutes_ago: DateTime<Utc> = now - Duration::minutes(10);
 
         // Newest is removed (to be kept)
-        let kept = handle_keep_at_least(
+        let kept = handle_keep_n_most_recent(
             "",
             vec![pv(five_minutes_ago), pv(now), pv(ten_minutes_ago)],
             1,
@@ -736,7 +735,7 @@ mod test {
         assert_eq!(kept.len(), 2);
         assert_eq!(kept, vec![pv(ten_minutes_ago), pv(five_minutes_ago)]);
 
-        let kept = handle_keep_at_least(
+        let kept = handle_keep_n_most_recent(
             "",
             vec![pv(five_minutes_ago), pv(ten_minutes_ago), pv(now)],
             1,
@@ -744,7 +743,7 @@ mod test {
         assert_eq!(kept.len(), 2);
         assert_eq!(kept, vec![pv(ten_minutes_ago), pv(five_minutes_ago)]);
 
-        let kept = handle_keep_at_least(
+        let kept = handle_keep_n_most_recent(
             "",
             vec![pv(now), pv(ten_minutes_ago), pv(five_minutes_ago)],
             1,
@@ -767,7 +766,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_handle_keep_at_least() {
+    fn test_handle_keep_n_most_recent() {
         let metadata = Metadata {
             container: ContainerMetadata { tags: Vec::new() },
         };
@@ -798,18 +797,18 @@ mod tests {
         ];
 
         // Test case 1: more items than keep at least
-        let keep_at_least = 2;
-        let remaining_tagged = handle_keep_at_least("", tagged.clone(), keep_at_least);
+        let keep_n_most_recent = 2;
+        let remaining_tagged = handle_keep_n_most_recent("", tagged.clone(), keep_n_most_recent);
         assert_eq!(remaining_tagged.len(), 1);
 
-        // Test case 2: same items as keep_at_least
-        let keep_at_least = 6;
-        let remaining_tagged = handle_keep_at_least("", tagged.clone(), keep_at_least);
+        // Test case 2: same items as keep_n_most_recent
+        let keep_n_most_recent = 6;
+        let remaining_tagged = handle_keep_n_most_recent("", tagged.clone(), keep_n_most_recent);
         assert_eq!(remaining_tagged.len(), 0);
 
-        // Test case 3: fewer items than keep_at_least
-        let keep_at_least = 10;
-        let remaining_tagged = handle_keep_at_least("", tagged.clone(), keep_at_least);
+        // Test case 3: fewer items than keep_n_most_recent
+        let keep_n_most_recent = 10;
+        let remaining_tagged = handle_keep_n_most_recent("", tagged.clone(), keep_n_most_recent);
         assert_eq!(remaining_tagged.len(), 0);
     }
 

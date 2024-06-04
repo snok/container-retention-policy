@@ -27,7 +27,7 @@ inputs:
     description: "Specify whether to consider tagged images, untagged images, or both."
     required: false
     default: 'both'
-  keep-at-least:
+  keep-n-most-recent:
     description: 'How many image versions to always retain. Newer package versions are prioritized.'
     required: false
     default: '0'
@@ -62,7 +62,7 @@ runs:
     - --image-tags=${{ inputs.image-tags }}
     - --shas-to-skip=${{ inputs.skip-shas }}
     - --tag-selection=${{ inputs.tag-selection }}
-    - --keep-at-least=${{ inputs.keep-at-least }}
+    - --keep-n-most-recent=${{ inputs.keep-n-most-recent }}
     - --timestamp-to-use=${{ inputs.timestamp-to-use }}
     - --cut-off=${{ inputs.cut-off }}
     - --dry-run=${{ inputs.dry-run }}

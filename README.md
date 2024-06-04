@@ -140,14 +140,14 @@ proper handling of multi-platform images. See [safely handling multi-platform (m
 
 Optionally lets you select only tagged or untagged images. Both are selected by default.
 
-### keep-at-least
+### keep-n-most-recent
 
 * **Required**: `No`
-* **Example**: `keep-at-least: 5`
-* **Default**: `keep-at-least: 0`
+* **Example**: `keep-n-most-recent: 5`
+* **Default**: `keep-n-most-recent: 0`
 
 How many images to keep, out of the most recent tagged images selected. If there are 10 tagged package
-versions selected, after filtering on names, tags, and cut-off, and there's a keep-at-least count of 3 set,
+versions selected, after filtering on names, tags, and cut-off, and there's a keep-n-most-recent count of 3 set,
 then we will retain the 3 most recently created package versions and delete 7.
 
 This parameter will not prevent deletion of untagged images, because we do not know of a valid use-case for this behavior.
@@ -289,7 +289,7 @@ to run the program elsewhere you may:
 
 If you're deploying containers to Kubernetes, one thing to beware of is not to specify retention policies that prevent you from rolling back deployments, should you need to.
 
-If you're following best-practices for tagging your container images, you'll likely be tagging them with versions, dates, or some other moving tag strategy. In this case, it can be hard to protect *some* package versions from being deleted by using the `image-tags` filters. Instead, you can use the `keep-at-least` argument, which will retain `n` package versions per package specified:
+If you're following best-practices for tagging your container images, you'll likely be tagging them with versions, dates, or some other moving tag strategy. In this case, it can be hard to protect *some* package versions from being deleted by using the `image-tags` filters. Instead, you can use the `keep-n-most-recent` argument, which will retain `n` package versions per package specified:
 
 ```yaml
 name: Delete old container images
@@ -311,7 +311,7 @@ jobs:
           image-tags: *  # any image tag
           tag-selection: both  # select both tagged and untagged package versions
           cut-off: 1w  # package versions should be older than 4 weeks
-          keep-at-least: 5  # keep up to `n` tagged package versions for each of the packages
+          keep-n-most-recent: 5  # keep up to `n` tagged package versions for each of the packages
 ```
 
 The action will prioritize keeping newer package versions over older ones.
@@ -483,12 +483,6 @@ This is a [container github action](https://docs.github.com/en/actions/creating-
 
 
 TODO: WHat about reuploads? Can we use created-at?
-
-TODO: Specify that keep-at-least means to keep `n` package versions for each package, after it has satisfied filters. Explain that keeping `n` adhoc releases for rolling back kubernetes is a legitimate use case. Keeping the last 10 days of packages is not.
-
-TODO: Ensure we sort keep-at-least by date and keep the most recent.
-
-- [ ] Add note about keep_at_least keeping `n` number of package versions per image, and that it will prioritize keeping newer versions
 
 - [ ] Add explanation of what an image version is
 
