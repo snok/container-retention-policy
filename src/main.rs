@@ -690,24 +690,6 @@ mod test {
             .any(|m| m.matches("foosssss  $xas")));
     }
 
-    // #[test]
-    // fn test_generate_urls() {
-    //     let (list_packages, package_url_base) = generate_urls(&Account::User);
-    //     assert!(list_packages.as_str().contains("per_page=100"));
-    //     assert!(list_packages.as_str().contains("package_type=container"));
-    //     assert!(list_packages.as_str().contains("api.github.com"));
-    //     assert!(package_url_base.as_str().contains("api.github.com"));
-    //
-    //     let (list_packages, package_url_base) =
-    //         generate_urls(&Account::Organization("foo".to_string()));
-    //     assert!(list_packages.as_str().contains("per_page=100"));
-    //     assert!(list_packages.as_str().contains("package_type=container"));
-    //     assert!(list_packages.as_str().contains("api.github.com"));
-    //     assert!(package_url_base.as_str().contains("api.github.com"));
-    //     assert!(list_packages.as_str().contains("/foo/"));
-    //     assert!(package_url_base.as_str().contains("/foo/"));
-    // }
-
     fn pv(dt: DateTime<Utc>) -> PackageVersion {
         PackageVersion {
             id: 0,
@@ -752,8 +734,6 @@ mod test {
         assert_eq!(kept, vec![pv(ten_minutes_ago), pv(five_minutes_ago)]);
     }
 }
-
-// TODO: Look up wildmatch serde feature
 
 #[cfg(test)]
 mod tests {
@@ -899,8 +879,8 @@ mod select_package_version_tests {
             &humantime::Duration::from_str("2h").unwrap(),
             &Timestamp::UpdatedAt,
             &Urls {
-                github_package_base: Url::parse("https://foo.com").unwrap(),
-                container_package_base: Url::parse("https://foo.com").unwrap(),
+                packages_frontend_base: Url::parse("https://foo.com").unwrap(),
+                packages_api_base: Url::parse("https://foo.com").unwrap(),
                 list_packages_url: Url::parse("https://foo.com").unwrap(),
             },
         )
@@ -927,8 +907,8 @@ mod select_package_version_tests {
     #[test]
     fn test_package_selection_tag_selection_is_respected() {
         let urls = Urls {
-            github_package_base: Url::parse("https://foo.com").unwrap(),
-            container_package_base: Url::parse("https://foo.com").unwrap(),
+            packages_frontend_base: Url::parse("https://foo.com").unwrap(),
+            packages_api_base: Url::parse("https://foo.com").unwrap(),
             list_packages_url: Url::parse("https://foo.com").unwrap(),
         };
 
@@ -1007,8 +987,8 @@ mod select_package_version_tests {
     #[test]
     fn test_package_selection_matchers_work() {
         let urls = Urls {
-            github_package_base: Url::parse("https://foo.com").unwrap(),
-            container_package_base: Url::parse("https://foo.com").unwrap(),
+            packages_frontend_base: Url::parse("https://foo.com").unwrap(),
+            packages_api_base: Url::parse("https://foo.com").unwrap(),
             list_packages_url: Url::parse("https://foo.com").unwrap(),
         };
 
@@ -1107,8 +1087,8 @@ mod select_package_version_tests {
 
     fn call_f(matchers: Matchers) -> (Vec<PackageVersion>, Vec<PackageVersion>) {
         let urls = Urls {
-            github_package_base: Url::parse("https://foo.com").unwrap(),
-            container_package_base: Url::parse("https://foo.com").unwrap(),
+            packages_frontend_base: Url::parse("https://foo.com").unwrap(),
+            packages_api_base: Url::parse("https://foo.com").unwrap(),
             list_packages_url: Url::parse("https://foo.com").unwrap(),
         };
         let package_versions = vec![pv(0, "sha256:foobar", vec!["foo", "bar"])];

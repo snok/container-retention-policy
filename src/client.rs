@@ -215,8 +215,8 @@ impl ContainerClientBuilder {
 
 #[derive(Debug)]
 pub struct Urls {
-    pub github_package_base: Url,
-    pub container_package_base: Url,
+    pub packages_frontend_base: Url,
+    pub packages_api_base: Url,
     pub list_packages_url: Url,
 }
 
@@ -245,15 +245,15 @@ impl Urls {
 
         Self {
             list_packages_url,
-            container_package_base: Url::parse(&api_base_url).expect("Failed to parse URL"),
-            github_package_base: Url::parse(&github_base_url).expect("Failed to parse URL"),
+            packages_api_base: Url::parse(&api_base_url).expect("Failed to parse URL"),
+            packages_frontend_base: Url::parse(&github_base_url).expect("Failed to parse URL"),
         }
     }
 
     pub fn list_package_versions_url(&self, package_name: &str) -> Result<Url> {
         let encoded_package_name = Self::percent_encode(package_name);
         Ok(Url::parse(
-            &(self.container_package_base.to_string()
+            &(self.packages_api_base.to_string()
                 + &format!("/{encoded_package_name}/versions?per_page=100")),
         )?)
     }
@@ -266,7 +266,7 @@ impl Urls {
         let encoded_package_name = Self::percent_encode(package_name);
         let encoded_package_version_name = Self::percent_encode(&package_version_name.to_string());
         Ok(Url::parse(
-            &(self.container_package_base.to_string()
+            &(self.packages_api_base.to_string()
                 + &format!("/{encoded_package_name}/versions/{encoded_package_version_name}")),
         )?)
     }
@@ -275,7 +275,7 @@ impl Urls {
         let encoded_package_name = Self::percent_encode(package_name);
         let encoded_package_version_name = Self::percent_encode(&package_id.to_string());
         Ok(Url::parse(
-            &(self.github_package_base.to_string()
+            &(self.packages_frontend_base.to_string()
                 + &format!("/{encoded_package_name}/{encoded_package_version_name}")),
         )?)
     }
@@ -283,7 +283,7 @@ impl Urls {
     pub fn fetch_package_url(&self, package_name: &str) -> Result<Url> {
         let encoded_package_name = Self::percent_encode(package_name);
         Ok(Url::parse(
-            &(self.container_package_base.to_string() + &format!("/{encoded_package_name}")),
+            &(self.packages_api_base.to_string() + &format!("/{encoded_package_name}")),
         )?)
     }
 
@@ -952,5 +952,47 @@ mod tests {
     #[test]
     fn url_encoding() {
         assert_eq!(Urls::percent_encode("a/b"), "a%2Fb".to_string())
+    }
+
+    #[test]
+    fn test_generate_urls() {
+        let urls = {
+            let mut builder = ContainerClientBuilder::new();
+            assert!(builder.urls.is_none());
+            builder = builder.generate_urls(&Account::User);
+            builder.urls.unwrap()
+        };
+        assert!(urls.list_packages_url.as_str().contains("per_page=100"));
+        assert!(urls
+            .list_packages_url
+            .as_str()
+            .contains("package_type=container"));
+        assert!(urls.list_packages_url.as_str().contains("api.github.com"));
+        println!("{}", urls.packages_frontend_base);
+        assert!(urls.packages_api_base.as_str().contains("api.github.com"));
+        assert!(urls
+            .packages_frontend_base
+            .as_str()
+            .contains("https://github.com"));
+
+        let urls = {
+            let mut builder = ContainerClientBuilder::new();
+            assert!(builder.urls.is_none());
+            builder = builder.generate_urls(&Account::Organization("foo".to_string()));
+            builder.urls.unwrap()
+        };
+        assert!(urls.list_packages_url.as_str().contains("per_page=100"));
+        assert!(urls
+            .list_packages_url
+            .as_str()
+            .contains("package_type=container"));
+        assert!(urls.list_packages_url.as_str().contains("api.github.com"));
+        assert!(urls.packages_api_base.as_str().contains("api.github.com"));
+        assert!(urls.list_packages_url.as_str().contains("/foo/"));
+        assert!(urls.packages_api_base.as_str().contains("/foo/"));
+        assert!(urls
+            .packages_frontend_base
+            .as_str()
+            .contains("https://github.com"));
     }
 }

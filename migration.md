@@ -53,11 +53,11 @@
 
 - The available syntax for `image-names` and `image-tags` has previously allowed wildcards, using the `*` character. We now also allow the `?` character to express a single-character wildcard. For example, the pattern `ca?` will match `car` and  `cat`. See [wildmatch docs](https://github.com/becheran/wildmatch) for details.
 
-- The `cut-off` input no longer accepts human-readable datetimes. Instead, it accepts the inputs listed [here](https://crates.io/crates/duration-str). For example:
+- The `cut-off` input no longer accepts human-readable datetimes. Instead, it accepts the inputs listed [here](https://github.com/tailhook/humantime). For example:
 
     ```diff
     - cut-off: two hours and 5 minutes ago UTC+2
-    + cut-off: 2h + 5m
+    + cut-off: 2h 5m
     ```
 
     or
