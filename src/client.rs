@@ -1,3 +1,4 @@
+use std::process::exit;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -5,12 +6,11 @@ use std::usize;
 
 use chrono::{DateTime, Utc};
 use color_eyre::eyre::{eyre, Result};
-use futures::{future::BoxFuture, FutureExt};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Method, Request, StatusCode};
 use secrecy::ExposeSecret;
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
-use serde_json::Value;
 use tokio::sync::Mutex;
 use tower::limit::{ConcurrencyLimit, RateLimit};
 use tower::{Service, ServiceBuilder, ServiceExt};
@@ -20,7 +20,7 @@ use url::Url;
 use crate::input::{Account, Token};
 use crate::responses::{Package, PackageVersion};
 
-pub type RateLimitedService = Arc<Mutex<ConcurrencyLimit<RateLimit<Client>>>>;
+type RateLimitedService = Arc<Mutex<ConcurrencyLimit<RateLimit<Client>>>>;
 
 #[derive(Debug)]
 pub struct ContainerClientBuilder {
@@ -31,14 +31,6 @@ pub struct ContainerClientBuilder {
     list_packages_service: Option<RateLimitedService>,
     list_package_versions_service: Option<RateLimitedService>,
     delete_package_versions_service: Option<RateLimitedService>,
-    remaining_requests: Option<usize>,
-    rate_limit_reset: Option<DateTime<Utc>>,
-}
-
-impl Default for ContainerClientBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl ContainerClientBuilder {
@@ -50,9 +42,7 @@ impl ContainerClientBuilder {
             list_packages_service: None,
             list_package_versions_service: None,
             delete_package_versions_service: None,
-            remaining_requests: None,
             token: None,
-            rate_limit_reset: None,
         }
     }
 
@@ -61,9 +51,8 @@ impl ContainerClientBuilder {
         let auth_header_value = format!(
             "Bearer {}",
             match &token {
-                Token::TemporalToken(token)
-                | Token::OauthToken(token)
-                | Token::ClassicPersonalAccessToken(token) => token.expose_secret(),
+                Token::TemporalToken(token) | Token::OauthToken(token) | Token::ClassicPersonalAccessToken(token) =>
+                    token.expose_secret(),
             }
         );
         let mut headers = HeaderMap::new();
@@ -116,70 +105,32 @@ impl ContainerClientBuilder {
         self.fetch_package_service = Some(Arc::new(Mutex::new(
             ServiceBuilder::new()
                 .concurrency_limit(MAX_CONCURRENCY)
-                .rate_limit(
-                    MAX_POINTS_PER_ENDPOINT_PER_MINUTE / GET_REQUEST_POINTS,
-                    ONE_MINUTE,
-                )
+                .rate_limit(MAX_POINTS_PER_ENDPOINT_PER_MINUTE / GET_REQUEST_POINTS, ONE_MINUTE)
                 .service(Client::new()),
         )));
 
         self.list_packages_service = Some(Arc::new(Mutex::new(
             ServiceBuilder::new()
                 .concurrency_limit(MAX_CONCURRENCY)
-                .rate_limit(
-                    MAX_POINTS_PER_ENDPOINT_PER_MINUTE / GET_REQUEST_POINTS,
-                    ONE_MINUTE,
-                )
+                .rate_limit(MAX_POINTS_PER_ENDPOINT_PER_MINUTE / GET_REQUEST_POINTS, ONE_MINUTE)
                 .service(Client::new()),
         )));
 
         self.list_package_versions_service = Some(Arc::new(Mutex::new(
             ServiceBuilder::new()
                 .concurrency_limit(MAX_CONCURRENCY)
-                .rate_limit(
-                    MAX_POINTS_PER_ENDPOINT_PER_MINUTE / GET_REQUEST_POINTS,
-                    ONE_MINUTE,
-                )
+                .rate_limit(MAX_POINTS_PER_ENDPOINT_PER_MINUTE / GET_REQUEST_POINTS, ONE_MINUTE)
                 .service(Client::new()),
         )));
 
         self.delete_package_versions_service = Some(Arc::new(Mutex::new(
             ServiceBuilder::new()
                 .concurrency_limit(MAX_CONCURRENCY)
-                .rate_limit(
-                    MAX_POINTS_PER_ENDPOINT_PER_MINUTE / DELETE_REQUEST_POINTS,
-                    ONE_MINUTE,
-                )
+                .rate_limit(MAX_POINTS_PER_ENDPOINT_PER_MINUTE / DELETE_REQUEST_POINTS, ONE_MINUTE)
                 .service(Client::new()),
         )));
 
         self
-    }
-
-    pub async fn fetch_rate_limit(mut self) -> Result<Self> {
-        debug!("Retrieving Github API rate limit");
-
-        if self.headers.is_none() || self.token.is_none() {
-            return Err(eyre!(
-                "self.set_headers() must be set before the rate-limit can be fetched"
-            ));
-        }
-
-        // Construct initial request
-        let response = Client::new()
-            .get("https://api.github.com/rate_limit")
-            .headers(self.headers.clone().unwrap())
-            .send()
-            .await?;
-
-        // Parse GitHub headers related to pagination and secondary rate limits
-        let response_headers =
-            GithubHeaders::try_from(response.headers(), &self.token.clone().unwrap())?;
-
-        self.remaining_requests = Some(response_headers.x_ratelimit_remaining);
-        self.rate_limit_reset = Some(response_headers.x_ratelimit_reset);
-
-        Ok(self)
     }
 
     pub fn build(self) -> Result<ContainerClient, Box<dyn std::error::Error>> {
@@ -190,8 +141,6 @@ impl ContainerClientBuilder {
             || self.list_package_versions_service.is_none()
             || self.delete_package_versions_service.is_none()
             || self.token.is_none()
-            || self.remaining_requests.is_none()
-            || self.rate_limit_reset.is_none()
         {
             return Err("All required fields are not set".into());
         }
@@ -204,9 +153,7 @@ impl ContainerClientBuilder {
             list_packages_service: self.list_packages_service.unwrap(),
             list_package_versions_service: self.list_package_versions_service.unwrap(),
             delete_package_versions_service: self.delete_package_versions_service.unwrap(),
-            remaining_requests: self.remaining_requests.unwrap(),
             token: self.token.unwrap(),
-            rate_limit_reset: self.rate_limit_reset.unwrap(),
         };
 
         Ok(client)
@@ -237,8 +184,7 @@ impl Urls {
         };
 
         let list_packages_url =
-            Url::parse(&(api_base_url.clone() + "?package_type=container&per_page=100"))
-                .expect("Failed to parse URL");
+            Url::parse(&(api_base_url.clone() + "?package_type=container&per_page=100")).expect("Failed to parse URL");
 
         api_base_url += "/container";
         github_base_url += "/container";
@@ -253,16 +199,11 @@ impl Urls {
     pub fn list_package_versions_url(&self, package_name: &str) -> Result<Url> {
         let encoded_package_name = Self::percent_encode(package_name);
         Ok(Url::parse(
-            &(self.packages_api_base.to_string()
-                + &format!("/{encoded_package_name}/versions?per_page=100")),
+            &(self.packages_api_base.to_string() + &format!("/{encoded_package_name}/versions?per_page=100")),
         )?)
     }
 
-    pub fn delete_package_version_url(
-        &self,
-        package_name: &str,
-        package_version_name: &u32,
-    ) -> Result<Url> {
+    pub fn delete_package_version_url(&self, package_name: &str, package_version_name: &u32) -> Result<Url> {
         let encoded_package_name = Self::percent_encode(package_name);
         let encoded_package_version_name = Self::percent_encode(&package_version_name.to_string());
         Ok(Url::parse(
@@ -301,101 +242,137 @@ pub struct ContainerClient {
     list_packages_service: RateLimitedService,
     list_package_versions_service: RateLimitedService,
     delete_package_versions_service: RateLimitedService,
-    pub remaining_requests: usize,
-    pub rate_limit_reset: DateTime<Utc>,
     token: Token,
 }
 
 impl ContainerClient {
-    /// Recursively fetch packages, until the last page of pagination is hit.
-    pub async fn list_packages(&mut self, url: Url) -> Result<Vec<Package>> {
-        Self::list_all_packages(
-            url,
-            self.list_packages_service.clone(),
-            self.headers.clone(),
-            self.token.clone(),
-        )
-        .await
+    pub async fn fetch_packages(
+        &mut self,
+        token: &Token,
+        image_names: &Vec<String>,
+        remaining_requests: Arc<Mutex<usize>>,
+    ) -> Vec<Package> {
+        if let Token::TemporalToken(_) = *token {
+            // If a repo is assigned the admin role under Package Settings > Manage Actions Access,
+            // then it can fetch a package's versions directly by name, and delete them. It cannot,
+            // however, list packages, so for this token type we are limited to fetching packages
+            // individually, by name
+            for image_name in image_names {
+                if image_name.contains('!') || image_name.contains('*') {
+                    panic!("Restrictions in the Github API prevent us from listing packages when using a $GITHUB_TOKEN token. Because of this, filtering with '!' and '*' are not supported for this token type. Image name {image_name} is therefore not valid.");
+                }
+            }
+            self.fetch_individual_packages(image_names, remaining_requests)
+                .await
+                .expect("Failed to fetch packages")
+        } else {
+            self.list_packages(self.urls.list_packages_url.clone(), remaining_requests)
+                .await
+                .expect("Failed to fetch packages")
+        }
     }
-    pub fn list_all_packages(
+
+    /// Recursively fetch T, until the last page of pagination is hit.
+    async fn fetch_with_pagination<T: DeserializeOwned>(
         url: Url,
         service: RateLimitedService,
         headers: HeaderMap,
-        token: Token,
-    ) -> BoxFuture<'static, Result<Vec<Package>>> {
-        async move {
-            debug!("Fetching packages from {url}");
+        remaining_requests: Arc<Mutex<usize>>,
+    ) -> Result<Vec<T>> {
+        let mut result = Vec::new();
+        let mut next_url = Some(url);
 
-            // Construct initial request
-            let mut request = Request::new(Method::GET, url);
+        while let Some(current_url) = next_url {
+            debug!("Fetching data from {}", current_url);
+
+            let mut request = Request::new(Method::GET, current_url);
             *request.headers_mut() = headers.clone();
 
-            // Get a lock on the tower service which regulates our traffic
-            let mut handle = service.lock().await;
-
-            let response = {
-                // Wait until the service says we're OK to proceed
-                let r = handle.ready().await;
-
-                match r {
-                    Ok(t) => {
-                        // Initiate the request and drop the handle before awaiting the result
-                        // If we don't drop the handle, our request flow becomes synchronous
-                        let fut = t.call(request);
-                        drop(handle);
-                        match fut.await {
-                            Ok(t) => t,
-                            Err(e) => return Err(eyre!("Request failed: {}", e)),
-                        }
-                    }
-                    Err(e) => {
-                        return Err(eyre!("Service failed to become ready: {}", e));
-                    }
-                }
-            };
-            // Parse GitHub headers related to pagination and secondary rate limits
-            let response_headers = GithubHeaders::try_from(response.headers(), &token)?;
-
-            let raw_json = response.text().await?;
-            // println!("Raw JSON response: {}", raw_json);
-
-            // Deserialize content
-            let mut result: Vec<Package> = serde_json::from_str(&raw_json)?;
-
-            // Handle pagination
-            if response_headers.x_ratelimit_remaining > 1 && response_headers.link.is_some() {
-                if let Some(next_link) = response_headers.next_link() {
-                    info!("Fetching more results from {next_link}");
-                    let r = ContainerClient::list_all_packages(
-                        next_link,
-                        service.clone(),
-                        headers,
-                        token,
-                    )
-                    .await?;
-                    result.extend(r);
+            {
+                if *remaining_requests.lock().await == 0 {
+                    return Err(eyre!("No more requests available in the current rate limit. Exiting."));
                 }
             }
 
-            Ok(result)
+            let mut handle = service.lock().await;
+
+            let r = handle.ready().await;
+
+            let response = match r {
+                Ok(t) => {
+                    // Initiate the request and drop the handle before awaiting the result
+                    // If we don't drop the handle, our request flow becomes synchronous
+                    let fut = t.call(request);
+                    drop(handle);
+                    match fut.await {
+                        Ok(t) => t,
+                        Err(e) => return Err(eyre!("Request failed: {}", e)),
+                    }
+                }
+                Err(e) => {
+                    return Err(eyre!("Service failed to become ready: {}", e));
+                }
+            };
+            *(remaining_requests.lock().await) -= 1;
+
+            let response_headers = GithubHeaders::try_from(response.headers())?;
+            let raw_json = response.text().await?;
+
+            let mut items: Vec<T> = match serde_json::from_str(&raw_json) {
+                Ok(t) => t,
+                Err(e) => {
+                    return Err(eyre!(
+                        "Failed to deserialize paginated response: {raw_json}. The error was {e}."
+                    ));
+                }
+            };
+
+            result.append(&mut items);
+
+            next_url = if response_headers.x_ratelimit_remaining > 1 {
+                response_headers.next_link()
+            } else {
+                None
+            };
         }
-        .boxed()
+
+        Ok(result)
     }
 
-    pub async fn fetch_individual_package(
+    async fn list_packages(&mut self, url: Url, remaining_requests: Arc<Mutex<usize>>) -> Result<Vec<Package>> {
+        Self::fetch_with_pagination(
+            url,
+            self.list_packages_service.clone(),
+            self.headers.clone(),
+            remaining_requests.clone(),
+        )
+        .await
+    }
+
+    pub async fn list_package_versions(
         &self,
-        url: Url,
-        headers: &HeaderMap,
-        service: RateLimitedService,
-        token: Token,
-    ) -> Result<Package> {
+        package_name: String,
+        remaining_requests: Arc<Mutex<usize>>,
+    ) -> Result<(String, Vec<PackageVersion>)> {
+        let url = self.urls.list_package_versions_url(&package_name)?;
+        let versions = Self::fetch_with_pagination(
+            url,
+            self.list_package_versions_service.clone(),
+            self.headers.clone(),
+            remaining_requests,
+        )
+        .await?;
+        Ok((package_name, versions))
+    }
+
+    async fn fetch_individual_package(&self, url: Url, remaining_requests: Arc<Mutex<usize>>) -> Result<Package> {
         debug!("Fetching package from {url}");
 
         let mut request = Request::new(Method::GET, url);
-        *request.headers_mut() = headers.clone();
+        *request.headers_mut() = self.headers.clone();
 
         // Get a lock on the tower service which regulates our traffic
-        let mut handle = service.lock().await;
+        let mut handle = self.fetch_package_service.lock().await;
 
         let response = {
             // Wait until the service says we're OK to proceed
@@ -417,133 +394,39 @@ impl ContainerClient {
                 }
             }
         };
+        *(remaining_requests.lock().await) -= 1;
 
-        // Parse GitHub headers related to pagination and secondary rate limits
-        GithubHeaders::try_from(response.headers(), &token)?;
+        GithubHeaders::try_from(response.headers())?;
 
         let raw_json = response.text().await?;
-        // println!("Raw JSON response: {}", raw_json);
-
-        // Deserialize content
         Ok(serde_json::from_str(&raw_json)?)
     }
 
-    pub async fn fetch_individual_packages(
+    async fn fetch_individual_packages(
         &self,
         package_names: &[String],
-        token: Token,
+        remaining_requests: Arc<Mutex<usize>>,
     ) -> Result<Vec<Package>> {
-        // Create async tasks to make multiple concurrent requests
         let mut futures = Vec::new();
 
         for package_name in package_names {
             let url = self.urls.fetch_package_url(package_name)?;
-            let fut = self.fetch_individual_package(
-                url,
-                &self.headers,
-                self.fetch_package_service.clone(),
-                token.clone(),
-            );
+            let fut = self.fetch_individual_package(url, remaining_requests.clone());
             futures.push(fut);
         }
 
         let mut packages = Vec::new();
 
-        for fut in futures.into_iter() {
+        for fut in futures {
             match fut.await {
-                Ok(package) => packages.push(package),
+                Ok(package) => {
+                    packages.push(package);
+                }
                 Err(e) => return Err(e),
             }
         }
 
         Ok(packages)
-    }
-
-    /// Recursively fetch package versions, until the last page of pagination is hit.
-    pub async fn list_package_versions(
-        &self,
-        package_name: String,
-    ) -> Result<(String, Vec<PackageVersion>)> {
-        let url = self.urls.list_package_versions_url(&package_name)?;
-        Ok((
-            package_name.to_string(),
-            Self::list_all_package_versions(
-                url,
-                self.list_package_versions_service.clone(),
-                self.headers.clone(),
-                self.token.clone(),
-            )
-            .await?,
-        ))
-    }
-
-    pub fn list_all_package_versions(
-        url: Url,
-        service: RateLimitedService,
-        headers: HeaderMap,
-        token: Token,
-    ) -> BoxFuture<'static, Result<Vec<PackageVersion>>> {
-        async move {
-            debug!("Fetching package versions from {}", url);
-            // Construct initial request
-            let mut request = Request::new(Method::GET, url);
-            *request.headers_mut() = headers.clone();
-
-            // Get a lock on the tower service which regulates our traffic
-            let mut handle = service.lock().await;
-
-            let response = {
-                // Wait until the service says we're OK to proceed
-                let r = handle.ready().await;
-
-                match r {
-                    Ok(t) => {
-                        // Initiate the request and drop the handle before awaiting the result
-                        // If we don't drop the handle, our request flow becomes synchronous
-                        let fut = t.call(request);
-                        drop(handle);
-                        match fut.await {
-                            Ok(t) => t,
-                            Err(e) => return Err(eyre!("Failed to fetch package version: {}", e)),
-                        }
-                    }
-                    Err(e) => {
-                        return Err(eyre!("Service failed to become ready: {}", e));
-                    }
-                }
-            };
-
-            // Parse GitHub headers related to pagination and secondary rate limits
-            let response_headers = GithubHeaders::try_from(response.headers(), &token)?;
-
-            // Deserialize content
-            let v: Value = response.json().await?;
-
-            let mut result: Vec<PackageVersion> = match serde_json::from_value(v.clone()) {
-                Ok(t) => t,
-                Err(_) => {
-                    return Err(eyre!("Failed to deserialize package version response: {v}"));
-                }
-            };
-
-            // Handle pagination
-            if response_headers.x_ratelimit_remaining > 1 && response_headers.link.is_some() {
-                if let Some(next_link) = response_headers.next_link() {
-                    debug!("Fetching more results from {next_link}");
-                    let r = ContainerClient::list_all_package_versions(
-                        next_link,
-                        service.clone(),
-                        headers,
-                        token,
-                    )
-                    .await?;
-                    result.extend(r);
-                }
-            }
-
-            Ok(result)
-        }
-        .boxed()
     }
 
     /// Delete a package version.
@@ -560,9 +443,7 @@ impl ContainerClient {
         // it had these three tags, and ["foo:untagged"] if it had no tags. This isn't really how the data model
         // works, but is what users will expect to see output.
         let names = if package_version.metadata.container.tags.is_empty() {
-            vec![format!(
-                "\x1b[34m{package_name}\x1b[0m:\x1b[33m<untagged>\x1b[0m"
-            )]
+            vec![format!("\x1b[34m{package_name}\x1b[0m:\x1b[33m<untagged>\x1b[0m")]
         } else {
             package_version
                 .metadata
@@ -585,10 +466,7 @@ impl ContainerClient {
         }
 
         // Construct URL for this package version
-        let url = match self
-            .urls
-            .delete_package_version_url(&package_name, &package_version.id)
-        {
+        let url = match self.urls.delete_package_version_url(&package_name, &package_version.id) {
             Ok(t) => t,
             Err(e) => {
                 error!(
@@ -654,14 +532,43 @@ impl ContainerClient {
                     "Failed to delete package version {} with status {}: {}",
                     package_version.id,
                     response.status(),
-                    response
-                        .text()
-                        .await
-                        .expect("Failed to read text from response")
+                    response.text().await.expect("Failed to read text from response")
                 );
                 Err(names)
             }
         }
+    }
+
+    pub async fn fetch_rate_limit(&self) -> Result<(usize, DateTime<Utc>)> {
+        debug!("Retrieving Github API rate limit");
+
+        // Construct initial request
+        let response = Client::new()
+            .get("https://api.github.com/rate_limit")
+            .headers(self.headers.clone())
+            .send()
+            .await?;
+
+        // Since this is the first call made to the GitHub API, we perform a few extra auth checks here:
+
+        // auth check: Make sure we're authorized correctly
+        if response.status() == StatusCode::UNAUTHORIZED {
+            eprintln!("Received a 401 response from the GitHub API. Make sure the token is valid, and that it has the correct permissions.");
+            exit(1);
+        }
+
+        let response_headers = GithubHeaders::try_from(response.headers())?;
+
+        // auth check: Make sure we have the correct scopes
+        if !response_headers.has_correct_scopes(&self.token) {
+            eprintln!("The token does not have the scopes needed. Tokens need `read:packages` and `delete:packages`. The scopes found were {}.", response_headers.x_oauth_scopes.unwrap_or("none".to_string()));
+            exit(1);
+        };
+
+        Ok((
+            response_headers.x_ratelimit_remaining,
+            response_headers.x_ratelimit_reset,
+        ))
     }
 }
 
@@ -669,7 +576,6 @@ impl ContainerClient {
 #[serde(rename_all = "kebab-case")]
 pub struct GithubHeaders {
     pub x_ratelimit_remaining: usize,
-    pub x_ratelimit_used: u32,
     pub x_ratelimit_reset: DateTime<Utc>,
     pub x_oauth_scopes: Option<String>,
     pub link: Option<String>,
@@ -699,11 +605,7 @@ impl GithubHeaders {
             let sections: Vec<&str> = part.trim().split(';').collect();
             assert_eq!(sections.len(), 2, "Sections length was {}", sections.len());
 
-            let url = sections[0]
-                .trim()
-                .trim_matches('<')
-                .trim_matches('>')
-                .to_string();
+            let url = sections[0].trim().trim_matches('<').trim_matches('>').to_string();
 
             return Some(Url::parse(&url).expect("Failed to parse link header URL"));
         }
@@ -733,9 +635,7 @@ impl GithubHeaders {
 
         match token {
             Token::TemporalToken(_) => {
-                scope.contains("read:packages")
-                    && scope.contains("delete:packages")
-                    && scope.contains("repo")
+                scope.contains("read:packages") && scope.contains("delete:packages") && scope.contains("repo")
             }
             Token::ClassicPersonalAccessToken(_) | Token::OauthToken(_) => {
                 // TODO: Comment back in if it's true that we need read - test
@@ -746,9 +646,8 @@ impl GithubHeaders {
 }
 
 impl GithubHeaders {
-    fn try_from(value: &HeaderMap, token: &Token) -> Result<Self> {
+    fn try_from(value: &HeaderMap) -> Result<Self> {
         let mut x_rate_limit_remaining = None;
-        let mut x_rate_limit_used = None;
         let mut x_rate_limit_reset = None;
         let mut x_oauth_scopes = None;
         let mut link = None;
@@ -758,14 +657,9 @@ impl GithubHeaders {
                 "x-ratelimit-remaining" => {
                     x_rate_limit_remaining = Some(usize::from_str(v.to_str().unwrap()).unwrap());
                 }
-                "x-ratelimit-used" => {
-                    x_rate_limit_used = Some(u32::from_str(v.to_str().unwrap()).unwrap());
-                }
                 "x-ratelimit-reset" => {
-                    x_rate_limit_reset = Some(
-                        DateTime::from_timestamp(i64::from_str(v.to_str().unwrap()).unwrap(), 0)
-                            .unwrap(),
-                    );
+                    x_rate_limit_reset =
+                        Some(DateTime::from_timestamp(i64::from_str(v.to_str().unwrap()).unwrap(), 0).unwrap());
                 }
                 "x-oauth-scopes" => x_oauth_scopes = Some(v.to_str().unwrap().to_string()),
                 "link" => link = Some(v.to_str().unwrap().to_string()),
@@ -778,21 +672,9 @@ impl GithubHeaders {
             // It seems that these are none for temporal token requests, so
             // we set temporal token value defaults.
             x_ratelimit_remaining: x_rate_limit_remaining.unwrap_or(1000),
-            x_ratelimit_used: x_rate_limit_used.unwrap_or(0),
             x_ratelimit_reset: x_rate_limit_reset.unwrap_or(Utc::now()),
             x_oauth_scopes,
         };
-
-        if headers.x_ratelimit_remaining == 0 {
-            return Err(eyre!(
-            "Rate limit for this account exceeded. The rate limit resets at {}; try again then.",
-            headers.x_ratelimit_reset
-        ));
-        }
-
-        // if !headers.has_correct_scopes(token) {
-        //     return Err(eyre!("The `token` does not have the scopes needed. Tokens need `read:packages` and `delete:packages`, and $GITHUB_TOKENs additionally require `repo`. The scopes found were {:?}", headers.x_oauth_scopes));
-        // };
 
         Ok(headers)
     }
@@ -803,6 +685,9 @@ mod tests {
     use reqwest::header::HeaderValue;
     use secrecy::Secret;
 
+    use crate::client::Urls;
+    use crate::input::Account;
+
     use super::*;
 
     #[test]
@@ -812,16 +697,9 @@ mod tests {
         headers.insert("x-ratelimit-remaining", "60".parse().unwrap());
         headers.insert("x-ratelimit-reset", "1714483761".parse().unwrap());
         headers.insert("x-ratelimit-used", "0".parse().unwrap());
-        headers.insert(
-            "x-oauth-scopes",
-            "read:packages,delete:packages,repo".parse().unwrap(),
-        );
+        headers.insert("x-oauth-scopes", "read:packages,delete:packages,repo".parse().unwrap());
 
-        let parsed_headers = GithubHeaders::try_from(
-            &headers,
-            &Token::TemporalToken(Secret::new("foo".to_string())),
-        )
-        .unwrap();
+        let parsed_headers = GithubHeaders::try_from(&headers).unwrap();
 
         assert_eq!(parsed_headers.x_ratelimit_reset.timezone(), Utc);
         assert_eq!(parsed_headers.x_ratelimit_remaining, 60);
@@ -855,10 +733,8 @@ mod tests {
     async fn test_http_headers() {
         let test_string = "test".to_string();
 
-        let mut client_builder = ContainerClientBuilder::new()
-            .set_http_headers(Token::ClassicPersonalAccessToken(Secret::new(
-                test_string.clone(),
-            )))
+        let client_builder = ContainerClientBuilder::new()
+            .set_http_headers(Token::ClassicPersonalAccessToken(Secret::new(test_string.clone())))
             .unwrap();
 
         let set_headers = client_builder.headers.clone().unwrap();
@@ -874,9 +750,6 @@ mod tests {
                 Some(&HeaderValue::from_str(header_value).unwrap())
             );
         }
-
-        client_builder.remaining_requests = Some(10);
-        client_builder.rate_limit_reset = Some(Utc::now());
 
         let client = client_builder
             .create_rate_limited_services()
@@ -897,63 +770,66 @@ mod tests {
         }
     }
 
-    #[cfg(test)]
-    mod test_urls {
-        use crate::client::Urls;
-        use crate::input::Account;
-
-        #[test]
-        fn personal_urls() {
-            let urls = Urls::from_account(&Account::User);
-            assert_eq!(
-                urls.list_packages_url.as_str(),
-                "https://api.github.com/user/packages?package_type=container&per_page=100"
-            );
-            assert_eq!(
-                urls.list_package_versions_url("foo").unwrap().as_str(),
-                "https://api.github.com/user/packages/container/foo/versions?per_page=100"
-            );
-            assert_eq!(
-                urls.delete_package_version_url("foo", &123)
-                    .unwrap()
-                    .as_str(),
-                "https://api.github.com/user/packages/container/foo/versions/123"
-            );
-            assert_eq!(
-                urls.package_version_url("foo", &123).unwrap().as_str(),
-                "https://github.com/user/packages/container/foo/123"
-            );
-        }
-
-        #[test]
-        fn organization_urls() {
-            let urls = Urls::from_account(&Account::Organization("acme".to_string()));
-            assert_eq!(
-                urls.list_packages_url.as_str(),
-                "https://api.github.com/orgs/acme/packages?package_type=container&per_page=100"
-            );
-            assert_eq!(
-                urls.list_package_versions_url("foo").unwrap().as_str(),
-                "https://api.github.com/orgs/acme/packages/container/foo/versions?per_page=100"
-            );
-            assert_eq!(
-                urls.delete_package_version_url("foo", &123)
-                    .unwrap()
-                    .as_str(),
-                "https://api.github.com/orgs/acme/packages/container/foo/versions/123"
-            );
-            assert_eq!(
-                urls.package_version_url("foo", &123).unwrap().as_str(),
-                "https://github.com/orgs/acme/packages/container/foo/123"
-            );
-        }
+    #[test]
+    fn personal_urls() {
+        let urls = Urls::from_account(&Account::User);
+        assert_eq!(
+            urls.list_packages_url.as_str(),
+            "https://api.github.com/user/packages?package_type=container&per_page=100"
+        );
+        assert_eq!(
+            urls.list_package_versions_url("foo").unwrap().as_str(),
+            "https://api.github.com/user/packages/container/foo/versions?per_page=100"
+        );
+        assert_eq!(
+            urls.delete_package_version_url("foo", &123).unwrap().as_str(),
+            "https://api.github.com/user/packages/container/foo/versions/123"
+        );
+        assert_eq!(
+            urls.package_version_url("foo", &123).unwrap().as_str(),
+            "https://github.com/user/packages/container/foo/123"
+        );
     }
 
     #[test]
-    fn url_encoding() {
-        assert_eq!(Urls::percent_encode("a/b"), "a%2Fb".to_string())
+    fn organization_urls() {
+        let urls = Urls::from_account(&Account::Organization("acme".to_string()));
+        assert_eq!(
+            urls.list_packages_url.as_str(),
+            "https://api.github.com/orgs/acme/packages?package_type=container&per_page=100"
+        );
+        assert_eq!(
+            urls.list_package_versions_url("foo").unwrap().as_str(),
+            "https://api.github.com/orgs/acme/packages/container/foo/versions?per_page=100"
+        );
+        assert_eq!(
+            urls.delete_package_version_url("foo", &123).unwrap().as_str(),
+            "https://api.github.com/orgs/acme/packages/container/foo/versions/123"
+        );
+        assert_eq!(
+            urls.package_version_url("foo", &123).unwrap().as_str(),
+            "https://github.com/orgs/acme/packages/container/foo/123"
+        );
     }
 
+    #[test]
+    fn test_percent_encoding() {
+        // No special chars
+        assert_eq!(Urls::percent_encode("example"), "example");
+
+        // Special chars
+        assert_eq!(Urls::percent_encode("a/b"), "a%2Fb".to_string());
+        assert_eq!(Urls::percent_encode("my_package@1.0"), "my_package%401.0");
+
+        // Simple space
+        assert_eq!(Urls::percent_encode("test test"), "test%20test");
+
+        // Other unicode chars
+        assert_eq!(
+            Urls::percent_encode("こんにちは"),
+            "%E3%81%93%E3%82%93%E3%81%AB%E3%81%A1%E3%81%AF"
+        );
+    }
     #[test]
     fn test_generate_urls() {
         let urls = {
@@ -963,17 +839,11 @@ mod tests {
             builder.urls.unwrap()
         };
         assert!(urls.list_packages_url.as_str().contains("per_page=100"));
-        assert!(urls
-            .list_packages_url
-            .as_str()
-            .contains("package_type=container"));
+        assert!(urls.list_packages_url.as_str().contains("package_type=container"));
         assert!(urls.list_packages_url.as_str().contains("api.github.com"));
         println!("{}", urls.packages_frontend_base);
         assert!(urls.packages_api_base.as_str().contains("api.github.com"));
-        assert!(urls
-            .packages_frontend_base
-            .as_str()
-            .contains("https://github.com"));
+        assert!(urls.packages_frontend_base.as_str().contains("https://github.com"));
 
         let urls = {
             let mut builder = ContainerClientBuilder::new();
@@ -982,17 +852,11 @@ mod tests {
             builder.urls.unwrap()
         };
         assert!(urls.list_packages_url.as_str().contains("per_page=100"));
-        assert!(urls
-            .list_packages_url
-            .as_str()
-            .contains("package_type=container"));
+        assert!(urls.list_packages_url.as_str().contains("package_type=container"));
         assert!(urls.list_packages_url.as_str().contains("api.github.com"));
         assert!(urls.packages_api_base.as_str().contains("api.github.com"));
         assert!(urls.list_packages_url.as_str().contains("/foo/"));
         assert!(urls.packages_api_base.as_str().contains("/foo/"));
-        assert!(urls
-            .packages_frontend_base
-            .as_str()
-            .contains("https://github.com"));
+        assert!(urls.packages_frontend_base.as_str().contains("https://github.com"));
     }
 }
