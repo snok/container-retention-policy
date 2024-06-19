@@ -7,7 +7,11 @@ use std::convert::Infallible;
 use tracing::Level;
 
 pub fn vec_of_string_from_str(value: &str) -> Result<Vec<String>, Infallible> {
-    Ok(value
+    let trimmed = value.trim_matches('"').trim_matches('\''); // Remove surrounding quotes
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(trimmed
         .split(|c: char| c == ',' || c.is_whitespace())
         .filter_map(|t| {
             let s = t.trim().to_string();
