@@ -10,11 +10,11 @@ use reqwest::header::HeaderMap;
 use reqwest::{Client, Method, Request, StatusCode};
 use secrecy::ExposeSecret;
 use serde::de::DeserializeOwned;
-use serde::Deserialize;
 use tokio::sync::Mutex;
 use tower::limit::{ConcurrencyLimit, RateLimit};
 use tower::{Service, ServiceBuilder, ServiceExt};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, Span};
+use tracing_indicatif::span_ext::IndicatifSpanExt;
 use url::Url;
 
 use crate::input::{Account, Token};
@@ -23,8 +23,8 @@ use crate::responses::{Package, PackageVersion};
 type RateLimitedService = Arc<Mutex<ConcurrencyLimit<RateLimit<Client>>>>;
 
 #[derive(Debug)]
-pub struct ContainerClientBuilder {
-    headers: Option<HeaderMap>,
+pub struct PackagesClientBuilder {
+    pub(crate) headers: Option<HeaderMap>,
     urls: Option<Urls>,
     token: Option<Token>,
     fetch_package_service: Option<RateLimitedService>,
@@ -33,7 +33,7 @@ pub struct ContainerClientBuilder {
     delete_package_versions_service: Option<RateLimitedService>,
 }
 
-impl ContainerClientBuilder {
+impl PackagesClientBuilder {
     pub fn new() -> Self {
         Self {
             headers: None,
@@ -133,7 +133,7 @@ impl ContainerClientBuilder {
         self
     }
 
-    pub fn build(self) -> Result<ContainerClient, Box<dyn std::error::Error>> {
+    pub fn build(self) -> Result<PackagesClient, Box<dyn std::error::Error>> {
         // Check if all required fields are set
         if self.headers.is_none()
             || self.urls.is_none()
@@ -146,7 +146,7 @@ impl ContainerClientBuilder {
         }
 
         // Create PackageVersionsClient instance
-        let client = ContainerClient {
+        let client = PackagesClient {
             headers: self.headers.unwrap(),
             urls: self.urls.unwrap(),
             fetch_package_service: self.fetch_package_service.unwrap(),
@@ -161,83 +161,9 @@ impl ContainerClientBuilder {
 }
 
 #[derive(Debug)]
-pub struct Urls {
-    pub packages_frontend_base: Url,
-    pub packages_api_base: Url,
-    pub list_packages_url: Url,
-}
-
-impl Urls {
-    pub fn from_account(account: &Account) -> Self {
-        let mut github_base_url = String::from("https://github.com");
-        let mut api_base_url = String::from("https://api.github.com");
-
-        match account {
-            Account::User => {
-                api_base_url += "/user/packages";
-                github_base_url += "/user/packages";
-            }
-            Account::Organization(org_name) => {
-                api_base_url += &format!("/orgs/{org_name}/packages");
-                github_base_url += &format!("/orgs/{org_name}/packages");
-            }
-        };
-
-        let list_packages_url =
-            Url::parse(&(api_base_url.clone() + "?package_type=container&per_page=100")).expect("Failed to parse URL");
-
-        api_base_url += "/container";
-        github_base_url += "/container";
-
-        Self {
-            list_packages_url,
-            packages_api_base: Url::parse(&api_base_url).expect("Failed to parse URL"),
-            packages_frontend_base: Url::parse(&github_base_url).expect("Failed to parse URL"),
-        }
-    }
-
-    pub fn list_package_versions_url(&self, package_name: &str) -> Result<Url> {
-        let encoded_package_name = Self::percent_encode(package_name);
-        Ok(Url::parse(
-            &(self.packages_api_base.to_string() + &format!("/{encoded_package_name}/versions?per_page=100")),
-        )?)
-    }
-
-    pub fn delete_package_version_url(&self, package_name: &str, package_version_name: &u32) -> Result<Url> {
-        let encoded_package_name = Self::percent_encode(package_name);
-        let encoded_package_version_name = Self::percent_encode(&package_version_name.to_string());
-        Ok(Url::parse(
-            &(self.packages_api_base.to_string()
-                + &format!("/{encoded_package_name}/versions/{encoded_package_version_name}")),
-        )?)
-    }
-
-    pub fn package_version_url(&self, package_name: &str, package_id: &u32) -> Result<Url> {
-        let encoded_package_name = Self::percent_encode(package_name);
-        let encoded_package_version_name = Self::percent_encode(&package_id.to_string());
-        Ok(Url::parse(
-            &(self.packages_frontend_base.to_string()
-                + &format!("/{encoded_package_name}/{encoded_package_version_name}")),
-        )?)
-    }
-
-    pub fn fetch_package_url(&self, package_name: &str) -> Result<Url> {
-        let encoded_package_name = Self::percent_encode(package_name);
-        Ok(Url::parse(
-            &(self.packages_api_base.to_string() + &format!("/{encoded_package_name}")),
-        )?)
-    }
-
-    /// Percent-encodes string, as is necessary for URLs containing images (version) names.
-    pub fn percent_encode(n: &str) -> String {
-        urlencoding::encode(n).to_string()
-    }
-}
-
-#[derive(Debug)]
-pub struct ContainerClient {
+pub struct PackagesClient {
     headers: HeaderMap,
-    pub urls: Urls,
+    pub(crate) urls: Urls,
     fetch_package_service: RateLimitedService,
     list_packages_service: RateLimitedService,
     list_package_versions_service: RateLimitedService,
@@ -245,7 +171,7 @@ pub struct ContainerClient {
     token: Token,
 }
 
-impl ContainerClient {
+impl PackagesClient {
     pub async fn fetch_packages(
         &mut self,
         token: &Token,
@@ -334,6 +260,8 @@ impl ContainerClient {
             } else {
                 None
             };
+
+            Span::current().pb_set_message(&format!("fetched \x1b[33m{}\x1b[0m package versions", result.len()));
         }
 
         Ok(result)
@@ -362,6 +290,7 @@ impl ContainerClient {
             remaining_requests,
         )
         .await?;
+        info!(package_name = package_name, "Found {} package versions", versions.len());
         Ok((package_name, versions))
     }
 
@@ -572,77 +501,86 @@ impl ContainerClient {
     }
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug)]
+pub struct Urls {
+    pub packages_frontend_base: Url,
+    pub packages_api_base: Url,
+    pub list_packages_url: Url,
+}
+
+impl Urls {
+    pub fn from_account(account: &Account) -> Self {
+        let mut github_base_url = String::from("https://github.com");
+        let mut api_base_url = String::from("https://api.github.com");
+
+        match account {
+            Account::User => {
+                api_base_url += "/user/packages";
+                github_base_url += "/user/packages";
+            }
+            Account::Organization(org_name) => {
+                api_base_url += &format!("/orgs/{org_name}/packages");
+                github_base_url += &format!("/orgs/{org_name}/packages");
+            }
+        };
+
+        let list_packages_url =
+            Url::parse(&(api_base_url.clone() + "?package_type=container&per_page=100")).expect("Failed to parse URL");
+
+        api_base_url += "/container";
+        github_base_url += "/container";
+
+        Self {
+            list_packages_url,
+            packages_api_base: Url::parse(&api_base_url).expect("Failed to parse URL"),
+            packages_frontend_base: Url::parse(&github_base_url).expect("Failed to parse URL"),
+        }
+    }
+
+    pub fn list_package_versions_url(&self, package_name: &str) -> Result<Url> {
+        let encoded_package_name = Self::percent_encode(package_name);
+        Ok(Url::parse(
+            &(self.packages_api_base.to_string() + &format!("/{encoded_package_name}/versions?per_page=100")),
+        )?)
+    }
+
+    pub fn delete_package_version_url(&self, package_name: &str, package_version_name: &u32) -> Result<Url> {
+        let encoded_package_name = Self::percent_encode(package_name);
+        let encoded_package_version_name = Self::percent_encode(&package_version_name.to_string());
+        Ok(Url::parse(
+            &(self.packages_api_base.to_string()
+                + &format!("/{encoded_package_name}/versions/{encoded_package_version_name}")),
+        )?)
+    }
+
+    pub fn package_version_url(&self, package_name: &str, package_id: &u32) -> Result<Url> {
+        let encoded_package_name = Self::percent_encode(package_name);
+        let encoded_package_version_name = Self::percent_encode(&package_id.to_string());
+        Ok(Url::parse(
+            &(self.packages_frontend_base.to_string()
+                + &format!("/{encoded_package_name}/{encoded_package_version_name}")),
+        )?)
+    }
+
+    pub fn fetch_package_url(&self, package_name: &str) -> Result<Url> {
+        let encoded_package_name = Self::percent_encode(package_name);
+        Ok(Url::parse(
+            &(self.packages_api_base.to_string() + &format!("/{encoded_package_name}")),
+        )?)
+    }
+
+    /// Percent-encodes string, as is necessary for URLs containing images (version) names.
+    pub fn percent_encode(n: &str) -> String {
+        urlencoding::encode(n).to_string()
+    }
+}
+
+#[derive(Debug)]
 pub struct GithubHeaders {
     pub x_ratelimit_remaining: usize,
     pub x_ratelimit_reset: DateTime<Utc>,
     pub x_oauth_scopes: Option<String>,
     pub link: Option<String>,
-}
-
-impl GithubHeaders {
-    pub fn parse_link_header(link_header: &str) -> Option<Url> {
-        if link_header.is_empty() {
-            return None;
-        }
-
-        for part in link_header.split(',') {
-            if part.contains("prev") {
-                debug!("Skipping parsing of prev link: {part}");
-                continue;
-            } else if part.contains("first") {
-                debug!("Skipping parsing of first link: {part}");
-                continue;
-            } else if part.contains("last") {
-                debug!("Skipping parsing of last link: {part}");
-                continue;
-            } else if part.contains("next") {
-                debug!("Parsing next link: {part}");
-            } else {
-                panic!("Found unrecognized rel type: {part}")
-            }
-            let sections: Vec<&str> = part.trim().split(';').collect();
-            assert_eq!(sections.len(), 2, "Sections length was {}", sections.len());
-
-            let url = sections[0].trim().trim_matches('<').trim_matches('>').to_string();
-
-            return Some(Url::parse(&url).expect("Failed to parse link header URL"));
-        }
-
-        None
-    }
-
-    pub(crate) fn next_link(&self) -> Option<Url> {
-        if let Some(l) = &self.link {
-            GithubHeaders::parse_link_header(l)
-        } else {
-            None
-        }
-    }
-
-    /// Check that the headers of a GitHub request indicate that the token used
-    /// has the correct scopes for deleting packages.
-    ///
-    /// See documentation at:
-    /// https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#delete-a-package-for-an-organization
-    pub fn has_correct_scopes(&self, token: &Token) -> bool {
-        if self.x_oauth_scopes.is_none() {
-            return false;
-        }
-
-        let scope = self.x_oauth_scopes.clone().unwrap();
-
-        match token {
-            Token::TemporalToken(_) => {
-                scope.contains("read:packages") && scope.contains("delete:packages") && scope.contains("repo")
-            }
-            Token::ClassicPersonalAccessToken(_) | Token::OauthToken(_) => {
-                // TODO: Comment back in if it's true that we need read - test
-                scope.contains("read:packages") && scope.contains("delete:packages")
-            }
-        }
-    }
 }
 
 impl GithubHeaders {
@@ -677,6 +615,65 @@ impl GithubHeaders {
         };
 
         Ok(headers)
+    }
+
+    pub fn parse_link_header(link_header: &str) -> Option<Url> {
+        if link_header.is_empty() {
+            return None;
+        }
+        for part in link_header.split(',') {
+            if part.contains("prev") {
+                debug!("Skipping parsing of prev link: {part}");
+                continue;
+            } else if part.contains("first") {
+                debug!("Skipping parsing of first link: {part}");
+                continue;
+            } else if part.contains("last") {
+                debug!("Skipping parsing of last link: {part}");
+                continue;
+            } else if part.contains("next") {
+                debug!("Parsing next link: {part}");
+            } else {
+                panic!("Found unrecognized rel type: {part}")
+            }
+            let sections: Vec<&str> = part.trim().split(';').collect();
+            assert_eq!(sections.len(), 2, "Sections length was {}", sections.len());
+
+            let url = sections[0].trim().trim_matches('<').trim_matches('>').to_string();
+
+            return Some(Url::parse(&url).expect("Failed to parse link header URL"));
+        }
+        None
+    }
+
+    pub(crate) fn next_link(&self) -> Option<Url> {
+        if let Some(l) = &self.link {
+            GithubHeaders::parse_link_header(l)
+        } else {
+            None
+        }
+    }
+
+    /// Check that the headers of a GitHub request indicate that the token used
+    /// has the correct scopes for deleting packages.
+    ///
+    /// See documentation at:
+    /// https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#delete-a-package-for-an-organization
+    pub fn has_correct_scopes(&self, token: &Token) -> bool {
+        if self.x_oauth_scopes.is_none() {
+            return false;
+        }
+
+        let scope = self.x_oauth_scopes.clone().unwrap();
+
+        match token {
+            Token::TemporalToken(_) => {
+                scope.contains("read:packages") && scope.contains("delete:packages") && scope.contains("repo")
+            }
+            Token::ClassicPersonalAccessToken(_) | Token::OauthToken(_) => {
+                scope.contains("read:packages") && scope.contains("delete:packages")
+            }
+        }
     }
 }
 
@@ -733,7 +730,7 @@ mod tests {
     async fn test_http_headers() {
         let test_string = "test".to_string();
 
-        let client_builder = ContainerClientBuilder::new()
+        let client_builder = PackagesClientBuilder::new()
             .set_http_headers(Token::ClassicPersonalAccessToken(Secret::new(test_string.clone())))
             .unwrap();
 
@@ -833,7 +830,7 @@ mod tests {
     #[test]
     fn test_generate_urls() {
         let urls = {
-            let mut builder = ContainerClientBuilder::new();
+            let mut builder = PackagesClientBuilder::new();
             assert!(builder.urls.is_none());
             builder = builder.generate_urls(&Account::User);
             builder.urls.unwrap()
@@ -846,7 +843,7 @@ mod tests {
         assert!(urls.packages_frontend_base.as_str().contains("https://github.com"));
 
         let urls = {
-            let mut builder = ContainerClientBuilder::new();
+            let mut builder = PackagesClientBuilder::new();
             assert!(builder.urls.is_none());
             builder = builder.generate_urls(&Account::Organization("foo".to_string()));
             builder.urls.unwrap()

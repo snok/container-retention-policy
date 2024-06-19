@@ -1,16 +1,18 @@
-use crate::client::{ContainerClient, Urls};
+use crate::client::{PackagesClient, Urls};
 use crate::input::{TagSelection, Timestamp};
-use crate::matchers::{create_filter_matchers, Matchers};
+use crate::matchers::Matchers;
 use crate::responses::PackageVersion;
 use chrono::Utc;
 use color_eyre::Result;
 use humantime::Duration as HumantimeDuration;
+use indicatif::ProgressStyle;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tokio::task::JoinSet;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, info_span, trace, warn, Instrument};
+use tracing_indicatif::span_ext::IndicatifSpanExt;
 
 /// Keep n package versions per package name.
 ///
@@ -109,7 +111,7 @@ enum PackageVersionType {
 /// 3. If we have a partial match (2/3 tags match), then it's kind of weird to
 ///    not delete it, so log a warning to the user. We cannot (to my knowledge/
 ///    at the time of writing) remove a tag from a package version.
-fn select_by_matcher(
+fn filter_by_matchers(
     matchers: &Matchers,
     package_version: PackageVersion,
     package_name: &str,
@@ -181,11 +183,11 @@ fn select_by_matcher(
         }
         // Plain negative match
         (true, _) => {
-            info!(package_name=package_name, package_version_id=package_version.id, tags=?tags, "✕ package version matched a negative `image-tags` filter")
+            debug!(package_name=package_name, package_version_id=package_version.id, tags=?tags, "✕ package version matched a negative `image-tags` filter")
         }
         // 100% positive matches
         (false, positive_matches) if positive_matches == package_version.metadata.container.tags.len() => {
-            info!(
+            debug!(
                             package_name=package_name,
                             package_version_id=package_version.id,
                             tags=?tags,
@@ -194,11 +196,11 @@ fn select_by_matcher(
         }
         // 0% positive matches
         (false, 0) => {
-            info!(
+            debug!(
                             package_name=package_name,
                             package_version_id=package_version.id,
                             tags=?tags,
-                            "✕ package version matched no `image-tags` filters");
+                            "✕ package version didn't match any `image-tags` filters");
         }
         // Partial positive matches
         (false, 1..) => {
@@ -233,7 +235,7 @@ fn select_by_image_tags(
         }
         // Handle tagged images
         (&TagSelection::Tagged | &TagSelection::Both, false) => {
-            if let Some(t) = select_by_matcher(matchers, package_version, package_name, urls)? {
+            if let Some(t) = filter_by_matchers(matchers, package_version, package_name, urls)? {
                 Ok(Some(PackageVersionType::Tagged(t)))
             } else {
                 Ok(None)
@@ -254,7 +256,7 @@ fn select_by_image_tags(
 /// tag-selection, and a bunch of other things. Fetches versions concurrently.
 pub async fn select_package_versions(
     package_names: Vec<String>,
-    client: &'static ContainerClient,
+    client: &'static PackagesClient,
     image_tags: Vec<String>,
     shas_to_skip: Vec<String>,
     keep_n_most_recent: u32,
@@ -264,12 +266,23 @@ pub async fn select_package_versions(
     remaining_requests: Arc<Mutex<usize>>,
 ) -> Result<HashMap<String, PackageVersions>> {
     // Create matchers for the image tags
-    let matchers = create_filter_matchers(&image_tags);
+    let matchers = Matchers::from(&image_tags);
 
     // Create async tasks to fetch everything concurrently
     let mut set = JoinSet::new();
     for package_name in package_names {
-        set.spawn(client.list_package_versions(package_name, remaining_requests.clone()));
+        let span = info_span!("fetch package versions", package_name = %package_name);
+        span.pb_set_style(
+            &ProgressStyle::default_spinner()
+                .template(&format!("{{spinner}} \x1b[34m{package_name}\x1b[0m {{msg}}"))
+                .unwrap(),
+        );
+        span.pb_set_message("fetched \x1b[33m0\x1b[0m package versions");
+        set.spawn(
+            client
+                .list_package_versions(package_name, remaining_requests.clone())
+                .instrument(span),
+        );
     }
 
     let mut package_version_map = HashMap::new();
@@ -320,398 +333,417 @@ pub struct PackageVersions {
     pub(crate) untagged: Vec<PackageVersion>,
     pub(crate) tagged: Vec<PackageVersion>,
 }
-//
-// #[cfg(test)]
-// mod tests {
-//     use chrono::DateTime;
-//     use std::str::FromStr;
-//     use reqwest::header::HeaderMap;
-//
-//     use crate::client::{ContainerClientBuilder, Urls};
-//     use tracing_test::traced_test;
-//     use url::Url;
-//     use wildmatch::WildMatchPattern;
-//
-//     use crate::responses::{ContainerMetadata, Metadata};
-//
-//     use super::*;
-//
-//     fn create_pv(id: u32, name: &str, tags: Vec<&str>) -> PackageVersion {
-//         PackageVersion {
-//             id,
-//             name: name.to_string(),
-//             metadata: Metadata {
-//                 container: ContainerMetadata {
-//                     tags: tags.into_iter().map(|i| i.to_string()).collect(),
-//                 },
-//             },
-//             created_at: Default::default(),
-//             updated_at: None,
-//         }
-//     }
-//
-//     fn call(
-//         package_versions: Vec<PackageVersion>,
-//         shas_to_skip: Vec<String>,
-//     ) -> (Vec<PackageVersion>, Vec<PackageVersion>) {
-//         select_package_versions(
-//             package_versions,
-//             &TagSelection::Both,
-//             &Matchers {
-//                 positive: vec![],
-//                 negative: vec![],
-//             },
-//             &shas_to_skip,
-//             "",
-//             &humantime::Duration::from_str("2h").unwrap(),
-//             &Timestamp::UpdatedAt,
-//             &Urls {
-//                 packages_frontend_base: Url::parse("https://foo.com").unwrap(),
-//                 packages_api_base: Url::parse("https://foo.com").unwrap(),
-//                 list_packages_url: Url::parse("https://foo.com").unwrap(),
-//             },
-//         )
-//         .unwrap()
-//     }
-//
-//     #[test]
-//     fn test_package_selection_respects_shas_to_skip() {
-//         let (tagged, untagged) = call(
-//             vec![
-//                 create_pv(0, "sha256:foo", Vec::new()),
-//                 create_pv(1, "sha256:bar", Vec::new()),
-//                 create_pv(2, "sha256:baz", Vec::new()),
-//                 create_pv(3, "sha256:qux", Vec::new()),
-//             ],
-//             vec!["sha256:bar".to_string(), "sha256:qux".to_string()],
-//         );
-//         assert_eq!(untagged[0], create_pv(0, "sha256:foo", Vec::new()));
-//         assert_eq!(untagged[1], create_pv(2, "sha256:baz", Vec::new()));
-//         assert_eq!(untagged.len(), 2);
-//         assert_eq!(tagged.len(), 0);
-//     }
-//
-//     #[test]
-//     fn test_package_selection_tag_selection_is_respected() {
-//         let urls = Urls {
-//             packages_frontend_base: Url::parse("https://foo.com").unwrap(),
-//             packages_api_base: Url::parse("https://foo.com").unwrap(),
-//             list_packages_url: Url::parse("https://foo.com").unwrap(),
-//         };
-//
-//         let package_versions = vec![
-//             create_pv(0, "sha256:foo", vec!["foo"]),
-//             create_pv(1, "sha256:bar", vec![]),
-//             create_pv(2, "sha256:baz", vec!["baz"]),
-//             create_pv(3, "sha256:qux", vec![]),
-//         ];
-//
-//         let both_result = select_package_versions(
-//             package_versions.clone(),
-//             &TagSelection::Both,
-//             &Matchers {
-//                 positive: vec![],
-//                 negative: vec![],
-//             },
-//             &vec![],
-//             "",
-//             &humantime::Duration::from_str("2h").unwrap(),
-//             &Timestamp::UpdatedAt,
-//             &urls,
-//         )
-//         .unwrap();
-//
-//         let untagged_result = select_package_versions(
-//             package_versions.clone(),
-//             &TagSelection::Untagged,
-//             &Matchers {
-//                 positive: vec![],
-//                 negative: vec![],
-//             },
-//             &vec![],
-//             "",
-//             &humantime::Duration::from_str("2h").unwrap(),
-//             &Timestamp::UpdatedAt,
-//             &urls,
-//         )
-//         .unwrap();
-//
-//         let tagged_result = select_package_versions(
-//             package_versions.clone(),
-//             &TagSelection::Tagged,
-//             &Matchers {
-//                 positive: vec![],
-//                 negative: vec![],
-//             },
-//             &vec![],
-//             "",
-//             &humantime::Duration::from_str("2h").unwrap(),
-//             &Timestamp::UpdatedAt,
-//             &urls,
-//         )
-//         .unwrap();
-//
-//         let tagged_expected = vec![
-//             create_pv(0, "sha256:foo", vec!["foo"]),
-//             create_pv(2, "sha256:baz", vec!["baz"]),
-//         ];
-//         let untagged_expected = vec![create_pv(1, "sha256:bar", vec![]), create_pv(3, "sha256:qux", vec![])];
-//
-//         assert_eq!(both_result.0.len(), 2);
-//         assert_eq!(both_result.1.len(), 2);
-//         assert_eq!(both_result.0, tagged_expected);
-//         assert_eq!(both_result.1, untagged_expected);
-//
-//         assert_eq!(tagged_result.0.len(), 2);
-//         assert_eq!(tagged_result.1.len(), 0);
-//         assert_eq!(tagged_result.0, tagged_expected);
-//
-//         assert_eq!(untagged_result.0.len(), 0);
-//         assert_eq!(untagged_result.1.len(), 2);
-//         assert_eq!(untagged_result.1, untagged_expected);
-//     }
-//
-//     #[test]
-//     fn test_package_selection_matchers_work() {
-//         let urls = Urls {
-//             packages_frontend_base: Url::parse("https://foo.com").unwrap(),
-//             packages_api_base: Url::parse("https://foo.com").unwrap(),
-//             list_packages_url: Url::parse("https://foo.com").unwrap(),
-//         };
-//
-//         let package_versions = vec![
-//             create_pv(0, "sha256:foo", vec!["foo"]),
-//             create_pv(1, "sha256:bar", vec!["bar"]),
-//             create_pv(2, "sha256:baz", vec!["baz"]),
-//             create_pv(3, "sha256:qux", vec!["qux"]),
-//         ];
-//
-//         // No matchers == *
-//         let wildcard_result = select_package_versions(
-//             package_versions.clone(),
-//             &TagSelection::Both,
-//             &Matchers {
-//                 positive: vec![],
-//                 negative: vec![],
-//             },
-//             &vec![],
-//             "",
-//             &humantime::Duration::from_str("2h").unwrap(),
-//             &Timestamp::UpdatedAt,
-//             &urls,
-//         )
-//         .unwrap();
-//
-//         assert_eq!(wildcard_result.0.len(), 4);
-//         assert_eq!(wildcard_result.1.len(), 0);
-//         assert_eq!(wildcard_result.0, package_versions);
-//
-//         // Positive matcher
-//         let positive_result = select_package_versions(
-//             package_versions.clone(),
-//             &TagSelection::Both,
-//             &Matchers {
-//                 positive: vec![WildMatchPattern::<'*', '?'>::new("ba*")],
-//                 negative: vec![],
-//             },
-//             &vec![],
-//             "",
-//             &humantime::Duration::from_str("2h").unwrap(),
-//             &Timestamp::UpdatedAt,
-//             &urls,
-//         )
-//         .unwrap();
-//
-//         assert_eq!(positive_result.0.len(), 2);
-//         assert_eq!(positive_result.1.len(), 0);
-//         assert_eq!(
-//             positive_result.0,
-//             vec![
-//                 create_pv(1, "sha256:bar", vec!["bar"]),
-//                 create_pv(2, "sha256:baz", vec!["baz"])
-//             ]
-//         );
-//
-//         // Negative matcher
-//         let negative_result = select_package_versions(
-//             package_versions.clone(),
-//             &TagSelection::Both,
-//             &Matchers {
-//                 positive: vec![WildMatchPattern::<'*', '?'>::new("ba*")],
-//                 negative: vec![WildMatchPattern::<'*', '?'>::new("baz")],
-//             },
-//             &vec![],
-//             "",
-//             &humantime::Duration::from_str("2h").unwrap(),
-//             &Timestamp::UpdatedAt,
-//             &urls,
-//         )
-//         .unwrap();
-//
-//         assert_eq!(negative_result.0.len(), 1);
-//         assert_eq!(negative_result.1.len(), 0);
-//         assert_eq!(negative_result.0, vec![create_pv(1, "sha256:bar", vec!["bar"])]);
-//
-//         // Negative matcher - negative matcher takes precedence over positive
-//         let negative_result = select_package_versions(
-//             package_versions.clone(),
-//             &TagSelection::Both,
-//             &Matchers {
-//                 positive: vec![WildMatchPattern::<'*', '?'>::new("baz")],
-//                 negative: vec![WildMatchPattern::<'*', '?'>::new("baz")],
-//             },
-//             &vec![],
-//             "",
-//             &humantime::Duration::from_str("2h").unwrap(),
-//             &Timestamp::UpdatedAt,
-//             &urls,
-//         )
-//         .unwrap();
-//
-//         assert_eq!(negative_result.0.len(), 0);
-//         assert_eq!(negative_result.1.len(), 0);
-//     }
-//
-//     fn call_f(matchers: Matchers) -> (Vec<PackageVersion>, Vec<PackageVersion>) {
-//         let urls = Urls {
-//             packages_frontend_base: Url::parse("https://foo.com").unwrap(),
-//             packages_api_base: Url::parse("https://foo.com").unwrap(),
-//             list_packages_url: Url::parse("https://foo.com").unwrap(),
-//         };
-//         let package_versions = vec![create_pv(0, "sha256:foobar", vec!["foo", "bar"])];
-//         select_package_versions(
-//             vec!["foo"],
-//
-//             package_versions.clone(),
-//             &TagSelection::Both,
-//             &matchers,
-//             &vec![],
-//             "package",
-//             &humantime::Duration::from_str("2h").unwrap(),
-//             &Timestamp::UpdatedAt,
-//             &urls,
-//         )
-//         .unwrap()
-//     }
-//
-//     #[traced_test]
-//     #[test]
-//     fn test_package_selection_match_permutations() {
-//         // Plain negative match
-//         call_f(Matchers {
-//             positive: vec![],
-//             negative: vec![WildMatchPattern::<'*', '?'>::new("foo")],
-//         });
-//         assert!(logs_contain("✕ package version matched a negative `image-tags` filter"));
-//
-//         // Negative and positive match
-//         call_f(Matchers {
-//             positive: vec![WildMatchPattern::<'*', '?'>::new("*")],
-//             negative: vec![WildMatchPattern::<'*', '?'>::new("*")],
-//         });
-//         assert!(logs_contain(
-//             "✕ package version matched a negative `image-tags` filter, but it also matched a positive filter"
-//         ));
-//
-//         // 100% positive match
-//         call_f(Matchers {
-//             positive: vec![
-//                 WildMatchPattern::<'*', '?'>::new("foo"),
-//                 WildMatchPattern::<'*', '?'>::new("bar"),
-//             ],
-//             negative: vec![],
-//         });
-//         assert!(logs_contain("✓ package version matched all `image-tags` filters"));
-//
-//         // No positive match
-//         call_f(Matchers {
-//             positive: vec![WildMatchPattern::<'*', '?'>::new("random")],
-//             negative: vec![],
-//         });
-//         assert!(logs_contain("✕ package version matched no `image-tags` filters"));
-//
-//         // Partial positive match
-//         call_f(Matchers {
-//             positive: vec![WildMatchPattern::<'*', '?'>::new("foo")],
-//             negative: vec![],
-//         });
-//         assert!(logs_contain("✕ package version matched some, but not all tags"));
-//     }
-//
-//     #[test]
-//     fn test_handle_keep_n_most_recent() {
-//         let metadata = Metadata {
-//             container: ContainerMetadata { tags: Vec::new() },
-//         };
-//         let now = Utc::now();
-//
-//         let tagged = vec![
-//             PackageVersion {
-//                 updated_at: None,
-//                 created_at: now - Duration::from_secs(2),
-//                 name: "".to_string(),
-//                 id: 1,
-//                 metadata: metadata.clone(),
-//             },
-//             PackageVersion {
-//                 updated_at: Some(now - Duration::from_secs(1)),
-//                 created_at: now - Duration::from_secs(3),
-//                 name: "".to_string(),
-//                 id: 1,
-//                 metadata: metadata.clone(),
-//             },
-//             PackageVersion {
-//                 updated_at: Some(now),
-//                 created_at: now - Duration::from_secs(4),
-//                 name: "".to_string(),
-//                 id: 1,
-//                 metadata: metadata.clone(),
-//             },
-//         ];
-//
-//         // Test case 1: more items than keep at least
-//         let keep_n_most_recent = 2;
-//         let remaining_tagged = handle_keep_n_most_recent("", tagged.clone(), keep_n_most_recent);
-//         assert_eq!(remaining_tagged.len(), 1);
-//
-//         // Test case 2: same items as keep_n_most_recent
-//         let keep_n_most_recent = 6;
-//         let remaining_tagged = handle_keep_n_most_recent("", tagged.clone(), keep_n_most_recent);
-//         assert_eq!(remaining_tagged.len(), 0);
-//
-//         // Test case 3: fewer items than keep_n_most_recent
-//         let keep_n_most_recent = 10;
-//         let remaining_tagged = handle_keep_n_most_recent("", tagged.clone(), keep_n_most_recent);
-//         assert_eq!(remaining_tagged.len(), 0);
-//     }
-//     #[test]
-//     fn test_handle_keep_n_most_recent_ordering() {
-//         let now: DateTime<Utc> = Utc::now();
-//         let five_minutes_ago: DateTime<Utc> = now - chrono::Duration::minutes(5);
-//         let ten_minutes_ago: DateTime<Utc> = now - chrono::Duration::minutes(10);
-//
-//         // Newest is removed (to be kept)
-//         let kept = handle_keep_n_most_recent("", vec![pv(five_minutes_ago), pv(now), pv(ten_minutes_ago)], 1);
-//         assert_eq!(kept.len(), 2);
-//         assert_eq!(kept, vec![pv(ten_minutes_ago), pv(five_minutes_ago)]);
-//
-//         let kept = handle_keep_n_most_recent("", vec![pv(five_minutes_ago), pv(ten_minutes_ago), pv(now)], 1);
-//         assert_eq!(kept.len(), 2);
-//         assert_eq!(kept, vec![pv(ten_minutes_ago), pv(five_minutes_ago)]);
-//
-//         let kept = handle_keep_n_most_recent("", vec![pv(now), pv(ten_minutes_ago), pv(five_minutes_ago)], 1);
-//         assert_eq!(kept.len(), 2);
-//         assert_eq!(kept, vec![pv(ten_minutes_ago), pv(five_minutes_ago)]);
-//     }
-//     fn pv(dt: DateTime<Utc>) -> PackageVersion {
-//         PackageVersion {
-//             id: 0,
-//             name: "".to_string(),
-//             metadata: Metadata {
-//                 container: ContainerMetadata { tags: Vec::new() },
-//             },
-//             created_at: dt,
-//             updated_at: None,
-//         }
-//     }
-// }
+
+#[cfg(test)]
+mod tests {
+    use chrono::DateTime;
+    use reqwest::header::HeaderMap;
+    use secrecy::Secret;
+    use std::str::FromStr;
+
+    use crate::client::{GithubHeaders, PackagesClientBuilder, Urls};
+    use crate::input::{Account, Token};
+    use tracing_test::traced_test;
+    use url::Url;
+    use wildmatch::WildMatchPattern;
+
+    use crate::responses::{ContainerMetadata, Metadata};
+
+    use super::*;
+
+    fn create_pv(id: u32, name: &str, tags: Vec<&str>) -> PackageVersion {
+        PackageVersion {
+            id,
+            name: name.to_string(),
+            metadata: Metadata {
+                container: ContainerMetadata {
+                    tags: tags.into_iter().map(|i| i.to_string()).collect(),
+                },
+            },
+            created_at: Default::default(),
+            updated_at: None,
+        }
+    }
+
+    fn create_client() -> PackagesClient {
+        let mut builder = PackagesClientBuilder::new()
+            .create_rate_limited_services()
+            .generate_urls(&Account::User)
+            .set_http_headers(Token::ClassicPersonalAccessToken(Secret::new(
+                String::from_str("test").unwrap(),
+            )))
+            .unwrap();
+
+        let mut headers = HeaderMap::new();
+        headers.insert("x-ratelimit-limit", "60".parse().unwrap());
+        headers.insert("x-ratelimit-remaining", "60".parse().unwrap());
+        headers.insert("x-ratelimit-reset", "1714483761".parse().unwrap());
+        headers.insert("x-ratelimit-used", "0".parse().unwrap());
+        headers.insert("x-oauth-scopes", "read:packages,delete:packages,repo".parse().unwrap());
+        builder.headers = Some(headers);
+        builder.build().unwrap()
+    }
+
+    // fn call(
+    //     package_versions: Vec<PackageVersion>,
+    //     shas_to_skip: Vec<String>,
+    // ) -> (Vec<PackageVersion>, Vec<PackageVersion>) {
+    //     select_package_versions(
+    //         vec!["foo"],
+    //         &create_client(),
+    //         vec!["bar"],
+    //         shas_to_skip,
+    //         0,
+    //         &TagSelection::Both,
+    //         &Matchers {
+    //             positive: vec![],
+    //             negative: vec![],
+    //         },
+    //         &humantime::Duration::from_str("2h").unwrap(),
+    //         &Timestamp::UpdatedAt,
+    //         Arc::new(Mutex::new(1)),
+    //     )
+    //     .unwrap()
+    // }
+
+    // #[test]
+    // fn test_package_selection_respects_shas_to_skip() {
+    //     let (tagged, untagged) = call(
+    //         vec![
+    //             create_pv(0, "sha256:foo", Vec::new()),
+    //             create_pv(1, "sha256:bar", Vec::new()),
+    //             create_pv(2, "sha256:baz", Vec::new()),
+    //             create_pv(3, "sha256:qux", Vec::new()),
+    //         ],
+    //         vec!["sha256:bar".to_string(), "sha256:qux".to_string()],
+    //     );
+    //     assert_eq!(untagged[0], create_pv(0, "sha256:foo", Vec::new()));
+    //     assert_eq!(untagged[1], create_pv(2, "sha256:baz", Vec::new()));
+    //     assert_eq!(untagged.len(), 2);
+    //     assert_eq!(tagged.len(), 0);
+    // }
+    //
+    // #[test]
+    // fn test_package_selection_tag_selection_is_respected() {
+    //     let urls = Urls {
+    //         packages_frontend_base: Url::parse("https://foo.com").unwrap(),
+    //         packages_api_base: Url::parse("https://foo.com").unwrap(),
+    //         list_packages_url: Url::parse("https://foo.com").unwrap(),
+    //     };
+    //
+    //     let package_versions = vec![
+    //         create_pv(0, "sha256:foo", vec!["foo"]),
+    //         create_pv(1, "sha256:bar", vec![]),
+    //         create_pv(2, "sha256:baz", vec!["baz"]),
+    //         create_pv(3, "sha256:qux", vec![]),
+    //     ];
+    //
+    //     let both_result = select_package_versions(
+    //         package_versions.clone(),
+    //         &TagSelection::Both,
+    //         &Matchers {
+    //             positive: vec![],
+    //             negative: vec![],
+    //         },
+    //         &vec![],
+    //         "",
+    //         &humantime::Duration::from_str("2h").unwrap(),
+    //         &Timestamp::UpdatedAt,
+    //         &urls,
+    //     )
+    //     .unwrap();
+    //
+    //     let untagged_result = select_package_versions(
+    //         package_versions.clone(),
+    //         &TagSelection::Untagged,
+    //         &Matchers {
+    //             positive: vec![],
+    //             negative: vec![],
+    //         },
+    //         &vec![],
+    //         "",
+    //         &humantime::Duration::from_str("2h").unwrap(),
+    //         &Timestamp::UpdatedAt,
+    //         &urls,
+    //     )
+    //     .unwrap();
+    //
+    //     let tagged_result = select_package_versions(
+    //         package_versions.clone(),
+    //         &TagSelection::Tagged,
+    //         &Matchers {
+    //             positive: vec![],
+    //             negative: vec![],
+    //         },
+    //         &vec![],
+    //         "",
+    //         &humantime::Duration::from_str("2h").unwrap(),
+    //         &Timestamp::UpdatedAt,
+    //         &urls,
+    //     )
+    //     .unwrap();
+    //
+    //     let tagged_expected = vec![
+    //         create_pv(0, "sha256:foo", vec!["foo"]),
+    //         create_pv(2, "sha256:baz", vec!["baz"]),
+    //     ];
+    //     let untagged_expected = vec![create_pv(1, "sha256:bar", vec![]), create_pv(3, "sha256:qux", vec![])];
+    //
+    //     assert_eq!(both_result.0.len(), 2);
+    //     assert_eq!(both_result.1.len(), 2);
+    //     assert_eq!(both_result.0, tagged_expected);
+    //     assert_eq!(both_result.1, untagged_expected);
+    //
+    //     assert_eq!(tagged_result.0.len(), 2);
+    //     assert_eq!(tagged_result.1.len(), 0);
+    //     assert_eq!(tagged_result.0, tagged_expected);
+    //
+    //     assert_eq!(untagged_result.0.len(), 0);
+    //     assert_eq!(untagged_result.1.len(), 2);
+    //     assert_eq!(untagged_result.1, untagged_expected);
+    // }
+    //
+    // #[test]
+    // fn test_package_selection_matchers_work() {
+    //     let urls = Urls {
+    //         packages_frontend_base: Url::parse("https://foo.com").unwrap(),
+    //         packages_api_base: Url::parse("https://foo.com").unwrap(),
+    //         list_packages_url: Url::parse("https://foo.com").unwrap(),
+    //     };
+    //
+    //     let package_versions = vec![
+    //         create_pv(0, "sha256:foo", vec!["foo"]),
+    //         create_pv(1, "sha256:bar", vec!["bar"]),
+    //         create_pv(2, "sha256:baz", vec!["baz"]),
+    //         create_pv(3, "sha256:qux", vec!["qux"]),
+    //     ];
+    //
+    //     // No matchers == *
+    //     let wildcard_result = select_package_versions(
+    //         package_versions.clone(),
+    //         &TagSelection::Both,
+    //         &Matchers {
+    //             positive: vec![],
+    //             negative: vec![],
+    //         },
+    //         &vec![],
+    //         "",
+    //         &humantime::Duration::from_str("2h").unwrap(),
+    //         &Timestamp::UpdatedAt,
+    //         &urls,
+    //     )
+    //     .unwrap();
+    //
+    //     assert_eq!(wildcard_result.0.len(), 4);
+    //     assert_eq!(wildcard_result.1.len(), 0);
+    //     assert_eq!(wildcard_result.0, package_versions);
+    //
+    //     // Positive matcher
+    //     let positive_result = select_package_versions(
+    //         package_versions.clone(),
+    //         &TagSelection::Both,
+    //         &Matchers {
+    //             positive: vec![WildMatchPattern::<'*', '?'>::new("ba*")],
+    //             negative: vec![],
+    //         },
+    //         &vec![],
+    //         "",
+    //         &humantime::Duration::from_str("2h").unwrap(),
+    //         &Timestamp::UpdatedAt,
+    //         &urls,
+    //     )
+    //     .unwrap();
+    //
+    //     assert_eq!(positive_result.0.len(), 2);
+    //     assert_eq!(positive_result.1.len(), 0);
+    //     assert_eq!(
+    //         positive_result.0,
+    //         vec![
+    //             create_pv(1, "sha256:bar", vec!["bar"]),
+    //             create_pv(2, "sha256:baz", vec!["baz"])
+    //         ]
+    //     );
+    //
+    //     // Negative matcher
+    //     let negative_result = select_package_versions(
+    //         package_versions.clone(),
+    //         &TagSelection::Both,
+    //         &Matchers {
+    //             positive: vec![WildMatchPattern::<'*', '?'>::new("ba*")],
+    //             negative: vec![WildMatchPattern::<'*', '?'>::new("baz")],
+    //         },
+    //         &vec![],
+    //         "",
+    //         &humantime::Duration::from_str("2h").unwrap(),
+    //         &Timestamp::UpdatedAt,
+    //         &urls,
+    //     )
+    //     .unwrap();
+    //
+    //     assert_eq!(negative_result.0.len(), 1);
+    //     assert_eq!(negative_result.1.len(), 0);
+    //     assert_eq!(negative_result.0, vec![create_pv(1, "sha256:bar", vec!["bar"])]);
+    //
+    //     // Negative matcher - negative matcher takes precedence over positive
+    //     let negative_result = select_package_versions(
+    //         package_versions.clone(),
+    //         &TagSelection::Both,
+    //         &Matchers {
+    //             positive: vec![WildMatchPattern::<'*', '?'>::new("baz")],
+    //             negative: vec![WildMatchPattern::<'*', '?'>::new("baz")],
+    //         },
+    //         &vec![],
+    //         "",
+    //         &humantime::Duration::from_str("2h").unwrap(),
+    //         &Timestamp::UpdatedAt,
+    //         &urls,
+    //     )
+    //     .unwrap();
+    //
+    //     assert_eq!(negative_result.0.len(), 0);
+    //     assert_eq!(negative_result.1.len(), 0);
+    // }
+    //
+    // fn call_f(matchers: Matchers) -> (Vec<PackageVersion>, Vec<PackageVersion>) {
+    //     let urls = Urls {
+    //         packages_frontend_base: Url::parse("https://foo.com").unwrap(),
+    //         packages_api_base: Url::parse("https://foo.com").unwrap(),
+    //         list_packages_url: Url::parse("https://foo.com").unwrap(),
+    //     };
+    //     let package_versions = vec![create_pv(0, "sha256:foobar", vec!["foo", "bar"])];
+    //     select_package_versions(
+    //         vec!["foo"],
+    //
+    //         package_versions.clone(),
+    //         &TagSelection::Both,
+    //         &matchers,
+    //         &vec![],
+    //         "package",
+    //         &humantime::Duration::from_str("2h").unwrap(),
+    //         &Timestamp::UpdatedAt,
+    //         &urls,
+    //     )
+    //     .unwrap()
+    // }
+    //
+    // #[traced_test]
+    // #[test]
+    // fn test_package_selection_match_permutations() {
+    //     // Plain negative match
+    //     call_f(Matchers {
+    //         positive: vec![],
+    //         negative: vec![WildMatchPattern::<'*', '?'>::new("foo")],
+    //     });
+    //     assert!(logs_contain("✕ package version matched a negative `image-tags` filter"));
+    //
+    //     // Negative and positive match
+    //     call_f(Matchers {
+    //         positive: vec![WildMatchPattern::<'*', '?'>::new("*")],
+    //         negative: vec![WildMatchPattern::<'*', '?'>::new("*")],
+    //     });
+    //     assert!(logs_contain(
+    //         "✕ package version matched a negative `image-tags` filter, but it also matched a positive filter"
+    //     ));
+    //
+    //     // 100% positive match
+    //     call_f(Matchers {
+    //         positive: vec![
+    //             WildMatchPattern::<'*', '?'>::new("foo"),
+    //             WildMatchPattern::<'*', '?'>::new("bar"),
+    //         ],
+    //         negative: vec![],
+    //     });
+    //     assert!(logs_contain("✓ package version matched all `image-tags` filters"));
+    //
+    //     // No positive match
+    //     call_f(Matchers {
+    //         positive: vec![WildMatchPattern::<'*', '?'>::new("random")],
+    //         negative: vec![],
+    //     });
+    //     assert!(logs_contain("✕ package version matched no `image-tags` filters"));
+    //
+    //     // Partial positive match
+    //     call_f(Matchers {
+    //         positive: vec![WildMatchPattern::<'*', '?'>::new("foo")],
+    //         negative: vec![],
+    //     });
+    //     assert!(logs_contain("✕ package version matched some, but not all tags"));
+    // }
+    //
+    // #[test]
+    // fn test_handle_keep_n_most_recent() {
+    //     let metadata = Metadata {
+    //         container: ContainerMetadata { tags: Vec::new() },
+    //     };
+    //     let now = Utc::now();
+    //
+    //     let tagged = vec![
+    //         PackageVersion {
+    //             updated_at: None,
+    //             created_at: now - Duration::from_secs(2),
+    //             name: "".to_string(),
+    //             id: 1,
+    //             metadata: metadata.clone(),
+    //         },
+    //         PackageVersion {
+    //             updated_at: Some(now - Duration::from_secs(1)),
+    //             created_at: now - Duration::from_secs(3),
+    //             name: "".to_string(),
+    //             id: 1,
+    //             metadata: metadata.clone(),
+    //         },
+    //         PackageVersion {
+    //             updated_at: Some(now),
+    //             created_at: now - Duration::from_secs(4),
+    //             name: "".to_string(),
+    //             id: 1,
+    //             metadata: metadata.clone(),
+    //         },
+    //     ];
+    //
+    //     // Test case 1: more items than keep at least
+    //     let keep_n_most_recent = 2;
+    //     let remaining_tagged = handle_keep_n_most_recent("", tagged.clone(), keep_n_most_recent);
+    //     assert_eq!(remaining_tagged.len(), 1);
+    //
+    //     // Test case 2: same items as keep_n_most_recent
+    //     let keep_n_most_recent = 6;
+    //     let remaining_tagged = handle_keep_n_most_recent("", tagged.clone(), keep_n_most_recent);
+    //     assert_eq!(remaining_tagged.len(), 0);
+    //
+    //     // Test case 3: fewer items than keep_n_most_recent
+    //     let keep_n_most_recent = 10;
+    //     let remaining_tagged = handle_keep_n_most_recent("", tagged.clone(), keep_n_most_recent);
+    //     assert_eq!(remaining_tagged.len(), 0);
+    // }
+    // #[test]
+    // fn test_handle_keep_n_most_recent_ordering() {
+    //     let now: DateTime<Utc> = Utc::now();
+    //     let five_minutes_ago: DateTime<Utc> = now - chrono::Duration::minutes(5);
+    //     let ten_minutes_ago: DateTime<Utc> = now - chrono::Duration::minutes(10);
+    //
+    //     // Newest is removed (to be kept)
+    //     let kept = handle_keep_n_most_recent("", vec![pv(five_minutes_ago), pv(now), pv(ten_minutes_ago)], 1);
+    //     assert_eq!(kept.len(), 2);
+    //     assert_eq!(kept, vec![pv(ten_minutes_ago), pv(five_minutes_ago)]);
+    //
+    //     let kept = handle_keep_n_most_recent("", vec![pv(five_minutes_ago), pv(ten_minutes_ago), pv(now)], 1);
+    //     assert_eq!(kept.len(), 2);
+    //     assert_eq!(kept, vec![pv(ten_minutes_ago), pv(five_minutes_ago)]);
+    //
+    //     let kept = handle_keep_n_most_recent("", vec![pv(now), pv(ten_minutes_ago), pv(five_minutes_ago)], 1);
+    //     assert_eq!(kept.len(), 2);
+    //     assert_eq!(kept, vec![pv(ten_minutes_ago), pv(five_minutes_ago)]);
+    // }
+    // fn pv(dt: DateTime<Utc>) -> PackageVersion {
+    //     PackageVersion {
+    //         id: 0,
+    //         name: "".to_string(),
+    //         metadata: Metadata {
+    //             container: ContainerMetadata { tags: Vec::new() },
+    //         },
+    //         created_at: dt,
+    //         updated_at: None,
+    //     }
+    // }
+}

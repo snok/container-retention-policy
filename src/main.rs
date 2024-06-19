@@ -5,57 +5,44 @@ use std::sync::Arc;
 use clap::Parser;
 use color_eyre::eyre::Result;
 use tokio::sync::Mutex;
-use tokio::task::JoinSet;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info_span, Instrument};
+use tracing_indicatif::IndicatifLayer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter};
 
-use crate::client::{ContainerClient, ContainerClientBuilder};
+use crate::client::{PackagesClient, PackagesClientBuilder};
+use crate::delete_package_versions::delete_package_versions;
 use crate::input::Input;
 use crate::select_package_versions::select_package_versions;
 use crate::select_packages::select_packages;
 
 mod client;
+mod delete_package_versions;
 mod input;
 mod matchers;
 mod responses;
 mod select_package_versions;
 mod select_packages;
 
-// Handling
-// - Bad PAT is handled gracefully
-// - PAT with missing access rights is handled gracefully
-
-// The minimum amount of requests we can make is
-//  PACKAGE_VERSION_PAGE_COUNT + (SELECTED_PACKAGES * PACKAGE_VERSION_PAGE_COUNT) for each package
-//
-// If a user has 5 pages of packages, we fetch all of them to then filter on the package name
-// filters.
-// If 3 packages are selected out of the 500 total packages, and they each have 150 package
-// versions, then we end up making 2 requests to fetch those package versions (2 pages).
-// In total, we're up to 5 + (3 * 2) == 11 requests.
-// The minimum we can do is 1 + 1 * 1 == 2 requests.
-// Then for each selected package version, we need 1 request to delete them.
-// In the example, that means 5 + (3 * 2) + (3 * 1) == 14 requests to delete 1 package version
-// per package.
-/// The allocation strategy for the rate limit should be:
-///  * Fetch all packages and fetch all package versions
-///    Fail and exit we're not able to do that.
-///  * Delete the number of package versions we can afford after that.
-///
-/// Anything more complicated seems unlikely to be needed, and we can handle it later
-/// if it is.
 #[tokio::main()]
 async fn main() -> Result<()> {
+    let indicatif_layer = IndicatifLayer::new();
+
     // Set up logging
     tracing_subscriber::registry()
-        .with(fmt::layer().with_ansi(true))
+        .with(
+            fmt::layer()
+                .with_ansi(true)
+                .with_writer(indicatif_layer.get_stderr_writer()),
+        )
         .with(EnvFilter::from_default_env())
+        .with(indicatif_layer)
         .init();
     debug!("Logging initialized");
 
     // Load and validate inputs
+    let init_span = info_span!("parse input").entered();
     let input = Input::parse();
 
     // TODO: Is there a better way?
@@ -65,7 +52,7 @@ async fn main() -> Result<()> {
 
     // Create rate-limited and authorized HTTP client
     let boxed_client = Box::new(
-        ContainerClientBuilder::new()
+        PackagesClientBuilder::new()
             .generate_urls(&input.account)
             .set_http_headers(input.token.clone())
             .expect("Failed to set HTTP headers")
@@ -73,12 +60,16 @@ async fn main() -> Result<()> {
             .build()
             .expect("Failed to build client"),
     );
-    let client: &'static mut ContainerClient = Box::leak(boxed_client);
+    let client: &'static mut PackagesClient = Box::leak(boxed_client);
+    init_span.exit();
 
     // Check how many remaining requests there are in the rate limit for the account
-    let (r, rate_limit_reset) = client.fetch_rate_limit().await.expect("Failed to fetch rate limit");
-    let _ = Arc::new(Mutex::new(r));
-    let remaining_requests = Arc::new(Mutex::new(50_usize)); // TODO: Remove
+    let (remaining, rate_limit_reset) = client
+        .fetch_rate_limit()
+        .instrument(info_span!("fetch rate limit"))
+        .await
+        .expect("Failed to fetch rate limit");
+    let remaining_requests = Arc::new(Mutex::new(remaining));
 
     // Fetch the names of the packages we should delete package versions from
     let selected_package_names = select_packages(
@@ -89,6 +80,7 @@ async fn main() -> Result<()> {
         rate_limit_reset,
         remaining_requests.clone(),
     )
+    .instrument(info_span!("select packages"))
     .await;
 
     // Fetch package versions to delete
@@ -112,72 +104,10 @@ async fn main() -> Result<()> {
         }
     };
 
-    let initial_allocatable_requests = *remaining_requests.lock().await;
-    let mut allocatable_requests = *remaining_requests.lock().await;
-
-    let mut set = JoinSet::new();
-
-    // Make a first-pass of all packages, adding untagged package versions
-    package_version_map.iter().for_each(|(package_name, package_versions)| {
-        if allocatable_requests == 0 {
-            info!("Skipping package \"{}\"'s untagged package versions, since there are no more requests available in the rate limit", package_name);
-            return;
-        }
-
-        let mut package_version_count = 0;
-
-        for version in &package_versions.untagged {
-            if allocatable_requests > 0 {
-                set.spawn(client.delete_package_version(package_name.clone(), version.clone(), input.dry_run));
-                package_version_count += 1;
-                allocatable_requests -= 1;
-            } else {
-                break;
-            }
-        }
-        debug!("Selected {} untagged package versions to delete for package \"{}\"", package_version_count, package_name);
-    });
-
-    if allocatable_requests == 0 {
-        warn!(
-            "There are not enough requests remaining in the rate limit to delete all package versions. Prioritizing deleting the first {} untagged package versions found.",
-            initial_allocatable_requests,
-        );
-    } else {
-        // Do a second pass over the map to add tagged versions
-        package_version_map.iter().for_each(|(package_name, package_versions)| {
-            if allocatable_requests == 0 {
-                info!("Skipping package \"{}\"'s tagged package versions, since there are no more requests available in the rate limit", package_name);
-                return;
-            }
-
-            let mut package_version_count = 0;
-
-            for version in &package_versions.tagged {
-                if allocatable_requests > 0 {
-                    set.spawn(client.delete_package_version(package_name.clone(), version.clone(), input.dry_run));
-                    package_version_count += 1;
-                    allocatable_requests -= 1;
-                } else {
-                    break;
-                }
-            }
-            debug!("Selected {} tagged package versions to delete for package \"{}\"", package_version_count, package_name);
-        });
-    }
-
-    let mut deleted_packages = Vec::new();
-    let mut failed_packages = Vec::new();
-
-    while let Some(result) = set.join_next().await {
-        match result {
-            Ok(future) => match future {
-                Ok(names) => deleted_packages.extend(names),
-                Err(names) => failed_packages.extend(names),
-            },
-            Err(e) => error!("Failed to join task: {e}"),
-        }
-    }
+    let (deleted_packages, failed_packages) =
+        delete_package_versions(package_version_map, client, remaining_requests, input.dry_run)
+            .instrument(info_span!("deleting package versions"))
+            .await;
 
     let mut github_output = env::var("GITHUB_OUTPUT").unwrap_or_default();
 

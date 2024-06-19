@@ -7,13 +7,7 @@ use std::convert::Infallible;
 use tracing::Level;
 
 pub fn vec_of_string_from_str(value: &str) -> Result<Vec<String>, Infallible> {
-    let trimmed = value.trim_matches('"').trim_matches('\''); // Remove surrounding quotes
-
-    if trimmed.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    Ok(trimmed
+    Ok(value
         .split(|c: char| c == ',' || c.is_whitespace())
         .filter_map(|t| {
             let s = t.trim().to_string();
@@ -24,13 +18,6 @@ pub fn vec_of_string_from_str(value: &str) -> Result<Vec<String>, Infallible> {
             }
         })
         .collect::<Vec<String>>())
-}
-
-#[test]
-fn test() {
-    let value = "''";
-    let trimmed = value.trim_matches('"').trim_matches('\''); // Remove surrounding quotes
-    println!("trimmed={trimmed}");
 }
 
 pub fn try_parse_shas_as_list(s: &str) -> Result<Vec<String>, String> {

@@ -1,15 +1,21 @@
-use crate::client::ContainerClient;
-use crate::input::{Account, Token};
-use crate::matchers::{create_filter_matchers, Matchers};
-use crate::responses::Package;
-use chrono::{DateTime, Utc};
 use std::process::exit;
 use std::sync::Arc;
+
+use chrono::{DateTime, Utc};
 use tokio::sync::Mutex;
 use tracing::{debug, info};
 
-pub fn filter_by_matchers(vec: &[Package], matchers: &Matchers) -> Vec<String> {
-    vec.iter()
+use crate::client::PackagesClient;
+use crate::input::{Account, Token};
+use crate::matchers::Matchers;
+use crate::responses::Package;
+
+/// Filter packages by package name matchers.
+///
+/// See the [`Matchers`] definition for details on what matchers are.
+fn filter_by_matchers(packages: &[Package], matchers: &Matchers) -> Vec<String> {
+    packages
+        .iter()
         .filter_map(|p| {
             if matchers.negative.iter().any(|matcher| {
                 if matcher.matches(&p.name) {
@@ -44,7 +50,7 @@ pub fn filter_by_matchers(vec: &[Package], matchers: &Matchers) -> Vec<String> {
 
 /// Fetches and filters packages based on token type, account type, and image name filters.
 pub async fn select_packages(
-    client: &mut ContainerClient,
+    client: &mut PackagesClient,
     image_names: &Vec<String>,
     token: &Token,
     account: &Account,
@@ -72,7 +78,7 @@ pub async fn select_packages(
     );
 
     // Filter image names
-    let image_name_matchers = create_filter_matchers(image_names);
+    let image_name_matchers = Matchers::from(image_names);
     let selected_package_names = filter_by_matchers(&packages, &image_name_matchers);
     info!(
         "{}/{} package names matched the `package-name` filters",
