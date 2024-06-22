@@ -35,13 +35,15 @@ setup:
 
   cargo binstall cargo-llvm-cov --locked --no-confirm
 
+  cargo binstall cargo-fuzz --locked --no-confirm
+
   # pre-commit is used to run checks on-commit
   @pip install pre-commit && pre-commit install
   @export RUSTC_WRAPPER=$(which sccache)
   @echo "Run \`echo 'export RUSTC_WRAPPER=\$(which sccache)' >> ~/.bashrc\` to use sccache for caching"
 
 run:
-    RUST_LOG=container_retention_policy=info cargo r -- \
+    RUST_LOG=container_retention_policy=info cargo r -p container-retention-policy -- \
         --account snok \
         --token $DELETE_PACKAGES_CLASSIC_TOKEN \
         --tag-selection both \
@@ -52,3 +54,6 @@ run:
         --timestamp-to-use "updated_at" \
         --cut-off 1d \
         --dry-run true
+
+fuzz target time="1800":
+    cargo +nightly fuzz run {{ target }} -- --max-total-time=time

@@ -4,26 +4,26 @@ use std::sync::Arc;
 
 use clap::Parser;
 use color_eyre::eyre::Result;
-use tokio::sync::Mutex;
-use tracing::{debug, error, info_span, Instrument};
+use tokio::sync::RwLock;
+use tracing::Instrument;
+use tracing::{debug, error, info_span, instrument, trace};
 use tracing_indicatif::IndicatifLayer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter};
 
-use crate::client::{PackagesClient, PackagesClientBuilder};
+use _client::client::{PackagesClient, PackagesClientBuilder};
+use _client::Counts;
+
 use crate::delete_package_versions::delete_package_versions;
 use crate::input::Input;
 use crate::select_package_versions::select_package_versions;
 use crate::select_packages::select_packages;
 
-mod client;
-mod delete_package_versions;
-mod input;
-mod matchers;
-mod responses;
-mod select_package_versions;
-mod select_packages;
+pub mod delete_package_versions;
+pub mod input;
+pub mod select_package_versions;
+pub mod select_packages;
 
 #[tokio::main()]
 async fn main() -> Result<()> {
@@ -69,19 +69,23 @@ async fn main() -> Result<()> {
         .instrument(info_span!("fetch rate limit"))
         .await
         .expect("Failed to fetch rate limit");
-    let remaining_requests = Arc::new(Mutex::new(remaining));
+    debug!("There are {} requests remaining in the rate limit", remaining);
+    let counts = Arc::new(Counts {
+        rate_limit_reset,
+        remaining_requests: RwLock::new(remaining),
+        package_versions: RwLock::new(0),
+    });
 
     // Fetch the names of the packages we should delete package versions from
-    let selected_package_names = select_packages(
-        client,
-        &input.image_names,
-        &input.token,
-        &input.account,
-        rate_limit_reset,
-        remaining_requests.clone(),
-    )
-    .instrument(info_span!("select packages"))
-    .await;
+    let selected_package_names =
+        select_packages(client, &input.image_names, &input.token, &input.account, counts.clone())
+            .instrument(info_span!("select packages"))
+            .await;
+    debug!("Selected {} package names", selected_package_names.len());
+    trace!(
+        "There are now {} requests remaining in the rate limit",
+        counts.remaining_requests.read().await
+    );
 
     // Fetch package versions to delete
     let package_version_map = match select_package_versions(
@@ -93,7 +97,7 @@ async fn main() -> Result<()> {
         input.tag_selection,
         &input.cut_off,
         &input.timestamp_to_use,
-        remaining_requests.clone(),
+        counts.clone(),
     )
     .await
     {
@@ -103,9 +107,13 @@ async fn main() -> Result<()> {
             exit(1);
         }
     };
+    trace!(
+        "There are now {} requests remaining in the rate limit",
+        *counts.remaining_requests.read().await
+    );
 
     let (deleted_packages, failed_packages) =
-        delete_package_versions(package_version_map, client, remaining_requests, input.dry_run)
+        delete_package_versions(package_version_map, client, counts, input.dry_run)
             .instrument(info_span!("deleting package versions"))
             .await;
 

@@ -1,21 +1,19 @@
-use crate::client::PackagesClient;
 use crate::select_package_versions::PackageVersions;
+use _client::client::PackagesClient;
+use _client::Counts;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::Mutex;
 use tokio::task::JoinSet;
-use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 
 async fn select_package_versions_to_delete(
     package_version_map: HashMap<String, PackageVersions>,
     client: &'static PackagesClient,
-    remaining_requests: Arc<Mutex<usize>>,
+    counts: Arc<Counts>,
     dry_run: bool,
 ) -> JoinSet<Result<Vec<String>, Vec<String>>> {
-    let initial_allocatable_requests = *remaining_requests.lock().await;
-    let mut allocatable_requests = *remaining_requests.lock().await;
+    let initial_allocatable_requests = *counts.remaining_requests.read().await;
+    let mut allocatable_requests = initial_allocatable_requests.clone();
 
     let mut set = JoinSet::new();
 
@@ -37,7 +35,7 @@ async fn select_package_versions_to_delete(
                 break;
             }
         }
-        debug!("Selected {} untagged package versions to delete for package \"{}\"", package_version_count, package_name);
+        debug!("Trimmed the selection to {} untagged package versions to delete for package \"{}\"", package_version_count, package_name);
     });
 
     if allocatable_requests == 0 {
@@ -73,12 +71,10 @@ async fn select_package_versions_to_delete(
 pub async fn delete_package_versions(
     package_version_map: HashMap<String, PackageVersions>,
     client: &'static PackagesClient,
-    remaining_requests: Arc<Mutex<usize>>,
+    counts: Arc<Counts>,
     dry_run: bool,
 ) -> (Vec<String>, Vec<String>) {
-    sleep(Duration::from_secs(10)).await;
-
-    let mut set = select_package_versions_to_delete(package_version_map, client, remaining_requests, dry_run).await;
+    let mut set = select_package_versions_to_delete(package_version_map, client, counts, dry_run).await;
 
     let mut deleted_packages = Vec::new();
     let mut failed_packages = Vec::new();

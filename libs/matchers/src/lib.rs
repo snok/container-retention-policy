@@ -5,10 +5,10 @@ use wildmatch::WildMatchPattern;
 ///
 /// Matchers, in this context, are expressions like:
 ///
-///     "foo"   -> select package "foo"
-///     "foo*"  -> select packages starting with "foo"
-///     "!foo"  -> select packages not called "foo"
-///     "!foo*" -> select packages not starting with "foo"
+///    "foo"   -> select package "foo"
+///    "foo*"  -> select packages starting with "foo"
+///    "!foo"  -> select packages not called "foo"
+///    "!foo*" -> select packages not starting with "foo"
 ///
 /// i.e., glob-like patterns to include or exclude packages by.
 ///
@@ -54,48 +54,75 @@ impl Matchers {
                 .collect(),
         }
     }
+
+    /// Check whether there are any negative matches.
+    pub fn negative_match(&self, value: &str) -> bool {
+        self.negative.iter().any(|matcher| {
+            if matcher.matches(value) {
+                trace!("Negative filter `{matcher}` matched \"{value}\"");
+                return true;
+            };
+            false
+        })
+    }
+
+    /// Check whether there are any positive matches.
+    pub fn positive_match(&self, value: &str) -> bool {
+        self.positive.iter().any(|matcher| {
+            if matcher.matches(value) {
+                trace!("Positive filter `{matcher}` matched \"{value}\"");
+                return true;
+            }
+            false
+        })
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.positive.is_empty() && self.negative.is_empty()
+    }
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
     #[test]
-    fn test_create_filter_matchers() {
+    fn test_filter_matchers() {
         // Exact filters should only match the exact string
         let matchers = Matchers::from(&vec![String::from("foo")]);
-        assert!(!matchers.positive.iter().any(|m| m.matches("fo")));
-        assert!(matchers.positive.iter().any(|m| m.matches("foo")));
-        assert!(!matchers.positive.iter().any(|m| m.matches("foos")));
-        assert!(!matchers.positive.iter().any(|m| m.matches("foosssss  $xas")));
+
+        assert!(!matchers.positive_match("fo"));
+        assert!(matchers.positive_match("foo"));
+        assert!(!matchers.positive_match("foos"));
+        assert!(!matchers.positive_match("foosssss  $xas"));
         let matchers = Matchers::from(&vec![String::from("!foo")]);
-        assert!(!matchers.negative.iter().any(|m| m.matches("fo")));
-        assert!(matchers.negative.iter().any(|m| m.matches("foo")));
-        assert!(!matchers.negative.iter().any(|m| m.matches("foos")));
-        assert!(!matchers.negative.iter().any(|m| m.matches("foosssss  $xas")));
+        assert!(!matchers.negative_match("fo"));
+        assert!(matchers.negative_match("foo"));
+        assert!(!matchers.negative_match("foos"));
+        assert!(!matchers.negative_match("foosssss  $xas"));
 
         // Wildcard filters should match the string without the wildcard, and with any postfix
         let matchers = Matchers::from(&vec![String::from("foo*")]);
-        assert!(!matchers.positive.iter().any(|m| m.matches("fo")));
-        assert!(matchers.positive.iter().any(|m| m.matches("foo")));
-        assert!(matchers.positive.iter().any(|m| m.matches("foos")));
-        assert!(matchers.positive.iter().any(|m| m.matches("foosssss  $xas")));
+        assert!(!matchers.positive_match("fo"));
+        assert!(matchers.positive_match("foo"));
+        assert!(matchers.positive_match("foos"));
+        assert!(matchers.positive_match("foosssss  $xas"));
         let matchers = Matchers::from(&vec![String::from("!foo*")]);
-        assert!(!matchers.negative.iter().any(|m| m.matches("fo")));
-        assert!(matchers.negative.iter().any(|m| m.matches("foo")));
-        assert!(matchers.negative.iter().any(|m| m.matches("foos")));
-        assert!(matchers.negative.iter().any(|m| m.matches("foosssss  $xas")));
+        assert!(!matchers.negative_match("fo"));
+        assert!(matchers.negative_match("foo"));
+        assert!(matchers.negative_match("foos"));
+        assert!(matchers.negative_match("foosssss  $xas"));
 
         // Filters with ? should match the string + one wildcard character
         let matchers = Matchers::from(&vec![String::from("foo?")]);
-        assert!(!matchers.positive.iter().any(|m| m.matches("fo")));
-        assert!(!matchers.positive.iter().any(|m| m.matches("foo")));
-        assert!(matchers.positive.iter().any(|m| m.matches("foos")));
-        assert!(!matchers.positive.iter().any(|m| m.matches("foosssss  $xas")));
+        assert!(!matchers.positive_match("fo"));
+        assert!(!matchers.positive_match("foo"));
+        assert!(matchers.positive_match("foos"));
+        assert!(!matchers.positive_match("foosssss  $xas"));
         let matchers = Matchers::from(&vec![String::from("!foo?")]);
-        assert!(!matchers.negative.iter().any(|m| m.matches("fo")));
-        assert!(!matchers.negative.iter().any(|m| m.matches("foo")));
-        assert!(matchers.negative.iter().any(|m| m.matches("foos")));
-        assert!(!matchers.negative.iter().any(|m| m.matches("foosssss  $xas")));
+        assert!(!matchers.negative_match("fo"));
+        assert!(!matchers.negative_match("foo"));
+        assert!(matchers.negative_match("foos"));
+        assert!(!matchers.negative_match("foosssss  $xas"));
     }
 }

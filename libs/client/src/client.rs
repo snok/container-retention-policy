@@ -2,7 +2,6 @@ use std::process::exit;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use std::usize;
 
 use chrono::{DateTime, Utc};
 use color_eyre::eyre::{eyre, Result};
@@ -17,8 +16,9 @@ use tracing::{debug, error, info, Span};
 use tracing_indicatif::span_ext::IndicatifSpanExt;
 use url::Url;
 
-use crate::input::{Account, Token};
 use crate::responses::{Package, PackageVersion};
+use crate::Counts;
+use _core::{Account, Token};
 
 type RateLimitedService = Arc<Mutex<ConcurrencyLimit<RateLimit<Client>>>>;
 
@@ -31,6 +31,12 @@ pub struct PackagesClientBuilder {
     list_packages_service: Option<RateLimitedService>,
     list_package_versions_service: Option<RateLimitedService>,
     delete_package_versions_service: Option<RateLimitedService>,
+}
+
+impl Default for PackagesClientBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PackagesClientBuilder {
@@ -51,7 +57,7 @@ impl PackagesClientBuilder {
         let auth_header_value = format!(
             "Bearer {}",
             match &token {
-                Token::TemporalToken(token) | Token::OauthToken(token) | Token::ClassicPersonalAccessToken(token) =>
+                Token::Temporal(token) | Token::Oauth(token) | Token::ClassicPersonalAccess(token) =>
                     token.expose_secret(),
             }
         );
@@ -163,7 +169,7 @@ impl PackagesClientBuilder {
 #[derive(Debug)]
 pub struct PackagesClient {
     headers: HeaderMap,
-    pub(crate) urls: Urls,
+    pub urls: Urls,
     fetch_package_service: RateLimitedService,
     list_packages_service: RateLimitedService,
     list_package_versions_service: RateLimitedService,
@@ -176,9 +182,9 @@ impl PackagesClient {
         &mut self,
         token: &Token,
         image_names: &Vec<String>,
-        remaining_requests: Arc<Mutex<usize>>,
+        counts: Arc<Counts>,
     ) -> Vec<Package> {
-        if let Token::TemporalToken(_) = *token {
+        if let Token::Temporal(_) = *token {
             // If a repo is assigned the admin role under Package Settings > Manage Actions Access,
             // then it can fetch a package's versions directly by name, and delete them. It cannot,
             // however, list packages, so for this token type we are limited to fetching packages
@@ -188,11 +194,11 @@ impl PackagesClient {
                     panic!("Restrictions in the Github API prevent us from listing packages when using a $GITHUB_TOKEN token. Because of this, filtering with '!' and '*' are not supported for this token type. Image name {image_name} is therefore not valid.");
                 }
             }
-            self.fetch_individual_packages(image_names, remaining_requests)
+            self.fetch_individual_packages(image_names, counts)
                 .await
                 .expect("Failed to fetch packages")
         } else {
-            self.list_packages(self.urls.list_packages_url.clone(), remaining_requests)
+            self.list_packages(self.urls.list_packages_url.clone(), counts)
                 .await
                 .expect("Failed to fetch packages")
         }
@@ -203,7 +209,7 @@ impl PackagesClient {
         url: Url,
         service: RateLimitedService,
         headers: HeaderMap,
-        remaining_requests: Arc<Mutex<usize>>,
+        counts: Arc<Counts>,
     ) -> Result<Vec<T>> {
         let mut result = Vec::new();
         let mut next_url = Some(url);
@@ -211,19 +217,24 @@ impl PackagesClient {
         while let Some(current_url) = next_url {
             debug!("Fetching data from {}", current_url);
 
+            // Construct these early, so we do as little work, holding a lock, as possible
             let mut request = Request::new(Method::GET, current_url);
             *request.headers_mut() = headers.clone();
 
-            {
-                if *remaining_requests.lock().await == 0 {
-                    return Err(eyre!("No more requests available in the current rate limit. Exiting."));
-                }
-            }
-
+            // Get a lock on the rate limited tower service
+            // This has mechanisms for keeping us honest wrt. primary and secondary rate limits
             let mut handle = service.lock().await;
 
+            if (*counts.package_versions.read().await) > (*counts.remaining_requests.read().await) {
+                error!("Returning without fetching all packages, since the remaining requests are less or equal to the number of package versions already selected");
+                return Ok(vec![]);
+            }
+
+            // Wait for a green light from the service. This can wait upwards of a minute
+            // if we've just exceeded the per-minute max requests
             let r = handle.ready().await;
 
+            // Handle possible error case
             let response = match r {
                 Ok(t) => {
                     // Initiate the request and drop the handle before awaiting the result
@@ -239,9 +250,12 @@ impl PackagesClient {
                     return Err(eyre!("Service failed to become ready: {}", e));
                 }
             };
-            *(remaining_requests.lock().await) -= 1;
 
             let response_headers = GithubHeaders::try_from(response.headers())?;
+
+            // Get the string value of the response first, so we can return it in
+            // a possible error. This will happen if one of our response structs
+            // are misconfigured, and is pretty helpful
             let raw_json = response.text().await?;
 
             let mut items: Vec<T> = match serde_json::from_str(&raw_json) {
@@ -253,6 +267,10 @@ impl PackagesClient {
                 }
             };
 
+            // Decrement the rate limiter count
+            *counts.remaining_requests.write().await -= 1;
+            *counts.package_versions.write().await += items.len();
+
             result.append(&mut items);
 
             next_url = if response_headers.x_ratelimit_remaining > 1 {
@@ -261,40 +279,37 @@ impl PackagesClient {
                 None
             };
 
-            Span::current().pb_set_message(&format!("fetched \x1b[33m{}\x1b[0m package versions", result.len()));
+            Span::current().pb_set_message(&format!(
+                "fetched \x1b[33m{}\x1b[0m package versions (\x1b[33m{}\x1b[0m requests remaining in the rate limit)",
+                result.len(),
+                *counts.remaining_requests.read().await
+            ));
         }
-
         Ok(result)
     }
 
-    async fn list_packages(&mut self, url: Url, remaining_requests: Arc<Mutex<usize>>) -> Result<Vec<Package>> {
-        Self::fetch_with_pagination(
-            url,
-            self.list_packages_service.clone(),
-            self.headers.clone(),
-            remaining_requests.clone(),
-        )
-        .await
+    async fn list_packages(&mut self, url: Url, counts: Arc<Counts>) -> Result<Vec<Package>> {
+        Self::fetch_with_pagination(url, self.list_packages_service.clone(), self.headers.clone(), counts).await
     }
 
     pub async fn list_package_versions(
         &self,
         package_name: String,
-        remaining_requests: Arc<Mutex<usize>>,
+        counts: Arc<Counts>,
     ) -> Result<(String, Vec<PackageVersion>)> {
         let url = self.urls.list_package_versions_url(&package_name)?;
         let versions = Self::fetch_with_pagination(
             url,
             self.list_package_versions_service.clone(),
             self.headers.clone(),
-            remaining_requests,
+            counts,
         )
         .await?;
         info!(package_name = package_name, "Found {} package versions", versions.len());
         Ok((package_name, versions))
     }
 
-    async fn fetch_individual_package(&self, url: Url, remaining_requests: Arc<Mutex<usize>>) -> Result<Package> {
+    async fn fetch_individual_package(&self, url: Url, counts: Arc<Counts>) -> Result<Package> {
         debug!("Fetching package from {url}");
 
         let mut request = Request::new(Method::GET, url);
@@ -323,7 +338,7 @@ impl PackagesClient {
                 }
             }
         };
-        *(remaining_requests.lock().await) -= 1;
+        *counts.remaining_requests.write().await -= 1;
 
         GithubHeaders::try_from(response.headers())?;
 
@@ -331,16 +346,12 @@ impl PackagesClient {
         Ok(serde_json::from_str(&raw_json)?)
     }
 
-    async fn fetch_individual_packages(
-        &self,
-        package_names: &[String],
-        remaining_requests: Arc<Mutex<usize>>,
-    ) -> Result<Vec<Package>> {
+    async fn fetch_individual_packages(&self, package_names: &[String], counts: Arc<Counts>) -> Result<Vec<Package>> {
         let mut futures = Vec::new();
 
         for package_name in package_names {
             let url = self.urls.fetch_package_url(package_name)?;
-            let fut = self.fetch_individual_package(url, remaining_requests.clone());
+            let fut = self.fetch_individual_package(url, counts.clone());
             futures.push(fut);
         }
 
@@ -388,7 +399,7 @@ impl PackagesClient {
             for name in &names {
                 info!(
                     package_version = package_version.id,
-                    "dry-run: Would have deleted {name}",
+                    "dry-run: Would have deleted {name}"
                 );
             }
             return Ok(Vec::new());
@@ -667,10 +678,10 @@ impl GithubHeaders {
         let scope = self.x_oauth_scopes.clone().unwrap();
 
         match token {
-            Token::TemporalToken(_) => {
+            Token::Temporal(_) => {
                 scope.contains("read:packages") && scope.contains("delete:packages") && scope.contains("repo")
             }
-            Token::ClassicPersonalAccessToken(_) | Token::OauthToken(_) => {
+            Token::ClassicPersonalAccess(_) | Token::Oauth(_) => {
                 scope.contains("read:packages") && scope.contains("delete:packages")
             }
         }
@@ -683,7 +694,7 @@ mod tests {
     use secrecy::Secret;
 
     use crate::client::Urls;
-    use crate::input::Account;
+    use _core::Account;
 
     use super::*;
 
@@ -731,7 +742,7 @@ mod tests {
         let test_string = "test".to_string();
 
         let client_builder = PackagesClientBuilder::new()
-            .set_http_headers(Token::ClassicPersonalAccessToken(Secret::new(test_string.clone())))
+            .set_http_headers(Token::ClassicPersonalAccess(Secret::new(test_string.clone())))
             .unwrap();
 
         let set_headers = client_builder.headers.clone().unwrap();

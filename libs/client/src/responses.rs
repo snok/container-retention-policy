@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
+use _core::Timestamp;
+
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct ContainerMetadata {
     pub tags: Vec<String>,
@@ -18,6 +20,15 @@ pub struct PackageVersion {
     pub metadata: Metadata,
     pub created_at: DateTime<Utc>,
     pub updated_at: Option<DateTime<Utc>>,
+}
+
+impl PackageVersion {
+    pub fn get_relevant_timestamp(&self, timestamp: &Timestamp) -> DateTime<Utc> {
+        match *timestamp {
+            Timestamp::CreatedAt => self.created_at,
+            Timestamp::UpdatedAt => self.updated_at.unwrap_or(self.created_at),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

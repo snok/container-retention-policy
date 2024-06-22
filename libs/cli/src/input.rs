@@ -1,9 +1,10 @@
+use std::convert::Infallible;
+
+use _core::{Account, TagSelection, Timestamp, Token};
 use clap::ArgAction;
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 use humantime::Duration;
 use regex::Regex;
-use secrecy::{ExposeSecret, Secret};
-use std::convert::Infallible;
 use tracing::Level;
 
 pub fn vec_of_string_from_str(value: &str) -> Result<Vec<String>, Infallible> {
@@ -33,107 +34,6 @@ pub fn try_parse_shas_as_list(s: &str) -> Result<Vec<String>, String> {
         }
     }
     Ok(shas)
-}
-
-#[derive(Debug, Clone, ValueEnum, PartialEq)]
-#[clap(rename_all = "snake-case")]
-pub enum Timestamp {
-    UpdatedAt,
-    CreatedAt,
-}
-
-#[derive(Debug, Clone, ValueEnum, PartialEq)]
-#[clap(rename_all = "kebab-case")]
-pub enum TagSelection {
-    Tagged,
-    Untagged,
-    Both,
-}
-
-/// Represent the different tokens the action can use to authenticate towards the GitHub API.
-///
-/// See https://github.blog/2021-04-05-behind-githubs-new-authentication-token-formats/
-/// for a list of existing token types.
-#[derive(Debug, Clone)]
-pub enum Token {
-    ClassicPersonalAccessToken(Secret<String>),
-    OauthToken(Secret<String>),
-    TemporalToken(Secret<String>),
-}
-
-impl Token {
-    fn try_from_str(value: &str) -> Result<Self, String> {
-        let trimmed_value = value.trim_matches('"'); // Remove surrounding quotes
-        let secret = Secret::new(trimmed_value.to_string());
-
-        // Classic PAT
-        if Regex::new(r"ghp_[a-zA-Z0-9]{36}$").unwrap().is_match(trimmed_value) {
-            return Ok(Self::ClassicPersonalAccessToken(secret));
-        };
-
-        // Temporal token - i.e., $GITHUB_TOKEN
-        if Regex::new(r"ghs_[a-zA-Z0-9]{36}$").unwrap().is_match(trimmed_value) {
-            return Ok(Self::TemporalToken(secret));
-        };
-
-        // GitHub oauth token
-        if Regex::new(r"gho_[a-zA-Z0-9]{36}$").unwrap().is_match(trimmed_value) {
-            return Ok(Self::OauthToken(secret));
-        };
-        Err(
-            "The `token` value is not valid. Must be $GITHUB_TOKEN, a classic personal access token (prefixed by 'ghp') or oauth token (prefixed by 'gho').".to_string()
-        )
-    }
-}
-
-impl PartialEq for Token {
-    fn eq(&self, other: &Self) -> bool {
-        match self {
-            Self::TemporalToken(s) => {
-                if let Self::TemporalToken(x) = other {
-                    s.expose_secret() == x.expose_secret()
-                } else {
-                    false
-                }
-            }
-            Self::ClassicPersonalAccessToken(s) => {
-                if let Self::ClassicPersonalAccessToken(x) = other {
-                    s.expose_secret() == x.expose_secret()
-                } else {
-                    false
-                }
-            }
-            Self::OauthToken(s) => {
-                if let Self::OauthToken(x) = other {
-                    s.expose_secret() == x.expose_secret()
-                } else {
-                    false
-                }
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Account {
-    Organization(String),
-    User,
-}
-
-impl Account {
-    fn try_from_str(value: &str) -> Result<Self, String> {
-        let value = value.trim();
-        if value == "user" {
-            Ok(Self::User)
-        } else if value.is_empty() {
-            return Err(
-                "`account` must be set to 'user' for personal accounts, or to the name of your organization"
-                    .to_string(),
-            );
-        } else {
-            Ok(Self::Organization(value.to_string()))
-        }
-    }
 }
 
 #[derive(Parser)]
@@ -187,8 +87,12 @@ pub struct Input {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use _core::{TagSelection, Timestamp};
     use assert_cmd::Command;
+    use clap::ValueEnum;
+    use secrecy::Secret;
+
+    use super::*;
 
     #[test]
     fn test_vec_of_string_from_str() {
@@ -259,15 +163,15 @@ mod tests {
     fn parse_token() {
         assert_eq!(
             Token::try_from_str("ghs_U4fUiyjT4gUZKJeUEI3AX501oTqIvV0loS62").unwrap(),
-            Token::TemporalToken(Secret::new("ghs_U4fUiyjT4gUZKJeUEI3AX501oTqIvV0loS62".to_string()))
+            Token::Temporal(Secret::new("ghs_U4fUiyjT4gUZKJeUEI3AX501oTqIvV0loS62".to_string()))
         );
         assert_eq!(
             Token::try_from_str("ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT").unwrap(),
-            Token::ClassicPersonalAccessToken(Secret::new("ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT".to_string()))
+            Token::ClassicPersonalAccess(Secret::new("ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT".to_string()))
         );
         assert_eq!(
             Token::try_from_str("gho_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT").unwrap(),
-            Token::OauthToken(Secret::new("gho_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT".to_string()))
+            Token::Oauth(Secret::new("gho_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT".to_string()))
         );
     }
 

@@ -1,0 +1,11 @@
+[package]
+name = "_core"
+version = "3.0.0-rc1"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[dependencies]
+secrecy = { workspace = true, features = ["serde"] }
+clap = { workspace = true, features = ["derive"]}
+regex = "1.10.5"
