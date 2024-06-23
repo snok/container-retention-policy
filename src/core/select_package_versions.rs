@@ -1,8 +1,9 @@
-use _client::client::{PackagesClient, Urls};
-use _client::responses::PackageVersion;
-use _client::{Counts, PackageVersions};
-use _core::{TagSelection, Timestamp};
-use _matchers::Matchers;
+use crate::cli::models::{TagSelection, Timestamp};
+use crate::client::client::PackagesClient;
+use crate::client::models::PackageVersion;
+use crate::client::urls::Urls;
+use crate::matchers::Matchers;
+use crate::{Counts, PackageVersions};
 use chrono::Utc;
 use color_eyre::Result;
 use humantime::Duration as HumantimeDuration;
@@ -11,7 +12,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinSet;
-use tracing::{debug, info, info_span, trace, warn, Instrument, Span};
+use tracing::{debug, info, info_span, trace, warn, Instrument};
 use tracing_indicatif::span_ext::IndicatifSpanExt;
 
 /// Keep the `n` most recent package versions, per package name.
@@ -63,13 +64,13 @@ fn older_than_cutoff(
 ) -> bool {
     let cut_off_duration: Duration = (*cut_off).into();
     let cut_off_time = Utc::now() - cut_off_duration;
-    if package_version.get_relevant_timestamp(timestamp_to_use) > cut_off_time {
+    if package_version.get_relevant_timestamp(timestamp_to_use) < cut_off_time {
+        true
+    } else {
         trace!(
             cut_off = cut_off_time.to_string(),
             "Skipping package version, since it's newer than the cut-off"
         );
-        true
-    } else {
         false
     }
 }
@@ -172,7 +173,7 @@ fn filter_by_tag_selection(
     match (tag_selection, has_no_tags) {
         // Handle untagged images
         (&TagSelection::Untagged | &TagSelection::Both, true) => {
-            debug!("Selecting package version, since it has no tags");
+            debug!("Selecting package version since it no longer has any associated tags");
             Ok(Some(PackageVersionType::Untagged(package_version)))
         }
         // Handle tagged images
@@ -207,19 +208,17 @@ pub fn filter_package_versions(
     debug!("Found {} package versions for package", package_versions.len());
 
     for package_version in package_versions {
-        let span =
-            info_span!("select package versions", package_name = %package_name, package_version_id=package_version.id)
-                .entered();
+        let span = info_span!("select package versions", package_version_id = package_version.id).entered();
         // Filter out any package versions specified in the shas-to-skip input
         if contains_shas_to_skip(&shas_to_skip, &package_version) {
             continue;
         }
         // Filter out any package version that isn't old enough
-        if older_than_cutoff(&package_version, cut_off, timestamp_to_use) {
+        if !older_than_cutoff(&package_version, cut_off, timestamp_to_use) {
             continue;
         }
         // Filter the remaining package versions by image-tag matchers and tag-selection, if specified
-        match filter_by_tag_selection(&matchers, &tag_selection, &client.urls, package_version, &package_name)? {
+        match filter_by_tag_selection(&matchers, &tag_selection, &client.urls, package_version, package_name)? {
             Some(PackageVersionType::Tagged(package_version)) => {
                 tagged.push(package_version);
             }
@@ -313,7 +312,7 @@ pub async fn select_package_versions(
 
 #[cfg(test)]
 mod tests {
-    use _client::responses::{ContainerMetadata, Metadata};
+    use crate::client::models::{ContainerMetadata, Metadata, PackageVersion};
     use chrono::DateTime;
     use humantime::Duration as HumantimeDuration;
     use std::str::FromStr;

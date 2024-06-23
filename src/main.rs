@@ -2,28 +2,60 @@ use std::env;
 use std::process::exit;
 use std::sync::Arc;
 
-use clap::Parser;
 use color_eyre::eyre::Result;
 use tokio::sync::RwLock;
-use tracing::Instrument;
-use tracing::{debug, error, info_span, trace};
+use tracing::{debug, error, info_span, trace, Instrument};
 use tracing_indicatif::IndicatifLayer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter};
 
-use _client::client::{PackagesClient, PackagesClientBuilder};
-use _client::Counts;
+use crate::cli::args::Input;
+use crate::client::builder::PackagesClientBuilder;
+use crate::client::client::PackagesClient;
+use crate::client::models::PackageVersion;
+use crate::core::delete_package_versions::delete_package_versions;
+use crate::core::select_package_versions::select_package_versions;
+use crate::core::select_packages::select_packages;
+use chrono::{DateTime, Utc};
+use clap::Parser;
 
-use crate::delete_package_versions::delete_package_versions;
-use crate::input::Input;
-use crate::select_package_versions::select_package_versions;
-use crate::select_packages::select_packages;
+mod cli;
+pub mod client;
+mod core;
+mod matchers;
 
-pub mod delete_package_versions;
-pub mod input;
-pub mod select_package_versions;
-pub mod select_packages;
+pub struct Counts {
+    pub remaining_requests: RwLock<usize>,
+    pub rate_limit_reset: DateTime<Utc>,
+    pub package_versions: RwLock<usize>,
+}
+
+pub struct PackageVersions {
+    pub untagged: Vec<PackageVersion>,
+    pub tagged: Vec<PackageVersion>,
+}
+
+impl PackageVersions {
+    /// Create a new, empty, struct
+    pub fn new() -> Self {
+        Self {
+            untagged: vec![],
+            tagged: vec![],
+        }
+    }
+
+    /// Compute the total number of package versions contained in the struct
+    pub fn len(&self) -> usize {
+        self.untagged.len() + self.tagged.len()
+    }
+
+    /// Add another PackageVersions struct to this one
+    pub fn extend(&mut self, other: PackageVersions) {
+        self.untagged.extend(other.untagged);
+        self.tagged.extend(other.tagged);
+    }
+}
 
 #[tokio::main()]
 async fn main() -> Result<()> {
@@ -69,7 +101,6 @@ async fn main() -> Result<()> {
         .instrument(info_span!("fetch rate limit"))
         .await
         .expect("Failed to fetch rate limit");
-    debug!("There are {} requests remaining in the rate limit", remaining);
     let counts = Arc::new(Counts {
         rate_limit_reset,
         remaining_requests: RwLock::new(30), // TODO: Revert
@@ -81,7 +112,7 @@ async fn main() -> Result<()> {
         select_packages(client, &input.image_names, &input.token, &input.account, counts.clone())
             .instrument(info_span!("select packages"))
             .await;
-    debug!("Selected {} package names", selected_package_names.len());
+    debug!("Selected {} package name(s)", selected_package_names.len());
     trace!(
         "There are now {} requests remaining in the rate limit",
         *counts.remaining_requests.read().await
@@ -117,7 +148,6 @@ async fn main() -> Result<()> {
             .instrument(info_span!("deleting package versions"))
             .await;
 
-    println!("{}", *counts.remaining_requests.read().await);
     let mut github_output = env::var("GITHUB_OUTPUT").unwrap_or_default();
 
     github_output.push_str(&format!("deleted={}", deleted_packages.join(",")));

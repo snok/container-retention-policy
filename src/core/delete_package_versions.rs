@@ -1,5 +1,7 @@
-use _client::client::PackagesClient;
-use _client::{Counts, PackageVersions};
+use crate::client::client::PackagesClient;
+use crate::{Counts, PackageVersions};
+use chrono::Utc;
+use humantime::format_duration;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::task::JoinSet;
@@ -36,10 +38,13 @@ async fn select_package_versions_to_delete(
         debug!("Trimmed the selection to {} untagged package versions to delete for package \"{}\"", package_version_count, package_name);
     });
 
+    let duration = (counts.rate_limit_reset - Utc::now()).to_std().unwrap();
+    let formatted_duration = format_duration(duration);
     if allocatable_requests == 0 {
         warn!(
-            "There are not enough requests remaining in the rate limit to delete all package versions. Prioritizing deleting the first {} untagged package versions found. The rate limit resets at {}.",
+            "There aren't enough requests remaining in the rate limit to delete all package versions. Prioritizing deleting the first {} untagged package versions. The rate limit resets in {} (at {}).",
             set.len(),
+            formatted_duration,
             counts.rate_limit_reset.to_string()
         );
     } else {

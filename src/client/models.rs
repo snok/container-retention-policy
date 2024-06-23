@@ -1,7 +1,6 @@
+use crate::cli::models::Timestamp;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-
-use _core::Timestamp;
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct ContainerMetadata {

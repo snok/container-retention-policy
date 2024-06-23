@@ -1,6 +1,6 @@
 use std::convert::Infallible;
 
-use _core::{Account, TagSelection, Timestamp, Token};
+use crate::cli::models::{Account, TagSelection, Timestamp, Token};
 use clap::ArgAction;
 use clap::Parser;
 use humantime::Duration;
@@ -87,7 +87,6 @@ pub struct Input {
 
 #[cfg(test)]
 mod tests {
-    use _core::{TagSelection, Timestamp};
     use assert_cmd::Command;
     use clap::ValueEnum;
     use secrecy::Secret;

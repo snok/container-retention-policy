@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
+use crate::cli::models::{Account, Token};
+use crate::client::client::PackagesClient;
+use crate::client::models::Package;
+use crate::matchers::Matchers;
 use crate::Counts;
-use _client::client::PackagesClient;
-use _client::responses::Package;
-use _core::{Account, Token};
-use _matchers::Matchers;
 use tracing::{debug, info};
 
 /// Filter packages by package name-matchers.
@@ -64,6 +64,7 @@ pub async fn select_packages(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client::models::Package;
 
     #[test]
     fn test_filter_by_matchers() {
