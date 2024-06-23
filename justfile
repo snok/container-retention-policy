@@ -43,7 +43,7 @@ setup:
   @echo "Run \`echo 'export RUSTC_WRAPPER=\$(which sccache)' >> ~/.bashrc\` to use sccache for caching"
 
 run:
-    RUST_LOG=container_retention_policy=info cargo r -p container-retention-policy -- \
+    RUST_LOG=container_retention_policy=debug cargo r -p container-retention-policy -- \
         --account snok \
         --token $DELETE_PACKAGES_CLASSIC_TOKEN \
         --tag-selection both \

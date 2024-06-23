@@ -84,7 +84,7 @@ async fn main() -> Result<()> {
     debug!("Selected {} package names", selected_package_names.len());
     trace!(
         "There are now {} requests remaining in the rate limit",
-        counts.remaining_requests.read().await
+        *counts.remaining_requests.read().await
     );
 
     // Fetch package versions to delete

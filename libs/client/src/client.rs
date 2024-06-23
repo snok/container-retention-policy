@@ -227,7 +227,7 @@ impl PackagesClient {
 
             if (*counts.package_versions.read().await) > (*counts.remaining_requests.read().await) {
                 error!("Returning without fetching all packages, since the remaining requests are less or equal to the number of package versions already selected");
-                return Ok(vec![]);
+                return Ok(result);
             }
 
             // Wait for a green light from the service. This can wait upwards of a minute
