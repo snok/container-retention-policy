@@ -1,6 +1,6 @@
 use _client::client::{PackagesClient, Urls};
 use _client::responses::PackageVersion;
-use _client::Counts;
+use _client::{Counts, PackageVersions};
 use _core::{TagSelection, Timestamp};
 use _matchers::Matchers;
 use chrono::Utc;
@@ -191,9 +191,47 @@ fn filter_by_tag_selection(
     }
 }
 
-pub struct PackageVersions {
-    pub untagged: Vec<PackageVersion>,
-    pub tagged: Vec<PackageVersion>,
+pub fn filter_package_versions(
+    package_versions: Vec<PackageVersion>,
+    package_name: &str,
+    shas_to_skip: Vec<String>,
+    tag_selection: TagSelection,
+    cut_off: &HumantimeDuration,
+    timestamp_to_use: &Timestamp,
+    matchers: Matchers,
+    client: &'static PackagesClient,
+) -> Result<PackageVersions> {
+    let mut tagged = Vec::new();
+    let mut untagged = Vec::new();
+
+    debug!("Found {} package versions for package", package_versions.len());
+
+    for package_version in package_versions {
+        let span =
+            info_span!("select package versions", package_name = %package_name, package_version_id=package_version.id)
+                .entered();
+        // Filter out any package versions specified in the shas-to-skip input
+        if contains_shas_to_skip(&shas_to_skip, &package_version) {
+            continue;
+        }
+        // Filter out any package version that isn't old enough
+        if older_than_cutoff(&package_version, cut_off, timestamp_to_use) {
+            continue;
+        }
+        // Filter the remaining package versions by image-tag matchers and tag-selection, if specified
+        match filter_by_tag_selection(&matchers, &tag_selection, &client.urls, package_version, &package_name)? {
+            Some(PackageVersionType::Tagged(package_version)) => {
+                tagged.push(package_version);
+            }
+            Some(PackageVersionType::Untagged(package_version)) => {
+                untagged.push(package_version);
+            }
+            None => (),
+        }
+        span.exit();
+    }
+
+    Ok(PackageVersions { untagged, tagged })
 }
 
 /// Fetches and filters package versions by account type, image-tag filters, cut-off,
@@ -222,9 +260,27 @@ pub async fn select_package_versions(
                 .unwrap(),
         );
         span.pb_set_message("fetched \x1b[33m0\x1b[0m package versions");
+
+        let a = package_name.clone();
+        let b = shas_to_skip.clone();
+        let c = tag_selection.clone();
+        let d = cut_off.clone();
+        let e = timestamp_to_use.clone();
+        let f = matchers.clone();
+
         set.spawn(
             client
-                .list_package_versions(package_name, counts.clone())
+                .list_package_versions(
+                    package_name,
+                    counts.clone(),
+                    move |package_versions| {
+                        let b = b.clone();
+                        let c = c.clone();
+                        let f = f.clone();
+                        filter_package_versions(package_versions, &a, b, c, &d, &e, f, client)
+                    },
+                    keep_n_most_recent as usize,
+                )
                 .instrument(span),
         );
     }
@@ -234,46 +290,19 @@ pub async fn select_package_versions(
     debug!("Fetching package versions");
     while let Some(r) = set.join_next().await {
         // Get all the package versions for a package
-        let (package_name, package_versions) = r??;
-
-        let mut tagged = Vec::new();
-        let mut untagged = Vec::new();
-
-        debug!("Found {} package versions for package", package_versions.len());
-
-        for package_version in package_versions {
-            let span = info_span!("select package versions", package_name = %package_name, package_version_id=package_version.id).entered();
-            // Filter out any package versions specified in the shas-to-skip input
-            if contains_shas_to_skip(&shas_to_skip, &package_version) {
-                continue;
-            }
-            // Filter out any package version that isn't old enough
-            if older_than_cutoff(&package_version, cut_off, timestamp_to_use) {
-                continue;
-            }
-            // Filter the remaining package versions by image-tag matchers and tag-selection, if specified
-            match filter_by_tag_selection(&matchers, &tag_selection, &client.urls, package_version, &package_name)? {
-                Some(PackageVersionType::Tagged(package_version)) => {
-                    tagged.push(package_version);
-                }
-                Some(PackageVersionType::Untagged(package_version)) => {
-                    untagged.push(package_version);
-                }
-                None => (),
-            }
-            span.exit();
-        }
+        let (package_name, mut package_versions) = r??;
 
         // Keep n package versions per package, if specified
-        let tagged = handle_keep_n_most_recent(tagged, keep_n_most_recent, timestamp_to_use);
+        package_versions.tagged =
+            handle_keep_n_most_recent(package_versions.tagged, keep_n_most_recent, timestamp_to_use);
 
         info!(
             package_name = package_name,
             "Selected {} tagged and {} untagged package versions for deletion",
-            tagged.len(),
-            untagged.len()
+            package_versions.tagged.len(),
+            package_versions.untagged.len()
         );
-        package_version_map.insert(package_name, PackageVersions { untagged, tagged });
+        package_version_map.insert(package_name, package_versions);
     }
 
     Ok(package_version_map)
@@ -323,7 +352,7 @@ mod tests {
                 &TagSelection::Untagged,
                 &urls,
                 tagged_package_version.clone(),
-                ""
+                "",
             )
             .unwrap(),
             None
@@ -335,7 +364,7 @@ mod tests {
                 &TagSelection::Tagged,
                 &urls,
                 tagged_package_version.clone(),
-                ""
+                "",
             )
             .unwrap(),
             Some(PackageVersionType::Tagged(tagged_package_version.clone()))
@@ -355,7 +384,7 @@ mod tests {
                 &TagSelection::Untagged,
                 &urls,
                 untagged_package_version.clone(),
-                ""
+                "",
             )
             .unwrap(),
             Some(PackageVersionType::Untagged(untagged_package_version.clone()))
@@ -366,7 +395,7 @@ mod tests {
                 &TagSelection::Both,
                 &urls,
                 untagged_package_version.clone(),
-                ""
+                "",
             )
             .unwrap(),
             Some(PackageVersionType::Untagged(untagged_package_version.clone()))
@@ -378,7 +407,7 @@ mod tests {
                 &TagSelection::Tagged,
                 &urls,
                 untagged_package_version.clone(),
-                ""
+                "",
             )
             .unwrap(),
             None
@@ -521,6 +550,7 @@ mod tests {
         let remaining_tagged = handle_keep_n_most_recent(tagged.clone(), keep_n_most_recent, &Timestamp::CreatedAt);
         assert_eq!(remaining_tagged.len(), 0);
     }
+
     #[test]
     fn test_handle_keep_n_most_recent_ordering() {
         let now: DateTime<Utc> = Utc::now();
@@ -586,7 +616,7 @@ mod tests {
             assert!(older_than_cutoff(
                 &p,
                 &HumantimeDuration::from_str("1s").unwrap(),
-                &timestamp
+                &timestamp,
             ));
 
             // when timestamp is the newer as cut-off
@@ -594,7 +624,7 @@ mod tests {
             assert!(!older_than_cutoff(
                 &p,
                 &HumantimeDuration::from_str("11s").unwrap(),
-                &timestamp
+                &timestamp,
             ));
         }
 
@@ -607,7 +637,7 @@ mod tests {
             assert!(older_than_cutoff(
                 &p,
                 &HumantimeDuration::from_str("1s").unwrap(),
-                &timestamp
+                &timestamp,
             ));
 
             // when timestamp is the newer as cut-off
@@ -615,7 +645,7 @@ mod tests {
             assert!(!older_than_cutoff(
                 &p,
                 &HumantimeDuration::from_str("11s").unwrap(),
-                &timestamp
+                &timestamp,
             ));
         }
     }

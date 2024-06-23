@@ -1,6 +1,5 @@
-use crate::select_package_versions::PackageVersions;
 use _client::client::PackagesClient;
-use _client::Counts;
+use _client::{Counts, PackageVersions};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::task::JoinSet;
@@ -40,8 +39,9 @@ async fn select_package_versions_to_delete(
 
     if allocatable_requests == 0 {
         warn!(
-            "There are not enough requests remaining in the rate limit to delete all package versions. Prioritizing deleting the first {} untagged package versions found.",
+            "There are not enough requests remaining in the rate limit to delete all package versions. Prioritizing deleting the first {} untagged package versions found. The rate limit resets at {}.",
             initial_allocatable_requests,
+            counts.rate_limit_reset.to_string()
         );
     } else {
         // Do a second pass over the map to add tagged versions

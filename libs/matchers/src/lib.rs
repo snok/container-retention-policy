@@ -21,7 +21,7 @@ use wildmatch::WildMatchPattern;
 ///
 /// When parsing matchers from strings, any string prefixed by `!` are considered
 /// negative matchers, and anything else is considered positive.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Matchers {
     pub positive: Vec<WildMatchPattern<'*', '?'>>,
     pub negative: Vec<WildMatchPattern<'*', '?'>>,

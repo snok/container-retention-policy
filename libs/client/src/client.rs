@@ -8,7 +8,6 @@ use color_eyre::eyre::{eyre, Result};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Method, Request, StatusCode};
 use secrecy::ExposeSecret;
-use serde::de::DeserializeOwned;
 use tokio::sync::Mutex;
 use tower::limit::{ConcurrencyLimit, RateLimit};
 use tower::{Service, ServiceBuilder, ServiceExt};
@@ -17,7 +16,7 @@ use tracing_indicatif::span_ext::IndicatifSpanExt;
 use url::Url;
 
 use crate::responses::{Package, PackageVersion};
-use crate::Counts;
+use crate::{Counts, PackageVersions};
 use _core::{Account, Token};
 
 type RateLimitedService = Arc<Mutex<ConcurrencyLimit<RateLimit<Client>>>>;
@@ -205,12 +204,12 @@ impl PackagesClient {
     }
 
     /// Recursively fetch T, until the last page of pagination is hit.
-    async fn fetch_with_pagination<T: DeserializeOwned>(
+    async fn fetch_packages_with_pagination(
         url: Url,
         service: RateLimitedService,
         headers: HeaderMap,
         counts: Arc<Counts>,
-    ) -> Result<Vec<T>> {
+    ) -> Result<Vec<Package>> {
         let mut result = Vec::new();
         let mut next_url = Some(url);
 
@@ -258,7 +257,7 @@ impl PackagesClient {
             // are misconfigured, and is pretty helpful
             let raw_json = response.text().await?;
 
-            let mut items: Vec<T> = match serde_json::from_str(&raw_json) {
+            let mut items: Vec<Package> = match serde_json::from_str(&raw_json) {
                 Ok(t) => t,
                 Err(e) => {
                     return Err(eyre!(
@@ -267,11 +266,94 @@ impl PackagesClient {
                 }
             };
 
-            // Decrement the rate limiter count
-            *counts.remaining_requests.write().await -= 1;
-            *counts.package_versions.write().await += items.len();
-
             result.append(&mut items);
+
+            next_url = if response_headers.x_ratelimit_remaining > 1 {
+                response_headers.next_link()
+            } else {
+                None
+            };
+        }
+        Ok(result)
+    }
+
+    /// Recursively fetch T, until the last page of pagination is hit.
+    async fn fetch_package_versions_with_pagination<F>(
+        url: Url,
+        service: RateLimitedService,
+        headers: HeaderMap,
+        counts: Arc<Counts>,
+        filter_fn: F,
+        rate_limit_offset: usize,
+    ) -> Result<PackageVersions>
+    where
+        F: Fn(Vec<PackageVersion>) -> Result<PackageVersions>,
+    {
+        let mut result = PackageVersions::new();
+        let mut next_url = Some(url);
+
+        while let Some(current_url) = next_url {
+            debug!("Fetching data from {}", current_url);
+
+            // Construct these early, so we do as little work, holding a lock, as possible
+            let mut request = Request::new(Method::GET, current_url);
+            *request.headers_mut() = headers.clone();
+
+            // Get a lock on the rate limited tower service
+            // This has mechanisms for keeping us honest wrt. primary and secondary rate limits
+            let mut handle = service.lock().await;
+
+            if (*counts.package_versions.read().await) > (*counts.remaining_requests.read().await) + rate_limit_offset {
+                error!("Returning without fetching all package versions, since the remaining requests are less or equal to the number of package versions already selected");
+                return Ok(result);
+            }
+
+            // Wait for a green light from the service. This can wait upwards of a minute
+            // if we've just exceeded the per-minute max requests
+            let r = handle.ready().await;
+
+            // Handle possible error case
+            let response = match r {
+                Ok(t) => {
+                    // Initiate the request and drop the handle before awaiting the result
+                    // If we don't drop the handle, our request flow becomes synchronous
+                    let fut = t.call(request);
+                    drop(handle);
+                    match fut.await {
+                        Ok(t) => t,
+                        Err(e) => return Err(eyre!("Request failed: {}", e)),
+                    }
+                }
+                Err(e) => {
+                    return Err(eyre!("Service failed to become ready: {}", e));
+                }
+            };
+
+            let response_headers = GithubHeaders::try_from(response.headers())?;
+
+            // Get the string value of the response first, so we can return it in
+            // a possible error. This will happen if one of our response structs
+            // are misconfigured, and is pretty helpful
+            let raw_json = response.text().await?;
+
+            let items: Vec<PackageVersion> = match serde_json::from_str(&raw_json) {
+                Ok(t) => t,
+                Err(e) => {
+                    return Err(eyre!(
+                        "Failed to deserialize paginated response: {raw_json}. The error was {e}."
+                    ));
+                }
+            };
+
+            {
+                let package_versions = filter_fn(items)?;
+
+                // Decrement the rate limiter count
+                *counts.remaining_requests.write().await -= 1;
+                *counts.package_versions.write().await += package_versions.len();
+
+                result.extend(package_versions);
+            }
 
             next_url = if response_headers.x_ratelimit_remaining > 1 {
                 response_headers.next_link()
@@ -289,24 +371,36 @@ impl PackagesClient {
     }
 
     async fn list_packages(&mut self, url: Url, counts: Arc<Counts>) -> Result<Vec<Package>> {
-        Self::fetch_with_pagination(url, self.list_packages_service.clone(), self.headers.clone(), counts).await
+        Self::fetch_packages_with_pagination(url, self.list_packages_service.clone(), self.headers.clone(), counts)
+            .await
     }
 
-    pub async fn list_package_versions(
+    pub async fn list_package_versions<F>(
         &self,
         package_name: String,
         counts: Arc<Counts>,
-    ) -> Result<(String, Vec<PackageVersion>)> {
+        filter_fn: F,
+        rate_limit_offset: usize,
+    ) -> Result<(String, PackageVersions)>
+    where
+        F: Fn(Vec<PackageVersion>) -> Result<PackageVersions>,
+    {
         let url = self.urls.list_package_versions_url(&package_name)?;
-        let versions = Self::fetch_with_pagination(
+        let package_versions = Self::fetch_package_versions_with_pagination(
             url,
             self.list_package_versions_service.clone(),
             self.headers.clone(),
             counts,
+            filter_fn,
+            rate_limit_offset,
         )
         .await?;
-        info!(package_name = package_name, "Found {} package versions", versions.len());
-        Ok((package_name, versions))
+        info!(
+            package_name = package_name,
+            "Found {} package versions",
+            package_versions.len()
+        );
+        Ok((package_name, package_versions))
     }
 
     async fn fetch_individual_package(&self, url: Url, counts: Arc<Counts>) -> Result<Package> {

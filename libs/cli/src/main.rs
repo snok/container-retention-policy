@@ -6,7 +6,7 @@ use clap::Parser;
 use color_eyre::eyre::Result;
 use tokio::sync::RwLock;
 use tracing::Instrument;
-use tracing::{debug, error, info_span, instrument, trace};
+use tracing::{debug, error, info_span, trace};
 use tracing_indicatif::IndicatifLayer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -63,7 +63,7 @@ async fn main() -> Result<()> {
     let client: &'static mut PackagesClient = Box::leak(boxed_client);
     init_span.exit();
 
-    // Check how many remaining requests there are in the rate limit for the account
+    // Check how many remaining requests there are in the rate limit
     let (remaining, rate_limit_reset) = client
         .fetch_rate_limit()
         .instrument(info_span!("fetch rate limit"))
@@ -76,7 +76,7 @@ async fn main() -> Result<()> {
         package_versions: RwLock::new(0),
     });
 
-    // Fetch the names of the packages we should delete package versions from
+    // Fetch the packages we should delete package versions from
     let selected_package_names =
         select_packages(client, &input.image_names, &input.token, &input.account, counts.clone())
             .instrument(info_span!("select packages"))
