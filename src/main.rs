@@ -103,7 +103,7 @@ async fn main() -> Result<()> {
         .expect("Failed to fetch rate limit");
     let counts = Arc::new(Counts {
         rate_limit_reset,
-        remaining_requests: RwLock::new(30), // TODO: Revert
+        remaining_requests: RwLock::new(remaining),
         package_versions: RwLock::new(0),
     });
 

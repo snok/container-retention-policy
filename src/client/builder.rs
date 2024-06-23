@@ -28,6 +28,7 @@ pub struct PackagesClientBuilder {
 }
 
 impl PackagesClientBuilder {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             headers: None,
@@ -40,6 +41,7 @@ impl PackagesClientBuilder {
         }
     }
 
+    /// Add default HTTP headers for the client to use in all requests.
     pub fn set_http_headers(mut self, token: Token) -> Result<Self> {
         debug!("Constructing HTTP headers");
         let auth_header_value = format!(
@@ -59,6 +61,7 @@ impl PackagesClientBuilder {
         Ok(self)
     }
 
+    /// Attach a urls utility struct.
     pub fn generate_urls(mut self, account: &Account) -> Self {
         debug!("Constructing base urls");
         self.urls = Some(Urls::from_account(account));
@@ -69,7 +72,7 @@ impl PackagesClientBuilder {
     /// enforced by the GitHub API.
     ///
     /// Read more about secondary rate limits here:
-    /// https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api?apiVersion=2022-11-28#about-secondary-rate-limits
+    /// <https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api?apiVersion=2022-11-28#about-secondary-rate-limits>
     ///
     /// The first limit we handle is the max 100 concurrent requests one. Since we don't send
     /// requests to multiple endpoints at the same time, we don't have to maintain a global
@@ -86,15 +89,13 @@ impl PackagesClientBuilder {
     /// We also don't (and won't) handle the "Create too much content on GitHub in a short
     /// amount of time" rate limit, since we don't create any content.
     pub fn create_rate_limited_services(mut self) -> Self {
-        debug!("Creating rate-limited services");
-
         const MAX_CONCURRENCY: usize = 100;
-
         const MAX_POINTS_PER_ENDPOINT_PER_MINUTE: u64 = 900;
         const GET_REQUEST_POINTS: u64 = 1;
         const DELETE_REQUEST_POINTS: u64 = 5;
-
         const ONE_MINUTE: Duration = Duration::from_secs(60);
+
+        debug!("Creating rate-limited services");
 
         self.fetch_package_service = Some(Arc::new(Mutex::new(
             ServiceBuilder::new()

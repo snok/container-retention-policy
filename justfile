@@ -35,7 +35,7 @@ setup:
 
   cargo binstall cargo-llvm-cov --locked --no-confirm
 
-  cargo binstall cargo-fuzz --locked --no-confirm
+  cargo binstall cargo-unused-features --locked --no-confirm
 
   # pre-commit is used to run checks on-commit
   @pip install pre-commit && pre-commit install
@@ -54,6 +54,3 @@ run:
         --timestamp-to-use "updated_at" \
         --cut-off 1d \
         --dry-run true
-
-fuzz target time="1800":
-    cargo +nightly fuzz run {{ target }} -- --max-total-time=time

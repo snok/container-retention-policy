@@ -43,9 +43,7 @@ impl PackagesClient {
             // however, list packages, so for this token type we are limited to fetching packages
             // individually, by name
             for image_name in image_names {
-                if image_name.contains('!') || image_name.contains('*') {
-                    panic!("Restrictions in the Github API prevent us from listing packages when using a $GITHUB_TOKEN token. Because of this, filtering with '!' and '*' are not supported for this token type. Image name {image_name} is therefore not valid.");
-                }
+                assert!(!(image_name.contains('!') || image_name.contains('*')), "Restrictions in the Github API prevent us from listing packages when using a $GITHUB_TOKEN token. Because of this, filtering with '!' and '*' are not supported for this token type. Image name {image_name} is therefore not valid.");
             }
             self.fetch_individual_packages(image_names, counts)
                 .await
@@ -322,8 +320,8 @@ impl PackagesClient {
     }
 
     /// Delete a package version.
-    /// https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#delete-package-version-for-an-organization
-    /// https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#delete-a-package-version-for-the-authenticated-user
+    /// Docs for organizations: <https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#delete-package-version-for-an-organization>
+    /// Docs for users: <https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#delete-a-package-version-for-the-authenticated-user>
     pub async fn delete_package_version(
         &self,
         package_name: String,

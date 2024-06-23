@@ -19,7 +19,7 @@ pub enum TagSelection {
 
 /// Represents the different tokens the action can use to authenticate towards the GitHub API.
 ///
-/// See https://github.blog/2021-04-05-behind-githubs-new-authentication-token-formats/
+/// See <https://github.blog/2021-04-05-behind-githubs-new-authentication-token-formats/>
 /// for a list of existing token types.
 #[derive(Debug, Clone)]
 pub enum Token {

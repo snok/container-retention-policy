@@ -17,7 +17,7 @@ RUN groupadd -g 10001 -r dockergrp && useradd -r -g dockergrp -u 10001 dockeruse
 
 # Download dependencies ala cargo chef
 WORKDIR /app
-COPY libs/cli/Cargo.lock Cargo.toml ./
+COPY Cargo.lock Cargo.toml ./
 RUN mkdir src && echo "fn main() { print!(\"Dummy main\"); }" > src/main.rs
 RUN cargo build --release
 RUN rm target/$TARGET_ENV/release/deps/container_retention_policy* && rm -r src

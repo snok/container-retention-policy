@@ -2,7 +2,7 @@
 
 To create a release we need to:
 
-1. Manually trigger the [deploy](.github/workflows/deploy.yaml) workflow to build new images
+1. Manually trigger the [deploy](.github/workflows/release.yaml) workflow to build new images
 2. Update the image tag in the [action.yaml](action.yaml)
 3. Push the change and create a GitHub release post for the repo
 
@@ -29,3 +29,10 @@ where we do the same thing.
 
 To run the binary, see the `run` command in the [justfile](./justfile). If you run this,
 you'll need an `.env` file containing the token you want to pass.
+
+# Pruning unused features
+
+You might notice that there's a lot of disabled features in the [Cargo.toml](./Cargo.toml).
+This might be redundant, but is a measure for trying to minimize the binary size. We've
+used [cargo-unused-features](https://crates.io/crates/cargo-unused-features) and the
+`unused-features analyze` command to aid in identifying redundant features.
