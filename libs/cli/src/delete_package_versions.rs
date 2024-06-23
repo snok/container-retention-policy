@@ -12,8 +12,7 @@ async fn select_package_versions_to_delete(
     dry_run: bool,
 ) -> JoinSet<Result<Vec<String>, Vec<String>>> {
     let initial_allocatable_requests = *counts.remaining_requests.read().await;
-    let mut allocatable_requests = initial_allocatable_requests.clone();
-
+    let mut allocatable_requests = initial_allocatable_requests;
     let mut set = JoinSet::new();
 
     // Make a first-pass of all packages, adding untagged package versions
@@ -40,7 +39,7 @@ async fn select_package_versions_to_delete(
     if allocatable_requests == 0 {
         warn!(
             "There are not enough requests remaining in the rate limit to delete all package versions. Prioritizing deleting the first {} untagged package versions found. The rate limit resets at {}.",
-            initial_allocatable_requests,
+            set.len(),
             counts.rate_limit_reset.to_string()
         );
     } else {
@@ -81,10 +80,8 @@ pub async fn delete_package_versions(
 
     while let Some(result) = set.join_next().await {
         match result {
-            Ok(future) => match future {
-                Ok(names) => deleted_packages.extend(names),
-                Err(names) => failed_packages.extend(names),
-            },
+            Ok(Ok(names)) => deleted_packages.extend(names),
+            Ok(Err(names)) => failed_packages.extend(names),
             Err(e) => error!("Failed to join task: {e}"),
         }
     }

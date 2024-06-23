@@ -9,9 +9,10 @@ use reqwest::header::HeaderMap;
 use reqwest::{Client, Method, Request, StatusCode};
 use secrecy::ExposeSecret;
 use tokio::sync::Mutex;
+use tokio::time::sleep;
 use tower::limit::{ConcurrencyLimit, RateLimit};
 use tower::{Service, ServiceBuilder, ServiceExt};
-use tracing::{debug, error, info, Span};
+use tracing::{debug, error, info, Instrument, Span};
 use tracing_indicatif::span_ext::IndicatifSpanExt;
 use url::Url;
 
@@ -345,15 +346,19 @@ impl PackagesClient {
                 }
             };
 
-            {
-                let package_versions = filter_fn(items)?;
+            let package_versions = filter_fn(items.clone())?;
 
-                // Decrement the rate limiter count
-                *counts.remaining_requests.write().await -= 1;
-                *counts.package_versions.write().await += package_versions.len();
+            info!(
+                "Filtered out {}/{} package versions",
+                items.len() - package_versions.len(),
+                items.len()
+            );
 
-                result.extend(package_versions);
-            }
+            // Decrement the rate limiter count
+            *counts.remaining_requests.write().await -= 1;
+            *counts.package_versions.write().await += package_versions.len();
+
+            result.extend(package_versions);
 
             next_url = if response_headers.x_ratelimit_remaining > 1 {
                 response_headers.next_link()
@@ -466,6 +471,7 @@ impl PackagesClient {
     /// Delete a package version.
     /// https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#delete-package-version-for-an-organization
     /// https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#delete-a-package-version-for-the-authenticated-user
+    #[tracing::instrument()]
     pub async fn delete_package_version(
         &self,
         package_name: String,
@@ -474,8 +480,8 @@ impl PackagesClient {
     ) -> std::result::Result<Vec<String>, Vec<String>> {
         // Create a vec of all the permutations of package tags stored in this package version
         // The vec will look something like ["foo:latest", "foo:production", "foo:2024-10-10T08:00:00"] given
-        // it had these three tags, and ["foo:untagged"] if it had no tags. This isn't really how the data model
-        // works, but is what users will expect to see output.
+        // it had these three tags, and ["foo:untagged"] if it had no tags. This isn't really how things
+        // work, but is what users will expect to see output.
         let names = if package_version.metadata.container.tags.is_empty() {
             vec![format!("\x1b[34m{package_name}\x1b[0m:\x1b[33m<untagged>\x1b[0m")]
         } else {

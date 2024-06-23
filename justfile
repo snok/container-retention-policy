@@ -43,14 +43,14 @@ setup:
   @echo "Run \`echo 'export RUSTC_WRAPPER=\$(which sccache)' >> ~/.bashrc\` to use sccache for caching"
 
 run:
-    RUST_LOG=container_retention_policy=info cargo r -p container-retention-policy -- \
+    RUST_LOG=container_retention_policy=debug cargo r -p container-retention-policy -- \
         --account snok \
         --token $DELETE_PACKAGES_CLASSIC_TOKEN \
         --tag-selection both \
         --image-names "container-retention-policy"  \
         --image-tags "!latest !test-1* !v*" \
         --shas-to-skip "" \
-        --keep-n-most-recent 2 \
+        --keep-n-most-recent 5 \
         --timestamp-to-use "updated_at" \
         --cut-off 1d \
         --dry-run true

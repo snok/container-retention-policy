@@ -72,7 +72,7 @@ async fn main() -> Result<()> {
     debug!("There are {} requests remaining in the rate limit", remaining);
     let counts = Arc::new(Counts {
         rate_limit_reset,
-        remaining_requests: RwLock::new(remaining),
+        remaining_requests: RwLock::new(30), // TODO: Revert
         package_versions: RwLock::new(0),
     });
 
@@ -113,10 +113,11 @@ async fn main() -> Result<()> {
     );
 
     let (deleted_packages, failed_packages) =
-        delete_package_versions(package_version_map, client, counts, input.dry_run)
+        delete_package_versions(package_version_map, client, counts.clone(), input.dry_run)
             .instrument(info_span!("deleting package versions"))
             .await;
 
+    println!("{}", *counts.remaining_requests.read().await);
     let mut github_output = env::var("GITHUB_OUTPUT").unwrap_or_default();
 
     github_output.push_str(&format!("deleted={}", deleted_packages.join(",")));

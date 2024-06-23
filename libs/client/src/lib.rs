@@ -17,6 +17,7 @@ pub struct PackageVersions {
 }
 
 impl PackageVersions {
+    /// Create a new, empty, struct
     pub fn new() -> Self {
         Self {
             untagged: vec![],
@@ -24,10 +25,12 @@ impl PackageVersions {
         }
     }
 
+    /// Compute the total number of package versions contained in the struct
     pub fn len(&self) -> usize {
         self.untagged.len() + self.tagged.len()
     }
 
+    /// Add another PackageVersions struct to this one
     pub fn extend(&mut self, other: PackageVersions) {
         self.untagged.extend(other.untagged);
         self.tagged.extend(other.tagged);

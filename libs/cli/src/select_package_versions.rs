@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinSet;
-use tracing::{debug, info, info_span, trace, warn, Instrument};
+use tracing::{debug, info, info_span, trace, warn, Instrument, Span};
 use tracing_indicatif::span_ext::IndicatifSpanExt;
 
 /// Keep the `n` most recent package versions, per package name.
@@ -259,7 +259,10 @@ pub async fn select_package_versions(
                 .template(&format!("{{spinner}} \x1b[34m{package_name}\x1b[0m: {{msg}}"))
                 .unwrap(),
         );
-        span.pb_set_message("fetched \x1b[33m0\x1b[0m package versions");
+        span.pb_set_message(&format!(
+            "fetched \x1b[33m0\x1b[0m package versions (\x1b[33m{}\x1b[0m requests remaining in the rate limit)",
+            *counts.remaining_requests.read().await + keep_n_most_recent as usize
+        ));
 
         let a = package_name.clone();
         let b = shas_to_skip.clone();
