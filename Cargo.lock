@@ -260,7 +260,7 @@ dependencies = [
 
 [[package]]
 name = "container-retention-policy"
-version = "3.0.0-rc1"
+version = "3.0.0-rc2"
 dependencies = [
  "assert_cmd",
  "chrono",
