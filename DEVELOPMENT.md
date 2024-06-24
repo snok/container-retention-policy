@@ -2,9 +2,10 @@
 
 To create a release we need to:
 
-1. Manually trigger the [`release`](.github/workflows/release.yaml) workflow to build new images
-2. Update the image tag in the [action.yaml](action.yaml)
-3. Push the change and create a GitHub release post for the repo
+1. Increment the version in the [Cargo.toml](./Cargo.toml)
+2. Manually trigger the [`release`](.github/workflows/release.yaml) workflow to build a new image
+3. Update the image tag in the [action.yaml](action.yaml) and commit that to the main branch
+4. Create a GitHub release post for the repo, with the version tag (e.g., `v3.0.0`)
 
 # Running lints and tests
 
