@@ -454,7 +454,7 @@ impl PackagesClient {
         // auth check: Make sure we have the correct scopes
         match self.token {
             Token::Temporal(_) => (),
-            Token::Oauth(_) | Token::ClassicPersonalAccess(_) => {
+            Token::ClassicPersonalAccess(_) => {
                 if response_headers.x_oauth_scopes.is_none()
                     || !response_headers
                         .x_oauth_scopes
@@ -462,8 +462,6 @@ impl PackagesClient {
                         .unwrap()
                         .contains("write:packages")
                 {
-                    /// Check that the headers of a GitHub request indicate that the token used has the correct scopes for deleting packages.
-                    /// See documentation at: https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#delete-a-package-for-an-organization
                     eprintln!("The token does not have the scopes needed. Tokens need `write:packages`. The scopes found were {}.", response_headers.x_oauth_scopes.unwrap_or("none".to_string()));
                     exit(1);
                 }

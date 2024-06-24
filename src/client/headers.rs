@@ -1,4 +1,3 @@
-use crate::cli::models::Token;
 use chrono::{DateTime, Utc};
 use color_eyre::Result;
 use reqwest::header::HeaderMap;
