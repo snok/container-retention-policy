@@ -168,10 +168,6 @@ mod tests {
             Token::try_from_str("ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT").unwrap(),
             Token::ClassicPersonalAccess(Secret::new("ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT".to_string()))
         );
-        assert_eq!(
-            Token::try_from_str("gho_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT").unwrap(),
-            Token::Oauth(Secret::new("gho_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT".to_string()))
-        );
     }
 
     #[test]

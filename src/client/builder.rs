@@ -47,8 +47,7 @@ impl PackagesClientBuilder {
         let auth_header_value = format!(
             "Bearer {}",
             match &token {
-                Token::Temporal(token) | Token::Oauth(token) | Token::ClassicPersonalAccess(token) =>
-                    token.expose_secret(),
+                Token::Temporal(token) | Token::ClassicPersonalAccess(token) => token.expose_secret(),
             }
         );
         let mut headers = HeaderMap::new();
