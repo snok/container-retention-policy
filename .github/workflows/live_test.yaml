@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Ubuntu with classic personal access token
     steps:
-      - uses: snok/container-retention-policy@v3-develop
+      - uses: snok/container-retention-policy@main
         name: Delete test-1-* images with a temporal token
         with:
           account: snok
@@ -18,7 +18,7 @@ jobs:
           cut-off: 2h
           image-names: container-retention-policy
           image-tags: test-* !test-2* !test-3* !test-4* !test-5*
-          tag-selection: tagged
+          tag-selection: both
           timestamp-to-use: created_at
           dry-run: false
           rust-log: container_retention_policy=debug
@@ -30,7 +30,7 @@ jobs:
           app-id: 911530
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
 
-      - uses: snok/container-retention-policy@v3-develop
+      - uses: snok/container-retention-policy@main
         name: Delete test-2-* images with an Github app token
         with:
           account: snok
@@ -38,12 +38,12 @@ jobs:
           cut-off: 2h
           image-names: container-retention-policy
           image-tags: test-* !test-3* !test-4* !test-5*
-          tag-selection: tagged
+          tag-selection: both
           timestamp-to-use: created_at
           dry-run: false
           rust-log: container_retention_policy=debug
 
-      - uses: snok/container-retention-policy@v3-develop
+      - uses: snok/container-retention-policy@main
         name: Delete remaining test images with a PAT
         with:
           account: snok
@@ -51,7 +51,7 @@ jobs:
           cut-off: 2h
           image-names: container-retention-policy
           image-tags: test-*
-          tag-selection: tagged
+          tag-selection: both
           timestamp-to-use: created_at
           dry-run: false
           rust-log: container_retention_policy=debug
@@ -77,8 +77,11 @@ jobs:
               echo "FROM scratch"
               echo "COPY --from=builder /test.txt ."
             } > Dockerfile
+
             imageName="ghcr.io/snok/container-retention-policy:test-${i}"
+
             docker build -f Dockerfile -t "$imageName" --push .
+
             for ((j=1; j<=3; j++))
             do
               docker tag "$imageName" "ghcr.io/snok/container-retention-policy:test-${i}-${j}"
