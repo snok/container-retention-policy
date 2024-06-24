@@ -511,3 +511,9 @@ change without notice. If you run into problems, please open an issue.
 
 If you accidentally delete something you shouldn't have, GitHub has a 30-day grace period before actually
 deleting your image version. See [these docs](https://docs.github.com/en/rest/reference/packages#restore-package-version-for-an-organization) for details.
+
+## Deletion speed
+
+Because of GitHub's secondary rate limit, we're at most able to delete 180 package versions per minute ([source](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api?apiVersion=2022-11-28#about-secondary-rate-limits) and [source](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api?apiVersion=2022-11-28#calculating-points-for-the-secondary-rate-limit)). This means that a run which deletes 180 package versions might finish in a few seconds, while a run that deletes 181 package versions might take just over a minute.
+
+Suggestions for how to better communicate this while the program is running, are welcome!

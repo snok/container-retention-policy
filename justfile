@@ -57,7 +57,7 @@ run:
         --keep-n-most-recent 5 \
         --timestamp-to-use "updated_at" \
         --cut-off 1d \
-        --dry-run true
+        --dry-run false
 
 fuzz time:
     cargo build
