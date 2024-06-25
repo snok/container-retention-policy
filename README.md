@@ -478,7 +478,7 @@ This means, you can do the following when implementing this action, to protect a
     password: ${{ secrets.GITHUB_TOKEN }}
 
 - name: Fetch multi-platform package version SHAs
-  id: multi-arch-shas
+  id: multi-arch-digests
   run: |
     package1=$(docker manifest inspect ghcr.io/package1 | jq -r '.manifests.[] | .digest' | paste -s -d ' ' -)
     package2=$(docker manifest inspect ghcr.io/package2 | jq -r '.manifests.[] | .digest' | paste -s -d ' ' -)
@@ -486,7 +486,7 @@ This means, you can do the following when implementing this action, to protect a
 
 - uses: snok/container-retention-policy
   with:
-    skip-shas: ${{ steps.multi-arch-digests.outputs.multi-arch-shas }}
+    skip-shas: ${{ steps.multi-arch-digests.outputs.multi-arch-digests }}
 ```
 
 This should pass the SHAs of any multi-platform images you care about, so that we can avoid deleting them.

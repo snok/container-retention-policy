@@ -10,6 +10,19 @@ jobs:
     runs-on: ubuntu-latest
     name: Ubuntu with classic personal access token
     steps:
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3.0.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch multi-platform package version SHAs
+        id: multi-arch-digests
+        run: |
+          digest=$(docker manifest inspect ghcr.io/container-retention-policy | jq -r '.manifests.[] | .digest' | paste -s -d ' ' -)
+          echo "multi-arch-digests=$digest" >> $GITHUB_OUTPUT
+
       - uses: snok/container-retention-policy@main
         name: Delete test-1-* images with a temporal token
         with:
@@ -22,6 +35,7 @@ jobs:
           timestamp-to-use: created_at
           dry-run: false
           rust-log: container_retention_policy=debug
+          skip-shas: ${{ steps.multi-arch-digests.outputs.multi-arch-digests }}
 
       - name: Generate a token
         id: generate-token
@@ -42,6 +56,7 @@ jobs:
           timestamp-to-use: created_at
           dry-run: false
           rust-log: container_retention_policy=debug
+          skip-shas: ${{ steps.multi-arch-digests.outputs.multi-arch-digests }}
 
       - uses: snok/container-retention-policy@main
         name: Delete remaining test images with a PAT
@@ -55,6 +70,7 @@ jobs:
           timestamp-to-use: created_at
           dry-run: false
           rust-log: container_retention_policy=debug
+          skip-shas: ${{ steps.multi-arch-digests.outputs.multi-arch-digests }}
 
   produce:
     runs-on: ubuntu-latest
