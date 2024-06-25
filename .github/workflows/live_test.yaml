@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "5 * * * *"  # every hour
+  push:
 
 jobs:
   clean:
@@ -36,6 +37,18 @@ jobs:
           dry-run: false
           rust-log: container_retention_policy=debug
           skip-shas: ${{ steps.multi-arch-digests.outputs.multi-arch-digests }}
+
+      - name: Delete old images
+        uses: snok/container-retention-policy@v3.0.0
+        with:
+          account: snok
+          token: ${{ secrets.GITHUB_TOKEN }}
+          image-names: container-retention-policy
+          image-tags: "!v*"
+          cut-off: 1h
+          keep-n-most-recent: 1
+          skip-shas: ${{ steps.multi-arch-digests.outputs.multi-arch-digests }}
+          rust-log: container_retention_policy=trace
 
       - name: Generate a token
         id: generate-token
