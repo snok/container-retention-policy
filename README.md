@@ -38,8 +38,8 @@ jobs:
         with:
           account: snok
           token: ${{ secrets.PAT }}
-          image-names: container-retention-policy
-          image-tags: test* dev*  # target any image that has a tag starting with the word test or dev
+          image-names: "container-retention-policy"
+          image-tags: "test* dev*"  # target any image that has a tag starting with the word test or dev
           cut-off: 2w 3d
           dry-run: true
 ```
@@ -117,9 +117,9 @@ feel free to open an issue.
 
 * **Required**: `Yes`
 * **Examples**:
-  * `image-names: container-retention-policy` to select the `container-retention-policy` image
-  * `image-names: dev* test*` to select any image starting with the string `dev` or `test`
-  * `image-names: !v*` to select any image *not* starting with the string `v`
+  * `image-names: "container-retention-policy"` to select the `container-retention-policy` image
+  * `image-names: "dev* test*"` to select any image starting with the string `dev` or `test`
+  * `image-names: "!v*"` to select any image *not* starting with the string `v`
 
 The name(s) of the container image(s) you want to delete package versions for. Supports filtering
 with `*` and `!`, where `*` functions as a wildcard and `!` means to not select image names
@@ -130,7 +130,7 @@ These operators are only available for personal- and GitHub app-tokens. See the 
 ### image-tags
 
 * **Required**: `No`
-* **Example**: `image-tags: !latest`
+* **Example**: `image-tags: "!latest"`
 
 Optionally narrows the selection of package versions based on associated tags. Works the same way as the
 `image-names` parameter. See above for info on supported syntax.
@@ -222,8 +222,8 @@ jobs:
         with:
           account: snok
           token: ${{ secrets.PAT }}
-          image-names: foo bar baz  # select package versions from these three packages
-          image-tags: !prod !qa  # don't delete package versions tagged with 'prod' or 'qa'
+          image-names: "foo bar baz"  # select package versions from these three packages
+          image-tags: "!prod !qa"  # don't delete package versions tagged with 'prod' or 'qa'
           tag-selection: both  # select both tagged and untagged package versions
           cut-off: 4w  # package versions should be older than 4 weeks, to be considered
           dry-run: false  # consider toggling this to true on your first run
@@ -245,7 +245,7 @@ jobs:
         with:
           account: user
           token: ${{ secrets.PAT }}
-          image-names: *  # all packages owned by the account
+          image-names: "*"  # all packages owned by the account
           tag-selection: untagged
           cut-off: 1h
 ```
@@ -324,8 +324,8 @@ jobs:
         with:
           account: snok
           token: ${{ secrets.PAT }}
-          image-names: foo bar baz  # select three packages
-          image-tags: *  # any image tag
+          image-names: "foo bar baz"  # select three packages
+          image-tags: "*"  # any image tag
           tag-selection: both  # select both tagged and untagged package versions
           cut-off: 1w  # package versions should be older than 4 weeks
           keep-n-most-recent: 5  # keep up to `n` tagged package versions for each of the packages
