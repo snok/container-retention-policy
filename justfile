@@ -58,7 +58,3 @@ run:
         --timestamp-to-use "updated_at" \
         --cut-off 1h \
         --dry-run false
-
-fuzz time:
-    cargo build
-    cargo +nightly fuzz run --sanitizer address fuzz_cli -- -max_total_time={{time}}
