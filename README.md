@@ -82,7 +82,7 @@ exact names that we can use when constructing the endpoint URLs.
 For a temporal token to work, it is necessary for the repository running the workflow to have the `Admin` role
 assigned in the package settings.
 
-### GitHub app tokens
+#### GitHub app tokens
 
 GitHub app tokens must have the `packages:write` scopes.
 
