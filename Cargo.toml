@@ -28,7 +28,6 @@ wildmatch = { version = "2.3.3" }
 [dev-dependencies]
 assert_cmd = "2.0.14"
 tracing-test = "0.2.4"
-wildmatch = { version = "2.3.3" }
 
 [profile.release]
 # https://github.com/johnthagen/min-sized-rust
