@@ -150,16 +150,27 @@ async fn main() -> Result<()> {
         *counts.remaining_requests.read().await
     );
 
-    let (deleted_packages, failed_packages) =
-        delete_package_versions(package_version_map, client, counts.clone(), input.dry_run)
-            .instrument(info_span!("deleting package versions"))
-            .await;
+    for (package, package_versions) in package_version_map.iter() {
+        info!("Print package {package}");
+        for package_version in &package_versions.tagged {
+            for tag in &package_version.metadata.container.tags {
+                info!("Print tag {tag}");
+                let digests = client.fetch_image_manifest(tag).await.unwrap();
 
-    let mut github_output = env::var("GITHUB_OUTPUT").unwrap_or_default();
-
-    github_output.push_str(&format!("deleted={}", deleted_packages.join(",")));
-    github_output.push_str(&format!("failed={}", failed_packages.join(",")));
-    env::set_var("GITHUB_OUTPUT", github_output);
+                println!("digests: {digests:?}");
+            }
+        }
+    }
+    // let (deleted_packages, failed_packages) =
+    //     delete_package_versions(package_version_map, client, counts.clone(), input.dry_run)
+    //         .instrument(info_span!("deleting package versions"))
+    //         .await;
+    //
+    // let mut github_output = env::var("GITHUB_OUTPUT").unwrap_or_default();
+    //
+    // github_output.push_str(&format!("deleted={}", deleted_packages.join(",")));
+    // github_output.push_str(&format!("failed={}", failed_packages.join(",")));
+    // env::set_var("GITHUB_OUTPUT", github_output);
 
     Ok(())
 }

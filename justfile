@@ -50,11 +50,11 @@ run:
     RUST_LOG=container_retention_policy=debug cargo r -- \
         --account snok \
         --token $DELETE_PACKAGES_CLASSIC_TOKEN \
-        --tag-selection untagged \
+        --tag-selection both \
         --image-names "container-retention-policy"  \
         --image-tags "!latest !test-1* !v*" \
         --shas-to-skip "" \
         --keep-n-most-recent 5 \
         --timestamp-to-use "updated_at" \
-        --cut-off 1h \
-        --dry-run false
+        --cut-off 1m \
+        --dry-run true
