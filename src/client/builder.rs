@@ -14,7 +14,6 @@ use url::Url;
 use crate::cli::models::{Account, Token};
 use crate::client::client::PackagesClient;
 use crate::client::urls::Urls;
-use base64::prelude::*;
 pub type RateLimitedService = Arc<Mutex<ConcurrencyLimit<RateLimit<Client>>>>;
 
 #[derive(Debug)]

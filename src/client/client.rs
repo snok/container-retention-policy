@@ -6,7 +6,6 @@ use chrono::{DateTime, Utc};
 use color_eyre::eyre::{eyre, Result};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Method, Request, StatusCode};
-use serde_json::Value;
 use tokio::time::sleep;
 use tower::{Service, ServiceExt};
 use tracing::{debug, error, info, Span};
@@ -481,7 +480,11 @@ impl PackagesClient {
         ))
     }
 
-    pub async fn fetch_image_manifest(&self, tag: &str) -> Result<Vec<String>> {
+    pub async fn fetch_image_manifest(
+        &self,
+        package_name: String,
+        tag: String,
+    ) -> Result<(String, String, Vec<String>)> {
         debug!(tag = tag, "Retrieving image manifest");
 
         let url = format!("https://ghcr.io/v2/snok%2Fcontainer-retention-policy/manifests/{tag}");
@@ -494,16 +497,21 @@ impl PackagesClient {
             Ok(t) => t,
             Err(e) => {
                 println!("{}", raw_json);
-                return Ok(vec![]);
+                return Err(eyre!(
+                    "Failed to fetch image manifest for \x1b[34m{package_name}\x1b[0m:\x1b[32m{tag}\x1b[0m: {e}"
+                ));
             }
         };
 
-        Ok(resp
-            .manifests
-            .unwrap_or(vec![])
-            .iter()
-            .map(|manifest| manifest.digest.to_string())
-            .collect())
+        Ok((
+            package_name,
+            tag,
+            resp.manifests
+                .unwrap_or(vec![])
+                .iter()
+                .map(|manifest| manifest.digest.to_string())
+                .collect(),
+        ))
     }
 }
 
