@@ -6,6 +6,7 @@ use clap::Parser;
 use humantime::Duration;
 use regex::Regex;
 use tracing::Level;
+use url::Url;
 
 pub fn vec_of_string_from_str(value: &str) -> Result<Vec<String>, Infallible> {
     let trimmed = value.trim_matches('"').trim_matches('\''); // Remove surrounding quotes
@@ -36,6 +37,16 @@ pub fn try_parse_shas_as_list(s: &str) -> Result<Vec<String>, String> {
     Ok(shas)
 }
 
+fn try_parse_url(url_str: &str) -> Result<Url, url::ParseError> {
+    // Since `Url` will always add a `/` if the path is empty, we should make it consistent beforehand.
+    // See also: https://github.com/servo/rust-url/issues/808
+    if url_str.ends_with('/') {
+        Url::parse(url_str)
+    } else {
+        Url::parse((url_str.to_string() + "/").as_str())
+    }
+}
+
 #[derive(Parser)]
 #[clap(version, about, long_about = None)]
 #[clap(propagate_version = true)]
@@ -47,6 +58,20 @@ pub struct Input {
     /// The token to use for authentication
     #[arg(long, value_parser = Token::try_from_str)]
     pub token: Token,
+
+    /// The GitHub server base URL
+    #[arg(long, value_parser = try_parse_url)]
+    // Use environment variable provided by GitHub before falling back to default, see also:
+    // https://docs.github.com/en/actions/learn-github-actions/variables#default-environment-variables
+    #[arg(env = "GITHUB_SERVER_URL", default_value = Self::DEFAULT_GITHUB_SERVER_URL)]
+    pub github_server_url: Url,
+
+    /// The GitHub API base URL
+    #[arg(long, value_parser = try_parse_url)]
+    // Use environment variable provided by GitHub before falling back to default, see also:
+    // https://docs.github.com/en/actions/learn-github-actions/variables#default-environment-variables
+    #[arg(env = "GITHUB_API_URL", default_value = Self::DEFAULT_GITHUB_API_URL)]
+    pub github_api_url: Url,
 
     /// The package names to target
     #[arg(long, value_parser = vec_of_string_from_str)]
@@ -83,6 +108,11 @@ pub struct Input {
     /// The log level to use for the tracing subscriber
     #[arg(long, global = true, default_value = "info")]
     pub(crate) log_level: Level,
+}
+
+impl Input {
+    pub const DEFAULT_GITHUB_SERVER_URL: &str = "https://github.com";
+    pub const DEFAULT_GITHUB_API_URL: &str = "https://api.github.com";
 }
 
 #[cfg(test)]

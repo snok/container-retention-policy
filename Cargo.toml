@@ -5,7 +5,7 @@ edition = "2021"
 license = "MIT"
 
 [dependencies]
-clap = { version = "4.5.4", features = ["derive"]}
+clap = { version = "4.5.4", features = ["derive", "env"]}
 chrono = { version="0.4.37" , features=["serde", "clock"], default-features = false}
 color-eyre = { version = "0.6.3", default-features = false }
 humantime = "2.1.0"

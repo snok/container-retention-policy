@@ -9,6 +9,7 @@ use tokio::sync::Mutex;
 use tower::limit::{ConcurrencyLimit, RateLimit};
 use tower::ServiceBuilder;
 use tracing::debug;
+use url::Url;
 
 use crate::cli::models::{Account, Token};
 use crate::client::client::PackagesClient;
@@ -61,9 +62,9 @@ impl PackagesClientBuilder {
     }
 
     /// Attach a urls utility struct.
-    pub fn generate_urls(mut self, account: &Account) -> Self {
+    pub fn generate_urls(mut self, github_server_url: &Url, github_api_url: &Url, account: &Account) -> Self {
         debug!("Constructing base urls");
-        self.urls = Some(Urls::from_account(account));
+        self.urls = Some(Urls::new(github_server_url, github_api_url, account));
         self
     }
 
@@ -157,6 +158,7 @@ impl PackagesClientBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli::args::Input;
     use secrecy::Secret;
 
     #[test]
@@ -194,8 +196,10 @@ mod tests {
 
     #[test]
     fn test_builder_generate_urls() {
+        let github_server_url = &Url::try_from(Input::DEFAULT_GITHUB_SERVER_URL).unwrap();
+        let github_api_url = &Url::try_from(Input::DEFAULT_GITHUB_API_URL).unwrap();
         for account in [&Account::User, &Account::Organization("test".to_string())] {
-            let builder = PackagesClientBuilder::new().generate_urls(account);
+            let builder = PackagesClientBuilder::new().generate_urls(github_server_url, github_api_url, account);
             assert!(builder.urls.is_some());
             // Remaining attrs should still be none
             assert!(builder.headers.is_none());
@@ -222,19 +226,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_builder_build_naked() {
+        let github_server_url = &Url::try_from(Input::DEFAULT_GITHUB_SERVER_URL).unwrap();
+        let github_api_url = &Url::try_from(Input::DEFAULT_GITHUB_API_URL).unwrap();
         assert!(PackagesClientBuilder::new().build().is_err());
         assert!(PackagesClientBuilder::new()
-            .generate_urls(&Account::User)
+            .generate_urls(github_server_url, github_api_url, &Account::User)
             .build()
             .is_err());
         assert!(PackagesClientBuilder::new()
-            .generate_urls(&Account::User)
+            .generate_urls(github_server_url, github_api_url, &Account::User)
             .set_http_headers(Token::Temporal(Secret::new("test".to_string())))
             .unwrap()
             .build()
             .is_err());
         assert!(PackagesClientBuilder::new()
-            .generate_urls(&Account::User)
+            .generate_urls(github_server_url, github_api_url, &Account::User)
             .set_http_headers(Token::Temporal(Secret::new("test".to_string())))
             .unwrap()
             .create_rate_limited_services()
