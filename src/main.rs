@@ -85,7 +85,7 @@ async fn main() -> Result<()> {
     // Create rate-limited and authorized HTTP client
     let boxed_client = Box::new(
         PackagesClientBuilder::new()
-            .generate_urls(&input.account)
+            .generate_urls(&input.github_server_url, &input.github_api_url, &input.account)
             .set_http_headers(input.token.clone())
             .expect("Failed to set HTTP headers")
             .create_rate_limited_services()

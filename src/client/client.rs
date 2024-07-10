@@ -436,7 +436,7 @@ impl PackagesClient {
 
         // Construct initial request
         let response = Client::new()
-            .get("https://api.github.com/rate_limit")
+            .get(self.urls.api_base.join("rate_limit").expect("Failed to parse URL"))
             .headers(self.headers.clone())
             .send()
             .await?;
@@ -482,6 +482,7 @@ impl PackagesClient {
 
 #[cfg(test)]
 mod tests {
+    use crate::cli::args::Input;
     use crate::cli::models::Account;
     use crate::client::builder::PackagesClientBuilder;
     use reqwest::header::HeaderValue;
@@ -552,7 +553,11 @@ mod tests {
 
         let client = client_builder
             .create_rate_limited_services()
-            .generate_urls(&Account::User)
+            .generate_urls(
+                &Url::try_from(Input::DEFAULT_GITHUB_SERVER_URL).unwrap(),
+                &Url::try_from(Input::DEFAULT_GITHUB_API_URL).unwrap(),
+                &Account::User,
+            )
             .build()
             .unwrap();
 
@@ -571,43 +576,51 @@ mod tests {
 
     #[test]
     fn personal_urls() {
-        let urls = Urls::from_account(&Account::User);
+        let urls = Urls::new(
+            &Url::try_from(Input::DEFAULT_GITHUB_SERVER_URL).unwrap(),
+            &Url::try_from(Input::DEFAULT_GITHUB_API_URL).unwrap(),
+            &Account::User,
+        );
         assert_eq!(
             urls.list_packages_url.as_str(),
-            "https://api.github.com/user/packages?package_type=container&per_page=100"
+            Input::DEFAULT_GITHUB_API_URL.to_string() + "/user/packages?package_type=container&per_page=100"
         );
         assert_eq!(
             urls.list_package_versions_url("foo").unwrap().as_str(),
-            "https://api.github.com/user/packages/container/foo/versions?per_page=100"
+            Input::DEFAULT_GITHUB_API_URL.to_string() + "/user/packages/container/foo/versions?per_page=100"
         );
         assert_eq!(
             urls.delete_package_version_url("foo", &123).unwrap().as_str(),
-            "https://api.github.com/user/packages/container/foo/versions/123"
+            Input::DEFAULT_GITHUB_API_URL.to_string() + "/user/packages/container/foo/versions/123"
         );
         assert_eq!(
             urls.package_version_url("foo", &123).unwrap().as_str(),
-            "https://github.com/user/packages/container/foo/123"
+            Input::DEFAULT_GITHUB_SERVER_URL.to_string() + "/user/packages/container/foo/123"
         );
     }
 
     #[test]
     fn organization_urls() {
-        let urls = Urls::from_account(&Account::Organization("acme".to_string()));
+        let urls = Urls::new(
+            &Url::try_from(Input::DEFAULT_GITHUB_SERVER_URL).unwrap(),
+            &Url::try_from(Input::DEFAULT_GITHUB_API_URL).unwrap(),
+            &Account::Organization("acme".to_string()),
+        );
         assert_eq!(
             urls.list_packages_url.as_str(),
-            "https://api.github.com/orgs/acme/packages?package_type=container&per_page=100"
+            Input::DEFAULT_GITHUB_API_URL.to_string() + "/orgs/acme/packages?package_type=container&per_page=100"
         );
         assert_eq!(
             urls.list_package_versions_url("foo").unwrap().as_str(),
-            "https://api.github.com/orgs/acme/packages/container/foo/versions?per_page=100"
+            Input::DEFAULT_GITHUB_API_URL.to_string() + "/orgs/acme/packages/container/foo/versions?per_page=100"
         );
         assert_eq!(
             urls.delete_package_version_url("foo", &123).unwrap().as_str(),
-            "https://api.github.com/orgs/acme/packages/container/foo/versions/123"
+            Input::DEFAULT_GITHUB_API_URL.to_string() + "/orgs/acme/packages/container/foo/versions/123"
         );
         assert_eq!(
             urls.package_version_url("foo", &123).unwrap().as_str(),
-            "https://github.com/orgs/acme/packages/container/foo/123"
+            Input::DEFAULT_GITHUB_SERVER_URL.to_string() + "/orgs/acme/packages/container/foo/123"
         );
     }
 
@@ -631,30 +644,43 @@ mod tests {
     }
     #[test]
     fn test_generate_urls() {
-        let urls = {
-            let mut builder = PackagesClientBuilder::new();
-            assert!(builder.urls.is_none());
-            builder = builder.generate_urls(&Account::User);
-            builder.urls.unwrap()
-        };
-        assert!(urls.list_packages_url.as_str().contains("per_page=100"));
-        assert!(urls.list_packages_url.as_str().contains("package_type=container"));
-        assert!(urls.list_packages_url.as_str().contains("api.github.com"));
-        assert!(urls.packages_api_base.as_str().contains("api.github.com"));
-        assert!(urls.packages_frontend_base.as_str().contains("https://github.com"));
+        let github_server_url = &Url::try_from(Input::DEFAULT_GITHUB_SERVER_URL).unwrap();
+        let github_api_url = &Url::try_from(Input::DEFAULT_GITHUB_API_URL).unwrap();
 
         let urls = {
             let mut builder = PackagesClientBuilder::new();
             assert!(builder.urls.is_none());
-            builder = builder.generate_urls(&Account::Organization("foo".to_string()));
+            builder = builder.generate_urls(github_server_url, github_api_url, &Account::User);
             builder.urls.unwrap()
         };
         assert!(urls.list_packages_url.as_str().contains("per_page=100"));
         assert!(urls.list_packages_url.as_str().contains("package_type=container"));
-        assert!(urls.list_packages_url.as_str().contains("api.github.com"));
-        assert!(urls.packages_api_base.as_str().contains("api.github.com"));
+        assert!(urls.list_packages_url.as_str().contains(Input::DEFAULT_GITHUB_API_URL));
+        assert!(urls.packages_api_base.as_str().contains(Input::DEFAULT_GITHUB_API_URL));
+        assert!(urls
+            .packages_frontend_base
+            .as_str()
+            .contains(Input::DEFAULT_GITHUB_SERVER_URL));
+
+        let urls = {
+            let mut builder = PackagesClientBuilder::new();
+            assert!(builder.urls.is_none());
+            builder = builder.generate_urls(
+                github_server_url,
+                github_api_url,
+                &Account::Organization("foo".to_string()),
+            );
+            builder.urls.unwrap()
+        };
+        assert!(urls.list_packages_url.as_str().contains("per_page=100"));
+        assert!(urls.list_packages_url.as_str().contains("package_type=container"));
+        assert!(urls.list_packages_url.as_str().contains(Input::DEFAULT_GITHUB_API_URL));
+        assert!(urls.packages_api_base.as_str().contains(Input::DEFAULT_GITHUB_API_URL));
         assert!(urls.list_packages_url.as_str().contains("/foo/"));
         assert!(urls.packages_api_base.as_str().contains("/foo/"));
-        assert!(urls.packages_frontend_base.as_str().contains("https://github.com"));
+        assert!(urls
+            .packages_frontend_base
+            .as_str()
+            .contains(Input::DEFAULT_GITHUB_SERVER_URL));
     }
 }

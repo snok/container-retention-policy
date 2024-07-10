@@ -326,6 +326,7 @@ mod tests {
     #[test]
     fn test_filter_by_tag_selection() {
         let urls = Urls {
+            api_base: Url::parse("https://foo.com").unwrap(),
             packages_frontend_base: Url::parse("https://foo.com").unwrap(),
             packages_api_base: Url::parse("https://foo.com").unwrap(),
             list_packages_url: Url::parse("https://foo.com").unwrap(),
@@ -441,6 +442,7 @@ mod tests {
             create_pv(0, "sha256:foobar", vec!["foo", "bar"]),
             "package",
             &Urls {
+                api_base: Url::parse("https://foo.com").unwrap(),
                 packages_frontend_base: Url::parse("https://foo.com").unwrap(),
                 packages_api_base: Url::parse("https://foo.com").unwrap(),
                 list_packages_url: Url::parse("https://foo.com").unwrap(),
@@ -457,6 +459,7 @@ mod tests {
     fn test_filter_by_matchers_permutations() {
         fn call_f(matchers: Matchers) {
             let urls = Urls {
+                api_base: Url::parse("https://foo.com").unwrap(),
                 packages_frontend_base: Url::parse("https://foo.com").unwrap(),
                 packages_api_base: Url::parse("https://foo.com").unwrap(),
                 list_packages_url: Url::parse("https://foo.com").unwrap(),

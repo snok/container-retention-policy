@@ -4,24 +4,25 @@ use url::Url;
 
 #[derive(Debug)]
 pub struct Urls {
+    pub api_base: Url,
     pub packages_frontend_base: Url,
     pub packages_api_base: Url,
     pub list_packages_url: Url,
 }
 
 impl Urls {
-    pub fn from_account(account: &Account) -> Self {
-        let mut github_base_url = String::from("https://github.com");
-        let mut api_base_url = String::from("https://api.github.com");
+    pub fn new(github_server_url: &Url, github_api_url: &Url, account: &Account) -> Self {
+        let mut github_base_url = String::from(github_server_url.clone());
+        let mut api_base_url = String::from(github_api_url.clone());
 
         match account {
             Account::User => {
-                api_base_url += "/user/packages";
-                github_base_url += "/user/packages";
+                api_base_url += "user/packages";
+                github_base_url += "user/packages";
             }
             Account::Organization(org_name) => {
-                api_base_url += &format!("/orgs/{org_name}/packages");
-                github_base_url += &format!("/orgs/{org_name}/packages");
+                api_base_url += &format!("orgs/{org_name}/packages");
+                github_base_url += &format!("orgs/{org_name}/packages");
             }
         };
 
@@ -32,6 +33,7 @@ impl Urls {
         github_base_url += "/container";
 
         Self {
+            api_base: github_api_url.clone(),
             list_packages_url,
             packages_api_base: Url::parse(&api_base_url).expect("Failed to parse URL"),
             packages_frontend_base: Url::parse(&github_base_url).expect("Failed to parse URL"),
