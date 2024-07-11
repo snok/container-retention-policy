@@ -3,14 +3,12 @@
 To create a release we need to:
 
 1. Increment the version in the [Cargo.toml](./Cargo.toml)
-2. Manually trigger the [`release`](.github/workflows/release.yaml) workflow to build a new image
-3. Update the image tag in the [action.yaml](action.yaml) and commit that to the main branch
-4. Create a GitHub release post for the repo, with the version tag (e.g., `v3.0.0`)
+2. Run the [build step in our justfile](./justfile) to produce new binaries
+3. Create a GitHub release post for the repo, with the version tag (e.g., `v3.0.0`)
 
 # Running lints and tests
 
-Install [pre-commit](https://pre-commit.com/) (e.g., using `pip install pre-commit`),
-then run `pre-commit run --all-files` before submitting a PR.
+Install [pre-commit](https://pre-commit.com/) (e.g., using `pip install pre-commit`), then run `pre-commit run --all-files` before submitting a PR.
 
 All cargo-components run can be installed by calling `cargo install just && just setup`.
 This will install [just](https://github.com/casey/just) and run the `setup` script

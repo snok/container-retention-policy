@@ -57,4 +57,22 @@ run:
         --keep-n-most-recent 5 \
         --timestamp-to-use "updated_at" \
         --cut-off 1h \
-        --dry-run false
+        --dry-run true
+
+_pre-build:
+    cargo install cross --git https://github.com/cross-rs/cross
+    rustup target add x86_64-unknown-linux-gnu
+    rustup target add aarch64-apple-darwin
+    rustup target add x86_64-apple-darwin
+
+
+build:
+    just _pre-build
+
+    # Build ubuntu-latest-compatible binary
+    cross build --target x86_64-unknown-linux-gnu --release
+    cp ./target/x86_64-unknown-linux-gnu/release/container-retention-policy ./artifacts/container-retention-policy-X64-Linux
+
+    # Build macos-latest-compatible binary
+    cross build --target aarch64-apple-darwin --release
+    cp ./target/aarch64-apple-darwin/release/container-retention-policy ./artifacts/container-retention-policy-ARM64-macOS

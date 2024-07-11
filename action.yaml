@@ -53,18 +53,20 @@ outputs:
     value: ${{ steps.container-retention-policy.outputs.failed }}
 
 runs:
-  using: 'docker'
-  image: 'docker://ghcr.io/snok/container-retention-policy:v3.0.0'
-  args:
-    - --account=${{ inputs.account }}
-    - --token=${{ inputs.token }}
-    - --image-names=${{ inputs.image-names }}
-    - --image-tags=${{ inputs.image-tags }}
-    - --shas-to-skip=${{ inputs.skip-shas }}
-    - --tag-selection=${{ inputs.tag-selection }}
-    - --keep-n-most-recent=${{ inputs.keep-n-most-recent }}
-    - --timestamp-to-use=${{ inputs.timestamp-to-use }}
-    - --cut-off=${{ inputs.cut-off }}
-    - --dry-run=${{ inputs.dry-run }}
-  env:
-    RUST_LOG: ${{ inputs.rust-log }}
+  using: 'composite'
+  steps:
+    - shell: bash
+      run: |
+        ${{ github.action_path }}/artifacts/container-retention-policy-${{ runner.arch }} \
+          --account=${{ inputs.account }} \
+          --token=${{ inputs.token }} \
+          --image-names=${{ inputs.image-names }} \
+          --image-tags=${{ inputs.image-tags }} \
+          --shas-to-skip=${{ inputs.skip-shas }} \
+          --tag-selection=${{ inputs.tag-selection }} \
+          --keep-n-most-recent=${{ inputs.keep-n-most-recent }} \
+          --timestamp-to-use=${{ inputs.timestamp-to-use }} \
+          --cut-off=${{ inputs.cut-off }} \
+          --dry-run=${{ inputs.dry-run }}
+      env:
+        RUST_LOG: ${{ inputs.rust-log }}
