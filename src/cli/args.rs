@@ -40,16 +40,6 @@ pub fn try_parse_shas_as_list(s: &str) -> Result<Vec<String>, String> {
     Ok(shas)
 }
 
-fn try_parse_url(url_str: &str) -> Result<Url, url::ParseError> {
-    // Since `Url` will always add a `/` if the path is empty, we should make it consistent beforehand.
-    // See also: https://github.com/servo/rust-url/issues/808
-    if url_str.ends_with('/') {
-        Url::parse(url_str)
-    } else {
-        Url::parse((url_str.to_string() + "/").as_str())
-    }
-}
-
 #[derive(Parser)]
 #[clap(version, about, long_about = None)]
 #[clap(propagate_version = true)]
@@ -63,17 +53,15 @@ pub struct Input {
     pub token: Token,
 
     /// The GitHub server base URL
-    #[arg(long, value_parser = try_parse_url)]
     // Use environment variable provided by GitHub before falling back to default, see also:
     // https://docs.github.com/en/actions/learn-github-actions/variables#default-environment-variables
-    #[arg(env = "GITHUB_SERVER_URL", default_value = "https://github.com")]
+    #[arg(long, env = "GITHUB_SERVER_URL", default_value = DEFAULT_GITHUB_SERVER_URL)]
     pub github_server_url: Url,
 
     /// The GitHub API base URL
-    #[arg(long, value_parser = try_parse_url)]
     // Use environment variable provided by GitHub before falling back to default, see also:
     // https://docs.github.com/en/actions/learn-github-actions/variables#default-environment-variables
-    #[arg(env = "GITHUB_API_URL", default_value = DEFAULT_GITHUB_API_URL)]
+    #[arg(long, env = "GITHUB_API_URL", default_value = DEFAULT_GITHUB_API_URL)]
     pub github_api_url: Url,
 
     /// The package names to target
