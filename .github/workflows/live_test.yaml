@@ -1,9 +1,6 @@
 name: Test action main branch
 
-on:
-  workflow_dispatch:
-  schedule:
-    - cron: "5 * * * *"  # every hour
+on: push
 
 jobs:
   clean:
@@ -23,7 +20,7 @@ jobs:
           digest=$(docker manifest inspect ghcr.io/snok/container-retention-policy:v3.0.0 | jq -r '.manifests[].digest' | paste -s -d ' ' -)
           echo "multi-arch-digests=$digest" >> $GITHUB_OUTPUT
 
-      - uses: snok/container-retention-policy@main
+      - uses: snok/container-retention-policy@bin
         name: Delete test-1-* images with a temporal token
         with:
           account: snok
@@ -44,7 +41,7 @@ jobs:
           app-id: 911530
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
 
-      - uses: snok/container-retention-policy@main
+      - uses: snok/container-retention-policy@bin
         name: Delete test-2-* images with an Github app token
         with:
           account: snok
@@ -58,7 +55,7 @@ jobs:
           rust-log: container_retention_policy=debug
           skip-shas: ${{ steps.multi-arch-digests.outputs.multi-arch-digests }}
 
-      - uses: snok/container-retention-policy@main
+      - uses: snok/container-retention-policy@bin
         name: Delete remaining test images with a PAT
         with:
           account: snok
