@@ -158,7 +158,7 @@ impl PackagesClientBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::args::Input;
+    use crate::cli::args::{DEFAULT_GITHUB_API_URL, DEFAULT_GITHUB_SERVER_URL};
     use secrecy::Secret;
 
     #[test]
