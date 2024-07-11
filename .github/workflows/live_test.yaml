@@ -4,8 +4,13 @@ on: push
 
 jobs:
   clean:
-    runs-on: ubuntu-latest
-    name: Ubuntu with classic personal access token
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.os }} with classic personal access token
     steps:
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3.0.0
