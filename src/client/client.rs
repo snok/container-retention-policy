@@ -482,13 +482,12 @@ impl PackagesClient {
 
 #[cfg(test)]
 mod tests {
-    use crate::cli::args::Input;
+    use super::*;
+    use crate::cli::args::{DEFAULT_GITHUB_API_URL, DEFAULT_GITHUB_SERVER_URL};
     use crate::cli::models::Account;
     use crate::client::builder::PackagesClientBuilder;
     use reqwest::header::HeaderValue;
     use secrecy::Secret;
-
-    use super::*;
 
     #[test]
     fn github_headers() {
@@ -583,19 +582,19 @@ mod tests {
         );
         assert_eq!(
             urls.list_packages_url.as_str(),
-            Input::DEFAULT_GITHUB_API_URL.to_string() + "/user/packages?package_type=container&per_page=100"
+            DEFAULT_GITHUB_API_URL.to_string() + "/user/packages?package_type=container&per_page=100"
         );
         assert_eq!(
             urls.list_package_versions_url("foo").unwrap().as_str(),
-            Input::DEFAULT_GITHUB_API_URL.to_string() + "/user/packages/container/foo/versions?per_page=100"
+            DEFAULT_GITHUB_API_URL.to_string() + "/user/packages/container/foo/versions?per_page=100"
         );
         assert_eq!(
             urls.delete_package_version_url("foo", &123).unwrap().as_str(),
-            Input::DEFAULT_GITHUB_API_URL.to_string() + "/user/packages/container/foo/versions/123"
+            DEFAULT_GITHUB_API_URL.to_string() + "/user/packages/container/foo/versions/123"
         );
         assert_eq!(
             urls.package_version_url("foo", &123).unwrap().as_str(),
-            Input::DEFAULT_GITHUB_SERVER_URL.to_string() + "/user/packages/container/foo/123"
+            DEFAULT_GITHUB_SERVER_URL.to_string() + "/user/packages/container/foo/123"
         );
     }
 
@@ -608,19 +607,19 @@ mod tests {
         );
         assert_eq!(
             urls.list_packages_url.as_str(),
-            Input::DEFAULT_GITHUB_API_URL.to_string() + "/orgs/acme/packages?package_type=container&per_page=100"
+            DEFAULT_GITHUB_API_URL.to_string() + "/orgs/acme/packages?package_type=container&per_page=100"
         );
         assert_eq!(
             urls.list_package_versions_url("foo").unwrap().as_str(),
-            Input::DEFAULT_GITHUB_API_URL.to_string() + "/orgs/acme/packages/container/foo/versions?per_page=100"
+            DEFAULT_GITHUB_API_URL.to_string() + "/orgs/acme/packages/container/foo/versions?per_page=100"
         );
         assert_eq!(
             urls.delete_package_version_url("foo", &123).unwrap().as_str(),
-            Input::DEFAULT_GITHUB_API_URL.to_string() + "/orgs/acme/packages/container/foo/versions/123"
+            DEFAULT_GITHUB_API_URL.to_string() + "/orgs/acme/packages/container/foo/versions/123"
         );
         assert_eq!(
             urls.package_version_url("foo", &123).unwrap().as_str(),
-            Input::DEFAULT_GITHUB_SERVER_URL.to_string() + "/orgs/acme/packages/container/foo/123"
+            DEFAULT_GITHUB_SERVER_URL.to_string() + "/orgs/acme/packages/container/foo/123"
         );
     }
 
@@ -655,12 +654,9 @@ mod tests {
         };
         assert!(urls.list_packages_url.as_str().contains("per_page=100"));
         assert!(urls.list_packages_url.as_str().contains("package_type=container"));
-        assert!(urls.list_packages_url.as_str().contains(Input::DEFAULT_GITHUB_API_URL));
-        assert!(urls.packages_api_base.as_str().contains(Input::DEFAULT_GITHUB_API_URL));
-        assert!(urls
-            .packages_frontend_base
-            .as_str()
-            .contains(Input::DEFAULT_GITHUB_SERVER_URL));
+        assert!(urls.list_packages_url.as_str().contains(DEFAULT_GITHUB_API_URL));
+        assert!(urls.packages_api_base.as_str().contains(DEFAULT_GITHUB_API_URL));
+        assert!(urls.packages_frontend_base.as_str().contains(DEFAULT_GITHUB_SERVER_URL));
 
         let urls = {
             let mut builder = PackagesClientBuilder::new();
@@ -674,13 +670,10 @@ mod tests {
         };
         assert!(urls.list_packages_url.as_str().contains("per_page=100"));
         assert!(urls.list_packages_url.as_str().contains("package_type=container"));
-        assert!(urls.list_packages_url.as_str().contains(Input::DEFAULT_GITHUB_API_URL));
-        assert!(urls.packages_api_base.as_str().contains(Input::DEFAULT_GITHUB_API_URL));
+        assert!(urls.list_packages_url.as_str().contains(DEFAULT_GITHUB_API_URL));
+        assert!(urls.packages_api_base.as_str().contains(DEFAULT_GITHUB_API_URL));
         assert!(urls.list_packages_url.as_str().contains("/foo/"));
         assert!(urls.packages_api_base.as_str().contains("/foo/"));
-        assert!(urls
-            .packages_frontend_base
-            .as_str()
-            .contains(Input::DEFAULT_GITHUB_SERVER_URL));
+        assert!(urls.packages_frontend_base.as_str().contains(DEFAULT_GITHUB_SERVER_URL));
     }
 }
