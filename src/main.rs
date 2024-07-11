@@ -4,13 +4,13 @@ use std::sync::Arc;
 
 use color_eyre::eyre::Result;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info_span, trace, Instrument};
+use tracing::{debug, error, info, info_span, trace, Instrument};
 use tracing_indicatif::IndicatifLayer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter};
 
-use crate::cli::args::Input;
+use crate::cli::args::{Input, DEFAULT_GITHUB_API_URL, DEFAULT_GITHUB_SERVER_URL};
 use crate::client::builder::PackagesClientBuilder;
 use crate::client::client::PackagesClient;
 use crate::client::models::PackageVersion;
@@ -76,6 +76,13 @@ async fn main() -> Result<()> {
     // Load and validate inputs
     let init_span = info_span!("parse input").entered();
     let input = Input::parse();
+
+    if input.github_server_url.as_str() != DEFAULT_GITHUB_SERVER_URL {
+        info!("Using provided GitHub server url: {}", input.github_server_url);
+    }
+    if input.github_api_url.as_str() != DEFAULT_GITHUB_API_URL {
+        info!("Using provided GitHub API url: {}", input.github_api_url);
+    }
 
     // TODO: Is there a better way?
     if env::var("CRP_TEST").is_ok() {
