@@ -553,8 +553,8 @@ mod tests {
         let client = client_builder
             .create_rate_limited_services()
             .generate_urls(
-                &Url::try_from(Input::DEFAULT_GITHUB_SERVER_URL).unwrap(),
-                &Url::try_from(Input::DEFAULT_GITHUB_API_URL).unwrap(),
+                &Url::parse(DEFAULT_GITHUB_SERVER_URL).unwrap(),
+                &Url::parse(DEFAULT_GITHUB_API_URL).unwrap(),
                 &Account::User,
             )
             .build()
@@ -576,8 +576,8 @@ mod tests {
     #[test]
     fn personal_urls() {
         let urls = Urls::new(
-            &Url::try_from(Input::DEFAULT_GITHUB_SERVER_URL).unwrap(),
-            &Url::try_from(Input::DEFAULT_GITHUB_API_URL).unwrap(),
+            &Url::parse(DEFAULT_GITHUB_SERVER_URL).unwrap(),
+            &Url::parse(DEFAULT_GITHUB_API_URL).unwrap(),
             &Account::User,
         );
         assert_eq!(
@@ -601,8 +601,8 @@ mod tests {
     #[test]
     fn organization_urls() {
         let urls = Urls::new(
-            &Url::try_from(Input::DEFAULT_GITHUB_SERVER_URL).unwrap(),
-            &Url::try_from(Input::DEFAULT_GITHUB_API_URL).unwrap(),
+            &Url::parse(DEFAULT_GITHUB_SERVER_URL).unwrap(),
+            &Url::parse(DEFAULT_GITHUB_API_URL).unwrap(),
             &Account::Organization("acme".to_string()),
         );
         assert_eq!(
@@ -643,8 +643,8 @@ mod tests {
     }
     #[test]
     fn test_generate_urls() {
-        let github_server_url = &Url::try_from(Input::DEFAULT_GITHUB_SERVER_URL).unwrap();
-        let github_api_url = &Url::try_from(Input::DEFAULT_GITHUB_API_URL).unwrap();
+        let github_server_url = &Url::parse(DEFAULT_GITHUB_SERVER_URL).unwrap();
+        let github_api_url = &Url::parse(DEFAULT_GITHUB_API_URL).unwrap();
 
         let urls = {
             let mut builder = PackagesClientBuilder::new();
