@@ -1,0 +1,17 @@
+name: Temp test
+
+on: push
+
+jobs:
+  foo:
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+          - macos-12
+    runs-on: ${{ matrix.os }}
+    steps:
+      - run: echo "${{ runner.arch}}"
+      - run: echo "${{ runner.os}}"
