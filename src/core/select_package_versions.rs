@@ -328,7 +328,7 @@ mod tests {
         let urls = Urls {
             api_base: Url::parse("https://foo.com").unwrap(),
             packages_frontend_base: Url::parse("https://foo.com").unwrap(),
-            packages_api_base: Url::parse("https://foo.com").unwrap(),
+            packages_api_base: Url::try_from("https://foo.com").unwrap(),
             list_packages_url: Url::parse("https://foo.com").unwrap(),
         };
         let matchers = &Matchers {

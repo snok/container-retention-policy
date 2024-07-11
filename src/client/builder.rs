@@ -196,8 +196,8 @@ mod tests {
 
     #[test]
     fn test_builder_generate_urls() {
-        let github_server_url = &Url::try_from(Input::DEFAULT_GITHUB_SERVER_URL).unwrap();
-        let github_api_url = &Url::try_from(Input::DEFAULT_GITHUB_API_URL).unwrap();
+        let github_server_url = &Url::parse(DEFAULT_GITHUB_SERVER_URL).unwrap();
+        let github_api_url = &Url::parse(DEFAULT_GITHUB_API_URL).unwrap();
         for account in [&Account::User, &Account::Organization("test".to_string())] {
             let builder = PackagesClientBuilder::new().generate_urls(github_server_url, github_api_url, account);
             assert!(builder.urls.is_some());
@@ -226,8 +226,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_builder_build_naked() {
-        let github_server_url = &Url::try_from(Input::DEFAULT_GITHUB_SERVER_URL).unwrap();
-        let github_api_url = &Url::try_from(Input::DEFAULT_GITHUB_API_URL).unwrap();
+        let github_server_url = &Url::parse(DEFAULT_GITHUB_SERVER_URL).unwrap();
+        let github_api_url = &Url::parse(DEFAULT_GITHUB_API_URL).unwrap();
         assert!(PackagesClientBuilder::new().build().is_err());
         assert!(PackagesClientBuilder::new()
             .generate_urls(github_server_url, github_api_url, &Account::User)
