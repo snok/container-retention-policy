@@ -40,7 +40,7 @@ pub fn try_parse_shas_as_list(s: &str) -> Result<Vec<String>, String> {
     Ok(shas)
 }
 
-fn try_parse_url(url_str: &str) -> Result<Url, url::ParseError> {
+pub(crate) fn try_parse_url(url_str: &str) -> Result<Url, url::ParseError> {
     // Since `Url` will always add a `/` if the path is empty, we should make it consistent beforehand.
     // See also: https://github.com/servo/rust-url/issues/808
     if url_str.ends_with('/') {
