@@ -22,6 +22,7 @@ use crate::{Counts, PackageVersions};
 #[derive(Debug)]
 pub struct PackagesClient {
     pub headers: HeaderMap,
+    pub oci_headers: HeaderMap,
     pub urls: Urls,
     pub fetch_package_service: RateLimitedService,
     pub list_packages_service: RateLimitedService,
@@ -478,6 +479,100 @@ impl PackagesClient {
             response_headers.x_ratelimit_reset,
         ))
     }
+
+    pub async fn fetch_image_manifest(
+        &self,
+        package_name: String,
+        tag: String,
+    ) -> Result<(String, String, Vec<String>)> {
+        debug!(tag = tag, "Retrieving image manifest");
+
+        let url = format!("https://ghcr.io/v2/snok%2Fcontainer-retention-policy/manifests/{tag}");
+
+        // Construct initial request
+        let response = Client::new().get(url).headers(self.oci_headers.clone()).send().await?;
+
+        let raw_json = response.text().await?;
+        let resp: OCIImageIndex = match serde_json::from_str(&raw_json) {
+            Ok(t) => t,
+            Err(e) => {
+                println!("{}", raw_json);
+                return Err(eyre!(
+                    "Failed to fetch image manifest for \x1b[34m{package_name}\x1b[0m:\x1b[32m{tag}\x1b[0m: {e}"
+                ));
+            }
+        };
+
+        Ok((
+            package_name,
+            tag,
+            resp.manifests
+                .unwrap_or(vec![])
+                .iter()
+                .map(|manifest| manifest.digest.to_string())
+                .collect(),
+        ))
+    }
+}
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct OCIImageIndex {
+    schema_version: u32,
+    media_type: String,
+    manifests: Option<Vec<Manifest>>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct Manifest {
+    media_type: String,
+    digest: String,
+    size: u64,
+    platform: Option<Platform>,
+    annotations: Option<Annotations>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Platform {
+    architecture: String,
+    os: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Annotations {
+    #[serde(rename = "vnd.docker.reference.digest")]
+    docker_reference_digest: Option<String>,
+
+    #[serde(rename = "vnd.docker.reference.type")]
+    docker_reference_type: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct DockerDistributionManifest {
+    schema_version: u32,
+    media_type: String,
+    config: Config,
+    layers: Vec<Layer>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct Config {
+    media_type: String,
+    size: u64,
+    digest: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct Layer {
+    media_type: String,
+    size: u64,
+    digest: String,
 }
 
 #[cfg(test)]

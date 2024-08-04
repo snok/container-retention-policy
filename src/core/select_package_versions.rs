@@ -8,7 +8,7 @@ use chrono::Utc;
 use color_eyre::Result;
 use humantime::Duration as HumantimeDuration;
 use indicatif::ProgressStyle;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinSet;
@@ -287,16 +287,104 @@ pub async fn select_package_versions(
         );
     }
 
-    let mut package_version_map = HashMap::new();
+    let mut all_package_versions = vec![];
+    let mut fetch_digest_set = JoinSet::new();
 
     debug!("Fetching package versions");
+
     while let Some(r) = set.join_next().await {
         // Get all the package versions for a package
         let (package_name, mut package_versions) = r??;
 
+        // Queue fetching of digests for each tag
+        for package_version in &package_versions.tagged {
+            for tag in &package_version.metadata.container.tags {
+                fetch_digest_set.spawn(client.fetch_image_manifest(package_name.clone(), tag.clone()));
+            }
+        }
+
+        all_package_versions.push((package_name, package_versions));
+    }
+
+    debug!("Fetching package versions");
+    let mut digests = HashSet::new();
+    let mut digest_tag = HashMap::new();
+
+    while let Some(r) = fetch_digest_set.join_next().await {
+        // Get all the digests for the package
+        let (package_name, tag, package_digests) = r??;
+
+        if package_digests.is_empty() {
+            debug!(
+                package_name = package_name,
+                "Found {} associated digests for \x1b[34m{package_name}\x1b[0m:\x1b[32m{tag}\x1b[0m",
+                package_digests.len()
+            );
+        } else {
+            info!(
+                package_name = package_name,
+                "Found {} associated digests for \x1b[34m{package_name}\x1b[0m:\x1b[32m{tag}\x1b[0m",
+                package_digests.len()
+            );
+        }
+
+        digests.extend(package_digests.clone());
+        for digest in package_digests.into_iter() {
+            digest_tag.insert(digest, format!("\x1b[34m{package_name}\x1b[0m:\x1b[32m{tag}\x1b[0m"));
+        }
+    }
+
+    let mut package_version_map = HashMap::new();
+
+    for (package_name, mut package_versions) in all_package_versions {
+        package_versions.untagged = package_versions
+            .untagged
+            .into_iter()
+            .filter_map(|package_version| {
+                if digests.contains(&package_version.name) {
+                    let x: String = package_version.name.clone();
+                    let association: &String = digest_tag.get(&x as &str).unwrap();
+                    debug!(
+                        "Skipping deletion of {} because it's associated with {association}",
+                        package_version.name
+                    );
+                    None
+                } else {
+                    Some(package_version)
+                }
+            })
+            .collect();
+        let count_before = package_versions.tagged.len();
+        package_versions.tagged = package_versions
+            .tagged
+            .into_iter()
+            .filter(|package_version| {
+                if digests.contains(&package_version.name) {
+                    let association = digest_tag.get(&*(package_version.name)).unwrap();
+                    debug!(
+                        "Skipping deletion of {} because it's associated with {association}",
+                        package_version.name
+                    );
+                    false
+                } else {
+                    true
+                }
+            })
+            .collect();
+
+        let adjusted_keep_n_most_recent =
+            if keep_n_most_recent as i64 - (count_before as i64 - package_versions.tagged.len() as i64) < 0 {
+                0
+            } else {
+                keep_n_most_recent as i64 - (count_before as i64 - package_versions.tagged.len() as i64)
+            };
+
         // Keep n package versions per package, if specified
-        package_versions.tagged =
-            handle_keep_n_most_recent(package_versions.tagged, keep_n_most_recent, timestamp_to_use);
+        package_versions.tagged = handle_keep_n_most_recent(
+            package_versions.tagged,
+            adjusted_keep_n_most_recent as u32,
+            timestamp_to_use,
+        );
 
         info!(
             package_name = package_name,
