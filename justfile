@@ -58,3 +58,19 @@ run:
         --timestamp-to-use "updated_at" \
         --cut-off 1h \
         --dry-run false
+
+fetch-package-digests tag="v3.0.0":
+    curl -L \
+          -X GET \
+            -H "Accept: application/vnd.oci.image.index.v1+json" \
+            -H "Authorization: Bearer $(echo $DELETE_PACKAGES_CLASSIC_TOKEN | base64)" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+          https://ghcr.io/v2/snok%2Fcontainer-retention-policy/manifests/{{ tag }}
+
+test:
+    curl -L \
+          -X GET \
+            -H "Accept: application/vnd.oci.image.index.v1+json" \
+            -H "Authorization: Bearer $(echo $DELETE_PACKAGES_CLASSIC_TOKEN | base64)" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+          https://ghcr.io/v2/snok%2Fcontainer-retention-policy/manifests/test-5-3
