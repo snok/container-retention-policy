@@ -28,7 +28,7 @@ jobs:
         with:
           account: snok
           token: ${{ secrets.GITHUB_TOKEN }}
-          cut-off: 2h
+          cut-off: 30m
           image-names: container-retention-policy
           image-tags: test-* !test-2* !test-3* !test-4* !test-5*
           tag-selection: both
@@ -49,7 +49,7 @@ jobs:
         with:
           account: snok
           token: ${{ steps.generate-token.outputs.token }}
-          cut-off: 2h
+          cut-off: 30m
           image-names: container-retention-policy
           image-tags: test-* !test-3* !test-4* !test-5*
           tag-selection: both
@@ -63,7 +63,7 @@ jobs:
         with:
           account: snok
           token: ${{ secrets.PAT }}
-          cut-off: 2h
+          cut-off: 30m
           image-names: container-retention-policy
           image-tags: test-*
           tag-selection: both
