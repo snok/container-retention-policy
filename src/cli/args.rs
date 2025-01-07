@@ -115,10 +115,9 @@ pub struct Input {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use clap::ValueEnum;
     use secrecy::Secret;
-
-    use super::*;
 
     #[test]
     fn test_vec_of_string_from_str() {
