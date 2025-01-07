@@ -4,6 +4,9 @@ version = "3.0.0"
 edition = "2021"
 license = "MIT"
 
+[package.metadata]
+description = "This crate uses Unicode data provided by the Unicode Consortium under the Unicode 3.0 License."
+
 [dependencies]
 clap = { version = "4.5.4", features = ["derive", "env"]}
 chrono = { version="0.4.37" , features=["serde", "clock"], default-features = false}

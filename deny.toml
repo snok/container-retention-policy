@@ -17,7 +17,8 @@ allow = [
     "ISC",
     "BSD-3-Clause",
     "OpenSSL",
-    "MPL-2.0"
+    "MPL-2.0",
+    "Unicode-3.0"
 ]
 
 [[licenses.clarify]]
