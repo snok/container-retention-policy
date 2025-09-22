@@ -84,11 +84,11 @@ fn older_than_cutoff(
 /// of layers (one package version might have multiple tags), this function should ensure that:
 ///
 /// - If *any* negative matcher (e.g., `!latest`) matches *any* tag for a
-///    given package version, then we will not delete it.
+///   given package version, then we will not delete it.
 ///
 /// - If we have a partial match (2/3 tags match), then we also cannot delete;
-///    but it might be a bit unexpected to do nothing, so we log a warning to the
-///    user.
+///   but it might be a bit unexpected to do nothing, so we log a warning to the
+///   user.
 ///
 /// - If *all* tags match, then we will delete the package version.
 fn filter_by_matchers(
@@ -266,7 +266,7 @@ pub async fn select_package_versions(
         let a = package_name.clone();
         let b = shas_to_skip.clone();
         let c = tag_selection.clone();
-        let d = cut_off.clone();
+        let d = *cut_off;
         let e = timestamp_to_use.clone();
         let f = matchers.clone();
 

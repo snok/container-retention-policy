@@ -36,6 +36,12 @@ pub struct PackageVersions {
     pub tagged: Vec<PackageVersion>,
 }
 
+impl Default for PackageVersions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PackageVersions {
     /// Create a new, empty, struct
     pub fn new() -> Self {

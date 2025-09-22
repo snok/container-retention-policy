@@ -83,10 +83,10 @@ impl Account {
         if value == "user" {
             Ok(Self::User)
         } else if value.is_empty() {
-            return Err(
+            Err(
                 "`account` must be set to 'user' for personal accounts, or to the name of your organization"
                     .to_string(),
-            );
+            )
         } else {
             Ok(Self::Organization(value.to_string()))
         }
