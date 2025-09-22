@@ -23,10 +23,8 @@ setup:
   @cargo binstall cargo-udeps --locked --no-confirm
   @rustup toolchain install nightly
 
-  # cargo-deny checks dependency licenses, to make sure we
-  # dont accidentally use any copy-left licensed packages.
-  # See deny.toml for configuration.
-  @cargo binstall cargo-deny --locked --no-confirm
+  # cargo-audit checks for security vulnerabilities
+  @cargo binstall cargo-audit --locked --no-confirm
 
   # sccache does caching of Rust dependencies really well
   @cargo binstall sccache --locked --no-confirm

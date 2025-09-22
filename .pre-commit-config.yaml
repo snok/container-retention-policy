@@ -28,18 +28,18 @@ repos:
 
   - repo: local
     hooks:
-      - id: cargo-deny
-        name: cargo deny
-        entry: cargo deny check --hide-inclusion-graph
+      - id: cargo-udeps
+        name: cargo udeps
+        entry: cargo +nightly udeps
         language: system
         pass_filenames: false
         files: ^Cargo\.(toml|lock)$
 
   - repo: local
     hooks:
-      - id: cargo-udeps
-        name: cargo udeps
-        entry: cargo +nightly udeps
+      - id: cargo-audit
+        name: cargo audit
+        entry: cargo audit
         language: system
         pass_filenames: false
         files: ^Cargo\.(toml|lock)$
