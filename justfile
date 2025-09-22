@@ -28,9 +28,6 @@ setup:
   # See deny.toml for configuration.
   @cargo binstall cargo-deny --locked --no-confirm
 
-  # cargo-audit checks for security vulnerabilities
-  @cargo binstall cargo-audit --locked --no-confirm
-
   # sccache does caching of Rust dependencies really well
   @cargo binstall sccache --locked --no-confirm
 

@@ -44,15 +44,6 @@ repos:
         pass_filenames: false
         files: ^Cargo\.(toml|lock)$
 
-  - repo: local
-    hooks:
-      - id: cargo-audit
-        name: cargo audit
-        entry: cargo audit
-        language: system
-        pass_filenames: false
-        files: ^Cargo\.(toml|lock)$
-
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:

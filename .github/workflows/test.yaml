@@ -21,7 +21,6 @@ jobs:
       - uses: cargo-bins/cargo-binstall@main
       - run: cargo binstall cargo-udeps --locked --no-confirm --force
       - run: cargo binstall cargo-deny --locked --no-confirm --force
-      - run: cargo binstall cargo-audit --locked --no-confirm
       - run: pip install pre-commit && pre-commit install
       - uses: actions/cache@v4
         with:
