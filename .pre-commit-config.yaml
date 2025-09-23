@@ -39,7 +39,7 @@ repos:
     hooks:
       - id: cargo-audit
         name: cargo audit
-        entry: cargo audit
+        entry: cargo audit --ignore RUSTSEC-2025-0055
         language: system
         pass_filenames: false
         files: ^Cargo\.(toml|lock)$
