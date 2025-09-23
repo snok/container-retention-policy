@@ -88,7 +88,7 @@ jobs:
           do
             randomString=$(LC_ALL=C tr -dc A-Za-z0-9 </dev/urandom | head -c 10 2>/dev/null || echo RANDOM)
             {
-              echo "FROM alpine as builder"
+              echo "FROM alpine AS builder"
               echo "RUN echo \"$randomString\" > test.txt"
               echo "FROM scratch"
               echo "COPY --from=builder /test.txt ."

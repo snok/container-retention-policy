@@ -165,7 +165,7 @@ impl PackagesClientBuilder {
 mod tests {
     use super::*;
     use crate::cli::args::{DEFAULT_GITHUB_API_URL, DEFAULT_GITHUB_SERVER_URL};
-    use secrecy::Secret;
+    use secrecy::SecretString;
 
     #[test]
     fn test_builder_init() {
@@ -183,7 +183,7 @@ mod tests {
     fn test_builder_set_http_headers() {
         let builder = PackagesClientBuilder::new();
         let builder = builder
-            .set_http_headers(Token::Temporal(Secret::new("test".to_string())))
+            .set_http_headers(Token::Temporal(SecretString::new(Box::from("test".to_string()))))
             .unwrap();
         assert!(builder.headers.is_some());
         assert!(builder.token.is_some());
@@ -241,13 +241,13 @@ mod tests {
             .is_err());
         assert!(PackagesClientBuilder::new()
             .generate_urls(github_server_url, github_api_url, &Account::User)
-            .set_http_headers(Token::Temporal(Secret::new("test".to_string())))
+            .set_http_headers(Token::Temporal(SecretString::new(Box::from("test".to_string()))))
             .unwrap()
             .build()
             .is_err());
         assert!(PackagesClientBuilder::new()
             .generate_urls(github_server_url, github_api_url, &Account::User)
-            .set_http_headers(Token::Temporal(Secret::new("test".to_string())))
+            .set_http_headers(Token::Temporal(SecretString::new(Box::from("test".to_string()))))
             .unwrap()
             .create_rate_limited_services()
             .build()

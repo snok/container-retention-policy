@@ -487,7 +487,7 @@ mod tests {
     use crate::cli::models::Account;
     use crate::client::builder::PackagesClientBuilder;
     use reqwest::header::HeaderValue;
-    use secrecy::Secret;
+    use secrecy::SecretString;
 
     #[test]
     fn github_headers() {
@@ -533,7 +533,9 @@ mod tests {
         let test_string = "test".to_string();
 
         let client_builder = PackagesClientBuilder::new()
-            .set_http_headers(Token::ClassicPersonalAccess(Secret::new(test_string.clone())))
+            .set_http_headers(Token::ClassicPersonalAccess(SecretString::new(Box::from(
+                test_string.clone(),
+            ))))
             .unwrap();
 
         let set_headers = client_builder.headers.clone().unwrap();
