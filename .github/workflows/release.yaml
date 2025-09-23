@@ -53,7 +53,6 @@ jobs:
           context: .
           platforms: ${{ matrix.platform }}
           outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
-          tags: ${{ env.REGISTRY_IMAGE }}:${{ inputs.version-tag }}-${{ matrix.arch }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
