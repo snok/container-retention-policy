@@ -44,7 +44,7 @@ jobs:
           app-id: 911530
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
 
-      - uses: snok/container-retention-policy@main
+      - uses: snok/container-retention-policy@v3.0.1
         name: Delete test-2-* images with an Github app token
         with:
           account: snok
