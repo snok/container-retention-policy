@@ -37,3 +37,11 @@ You might notice that there's a lot of disabled features in the [Cargo.toml](./C
 This might be redundant, but is a measure for trying to minimize the binary size. We've
 used [cargo-unused-features](https://crates.io/crates/cargo-unused-features) and the
 `unused-features analyze` command to aid in identifying redundant features.
+
+# Releasing a new version
+
+1. Make the necessary changes
+2. Build the docker image
+3. Update the action.yaml file with the new image tag
+4. Commit and push the changes to the main branch
+5. Create a release to tag the latest commit
