@@ -24,7 +24,7 @@ jobs:
           digest301=$(docker manifest inspect ghcr.io/snok/container-retention-policy:v3.0.1 | jq -r '.manifests[].digest' | paste -s -d ' ' -)
           echo "multi-arch-digests=$digest300 $digest301" >> $GITHUB_OUTPUT
 
-      - uses: snok/container-retention-policy@v3.0.0
+      - uses: snok/container-retention-policy@v3.0.1
         name: Delete test-1-* images with a temporal token
         with:
           account: snok
