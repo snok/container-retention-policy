@@ -45,3 +45,4 @@ used [cargo-unused-features](https://crates.io/crates/cargo-unused-features) and
 3. Update the action.yaml file with the new image tag
 4. Commit and push the changes to the main branch
 5. Create a release to tag the latest commit
+6. Update .github/workflows/live_test.yaml to avoid pruning image versions belonging to the new version

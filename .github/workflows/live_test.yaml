@@ -20,8 +20,9 @@ jobs:
       - name: Fetch multi-platform package version SHAs
         id: multi-arch-digests
         run: |
-          digest=$(docker manifest inspect ghcr.io/snok/container-retention-policy:v3.0.0 | jq -r '.manifests[].digest' | paste -s -d ' ' -)
-          echo "multi-arch-digests=$digest" >> $GITHUB_OUTPUT
+          digest300=$(docker manifest inspect ghcr.io/snok/container-retention-policy:v3.0.0 | jq -r '.manifests[].digest' | paste -s -d ' ' -)
+          digest301=$(docker manifest inspect ghcr.io/snok/container-retention-policy:v3.0.1 | jq -r '.manifests[].digest' | paste -s -d ' ' -)
+          echo "multi-arch-digests=$digest300 $digest301" >> $GITHUB_OUTPUT
 
       - uses: snok/container-retention-policy@v3.0.0
         name: Delete test-1-* images with a temporal token
