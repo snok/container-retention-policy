@@ -8,7 +8,7 @@ use reqwest::header::HeaderMap;
 use reqwest::{Client, Method, Request, StatusCode};
 use tokio::time::sleep;
 use tower::{Service, ServiceExt};
-use tracing::{debug, error, info, Span};
+use tracing::{debug, error, info, warn, Span};
 use tracing_indicatif::span_ext::IndicatifSpanExt;
 use url::Url;
 
@@ -497,25 +497,43 @@ impl PackagesClient {
         let response = Client::new().get(url).headers(self.oci_headers.clone()).send().await?;
 
         let raw_json = response.text().await?;
-        let resp: OCIImageIndex = match serde_json::from_str(&raw_json) {
-            Ok(t) => t,
-            Err(e) => {
-                println!("{}", raw_json);
-                return Err(eyre!(
-                    "Failed to fetch image manifest for \x1b[34m{package_name}\x1b[0m:\x1b[32m{tag}\x1b[0m: {e}"
-                ));
-            }
-        };
 
-        Ok((
-            package_name,
-            tag,
-            resp.manifests
-                .unwrap_or(vec![])
-                .iter()
-                .map(|manifest| manifest.digest.to_string())
-                .collect(),
-        ))
+        // Try parsing as OCI Image Index first (multi-platform)
+        if let Ok(index) = serde_json::from_str::<OCIImageIndex>(&raw_json) {
+            debug!(
+                package_name = package_name,
+                tag = tag,
+                "Found multi-platform OCI Image Index manifest"
+            );
+            return Ok((
+                package_name,
+                tag,
+                index.manifests
+                    .unwrap_or(vec![])
+                    .iter()
+                    .map(|manifest| manifest.digest.to_string())
+                    .collect(),
+            ));
+        }
+
+        // Try parsing as Docker Distribution Manifest (single-platform)
+        if let Ok(_manifest) = serde_json::from_str::<DockerDistributionManifest>(&raw_json) {
+            debug!(
+                package_name = package_name,
+                tag = tag,
+                "Found single-platform Docker Distribution Manifest"
+            );
+            // Single-platform image - return empty vec (no child digests to protect)
+            return Ok((package_name, tag, vec![]));
+        }
+
+        // Unknown format - log warning and return empty vec
+        warn!(
+            package_name = package_name,
+            tag = tag,
+            "Unknown manifest format for {package_name}:{tag}, treating as single-platform"
+        );
+        Ok((package_name, tag, vec![]))
     }
 }
 

@@ -255,7 +255,7 @@ pub async fn select_package_versions(
 
     // Create async tasks to fetch everything concurrently
     let mut set = JoinSet::new();
-    for (package_name, owner) in packages {
+    for (package_name, _owner) in packages {
         let span = info_span!("fetch package versions", package_name = %package_name);
         span.pb_set_style(
             &ProgressStyle::default_spinner()
@@ -298,7 +298,7 @@ pub async fn select_package_versions(
 
     while let Some(r) = set.join_next().await {
         // Get all the package versions for a package
-        let (package_name, mut package_versions) = r??;
+        let (package_name, package_versions) = r??;
 
         // Queue fetching of digests for each tag
         let owner = package_owners.get(&package_name).ok_or_else(|| {
