@@ -169,21 +169,24 @@ Users want to see:
 
 **Desired output:**
 ```
-INFO: Fetching manifest for package:v1.0.0
+DEBUG: Fetching manifest for package:v1.0.0
 INFO: Found multi-platform manifest for package:v1.0.0
   - linux/amd64: sha256:abc123...
   - linux/arm64: sha256:def456...
   - linux/arm/v7: sha256:ghi789...
-DEBUG: Skipping deletion of sha256:abc123 because it's associated with package:v1.0.0 (linux/amd64)
+DEBUG: Skipping deletion of sha256:abc123 (truncated) because it's associated with package:v1.0.0 (linux/amd64)
 
-INFO: Fetching manifest for package:v1.0.1
-INFO: Found single-platform manifest for package:v1.0.1
+DEBUG: Fetching manifest for package:v1.0.1
+DEBUG: Found single-platform manifest for package:v1.0.1
+
+INFO: Protected 15 platform-specific images from 5 multi-platform manifests
 ```
 
 **Implementation:**
 - In `fetch_image_manifest`: Log manifest type (multi-platform vs single-platform) and platform count
-- In digest filtering loop: Log platform info when skipping deletion
+- In digest filtering loop: Log platform info when skipping deletion (use truncated digest for readability)
 - Extract platform details from the `Platform` struct for each digest
+- Add summary log after processing all manifests showing total protected images
 
 **Files to modify:**
 - `src/client/client.rs` - Add logging after manifest parsing (partially done in issue #2)
@@ -194,6 +197,7 @@ INFO: Found single-platform manifest for package:v1.0.1
 // In fetch_image_manifest, return platform info along with digests:
 // Return type: Result<(String, String, Vec<(String, Option<String>)>)>
 //              (package_name, tag, vec![(digest, platform_string)])
+//              Note: For single-platform manifests, returns empty vec
 
 let digest_platform_pairs: Vec<(String, Option<String>)> = resp.manifests
     .unwrap_or(vec![])
@@ -207,6 +211,7 @@ let digest_platform_pairs: Vec<(String, Option<String>)> = resp.manifests
     .collect();
 
 // Then in select_package_versions.rs:
+let mut total_protected = 0;
 for (digest, platform_opt) in package_digests {
     let tag_str = if let Some(platform) = platform_opt {
         format!("{package_name}:{tag} ({platform})")
@@ -215,7 +220,10 @@ for (digest, platform_opt) in package_digests {
     };
     digest_tag.insert(digest.clone(), tag_str);
     digests.insert(digest);
+    total_protected += 1;
 }
+// After processing all manifests:
+info!("Protected {total_protected} platform-specific images from {manifest_count} multi-platform manifests");
 ```
 
 ---
