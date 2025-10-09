@@ -26,7 +26,7 @@ The branch has made progress:
 
 ## Issues to Fix
 
-### 1. Hardcoded Package Name ✅ **HIGH PRIORITY**
+### 1. Hardcoded Package Name ✅ **HIGH PRIORITY** - **COMPLETED**
 
 **Location:** [src/client/client.rs:490](src/client/client.rs#L490)
 
@@ -50,6 +50,41 @@ let url = format!("https://ghcr.io/v2/snok%2Fcontainer-retention-policy/manifest
 **Implementation notes:**
 - Only need to support GitHub Container Registry (ghcr.io)
 - Must support multiple owners (different users/organizations)
+
+**Implementation Summary:**
+
+1. **Added `Owner` struct to Package model** ([models.rs:33-36](src/client/models.rs#L33-L36))
+   - Added `Owner` struct with `login` field to capture owner information from GitHub API
+   - Updated `Package` struct to include the `owner` field
+
+2. **Updated PackagesClient to store Account** ([client.rs:15,32](src/client/client.rs#L15,L32))
+   - Added `Account` import and field to `PackagesClient` struct
+
+3. **Updated PackagesClientBuilder** ([builder.rs:19-84,147-171](src/client/builder.rs#L19-L84,L147-L171))
+   - Added `account` field to builder
+   - Updated `generate_urls` to store the account
+   - Updated `build` method to require and pass the account
+
+4. **Updated select_packages flow** ([select_packages.rs:13-62](src/core/select_packages.rs#L13-L62))
+   - Changed `filter_by_matchers` to return `Vec<(String, String)>` (package_name, owner_login)
+   - Updated `select_packages` to return tuples with owner information
+   - Updated tests to include owner information
+
+5. **Updated select_package_versions flow** ([select_package_versions.rs:238-317](src/core/select_package_versions.rs#L238-L317))
+   - Changed function signature to accept `Vec<(String, String)>` instead of `Vec<String>`
+   - Created `package_owners` HashMap for lookup
+   - Updated manifest fetching to pass owner information
+
+6. **Fixed fetch_image_manifest method** ([client.rs:484-519](src/client/client.rs#L484-L519))
+   - Updated signature to accept `owner` parameter
+   - **Fixed hardcoded URL**: Now constructs URL dynamically as `https://ghcr.io/v2/{owner}%2F{package_name}/manifests/{tag}`
+   - Properly URL-encodes the package path
+
+7. **Fixed missing imports**
+   - Added `eyre!` macro import to select_package_versions.rs
+   - Added `info!` macro import to main.rs
+
+**Result:** ✅ Code compiles successfully. The manifest URL is now dynamically constructed using the owner from the Package API response, supporting multiple owners.
 
 ---
 
@@ -315,7 +350,7 @@ fn test_keep_n_most_recent_after_digest_filtering() {
 
 ## Implementation Order
 
-1. ✅ **Fix hardcoded package name** (blocks everything else)
+1. ✅ **Fix hardcoded package name** (blocks everything else) - **COMPLETED**
 2. ✅ **Improve manifest type handling** (critical for correctness)
 3. ✅ **Fix keep-n-most-recent logic** (potential bug)
 4. ✅ **Enhanced logging** (improves user experience)
@@ -332,7 +367,7 @@ None currently - all clarifications received:
 
 ## Progress Tracking
 
-- [ ] Issue #1: Fix hardcoded package name
+- [x] Issue #1: Fix hardcoded package name - **COMPLETED**
 - [ ] Issue #2: Improve manifest fetching
 - [ ] Issue #3: Enhanced logging
 - [ ] Issue #4: Fix keep-n-most-recent logic

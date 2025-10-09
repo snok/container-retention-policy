@@ -12,7 +12,7 @@ use tracing::{debug, error, info, Span};
 use tracing_indicatif::span_ext::IndicatifSpanExt;
 use url::Url;
 
-use crate::cli::models::Token;
+use crate::cli::models::{Account, Token};
 use crate::client::builder::RateLimitedService;
 use crate::client::headers::GithubHeaders;
 use crate::client::models::{Package, PackageVersion};
@@ -29,6 +29,7 @@ pub struct PackagesClient {
     pub list_package_versions_service: RateLimitedService,
     pub delete_package_versions_service: RateLimitedService,
     pub token: Token,
+    pub account: Account,
 }
 
 impl PackagesClient {
@@ -482,12 +483,15 @@ impl PackagesClient {
 
     pub async fn fetch_image_manifest(
         &self,
+        owner: String,
         package_name: String,
         tag: String,
     ) -> Result<(String, String, Vec<String>)> {
         debug!(tag = tag, "Retrieving image manifest");
 
-        let url = format!("https://ghcr.io/v2/snok%2Fcontainer-retention-policy/manifests/{tag}");
+        // URL-encode the package path (owner/package_name)
+        let package_path = format!("{}%2F{}", owner, package_name);
+        let url = format!("https://ghcr.io/v2/{}/manifests/{}", package_path, tag);
 
         // Construct initial request
         let response = Client::new().get(url).headers(self.oci_headers.clone()).send().await?;

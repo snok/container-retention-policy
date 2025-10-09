@@ -31,9 +31,15 @@ impl PackageVersion {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct Owner {
+    pub login: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct Package {
     pub id: u32,
     pub name: String,
+    pub owner: Owner,
     pub created_at: DateTime<Utc>,
     pub updated_at: Option<DateTime<Utc>>,
 }

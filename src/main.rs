@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use color_eyre::eyre::Result;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info_span, trace, Instrument};
+use tracing::{debug, error, info, info_span, trace, Instrument};
 use tracing_indicatif::IndicatifLayer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;

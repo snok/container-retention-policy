@@ -22,6 +22,7 @@ pub struct PackagesClientBuilder {
     pub oci_headers: Option<HeaderMap>,
     pub urls: Option<Urls>,
     pub token: Option<Token>,
+    pub account: Option<Account>,
     pub fetch_package_service: Option<RateLimitedService>,
     pub list_packages_service: Option<RateLimitedService>,
     pub list_package_versions_service: Option<RateLimitedService>,
@@ -40,6 +41,7 @@ impl PackagesClientBuilder {
             list_package_versions_service: None,
             delete_package_versions_service: None,
             token: None,
+            account: None,
         }
     }
 
@@ -78,6 +80,7 @@ impl PackagesClientBuilder {
     pub fn generate_urls(mut self, github_server_url: &Url, github_api_url: &Url, account: &Account) -> Self {
         debug!("Constructing base urls");
         self.urls = Some(Urls::new(github_server_url, github_api_url, account));
+        self.account = Some(account.clone());
         self
     }
 
@@ -149,6 +152,7 @@ impl PackagesClientBuilder {
             || self.list_package_versions_service.is_none()
             || self.delete_package_versions_service.is_none()
             || self.token.is_none()
+            || self.account.is_none()
         {
             return Err("All required fields are not set".into());
         }
@@ -163,6 +167,7 @@ impl PackagesClientBuilder {
             list_package_versions_service: self.list_package_versions_service.unwrap(),
             delete_package_versions_service: self.delete_package_versions_service.unwrap(),
             token: self.token.unwrap(),
+            account: self.account.unwrap(),
         };
 
         Ok(client)
