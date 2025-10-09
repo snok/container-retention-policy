@@ -106,37 +106,52 @@ let resp: OCIImageIndex = match serde_json::from_str(&raw_json) {
 ```
 
 **Problems:**
-- Only handles OCI Image Index format
-- Parse failure returns error instead of handling single-platform manifests
-- Poor error messages
+- Parse failures return error instead of handling gracefully
+- Poor error messages and debugging
+- Doesn't distinguish between multi-platform and single-platform images in logs
 
-**Solution:**
-Handle both manifest types:
-- **OCI Image Index** (`application/vnd.oci.image.index.v1+json`) - multi-platform
-  - Has `manifests` array with platform-specific digests
-- **Docker Distribution Manifest** (`application/vnd.docker.distribution.manifest.v2+json`) - single-platform
-  - No `manifests` array, represents a single platform
+**Solution (Keep it Simple - Option 2):**
+
+GHCR returns OCI Image Index format when requested via Accept header. We don't need to parse multiple manifest types:
+- **Multi-platform images** - `manifests` array contains multiple platform-specific digests
+- **Single-platform images** - `manifests` array is empty, None, or has single entry
+- **Current code** already handles this with `unwrap_or(vec![])` on line 514
+
+**What to improve:**
+1. Better error handling - don't fail entire operation on parse errors
+2. Better logging - distinguish multi-platform vs single-platform
+3. Remove debug `println!` statement
 
 **Implementation approach:**
 ```rust
-// Try parsing as OCI Image Index first
-if let Ok(index) = serde_json::from_str::<OCIImageIndex>(&raw_json) {
-    // Multi-platform image
-    return Ok((package_name, tag, extract_digests_from_index(index)));
+let resp: OCIImageIndex = match serde_json::from_str(&raw_json) {
+    Ok(t) => t,
+    Err(e) => {
+        warn!("Failed to parse manifest for {package_name}:{tag}: {e}");
+        debug!("Manifest content: {raw_json}");
+        // Return empty digest list - treat as single-platform or inaccessible
+        return Ok((package_name, tag, vec![]));
+    }
+};
+
+let digests: Vec<String> = resp.manifests
+    .unwrap_or(vec![])
+    .iter()
+    .map(|manifest| manifest.digest.to_string())
+    .collect();
+
+// Log what we found
+if digests.is_empty() {
+    debug!("Single-platform image for {package_name}:{tag} (no child digests)");
+} else {
+    info!("Multi-platform image for {package_name}:{tag} with {} platform(s)", digests.len());
 }
 
-// Try parsing as Docker Distribution Manifest
-if let Ok(manifest) = serde_json::from_str::<DockerDistributionManifest>(&raw_json) {
-    // Single-platform image - return empty vec (no child digests to protect)
-    return Ok((package_name, tag, vec![]));
-}
-
-// Unknown format
-Err(eyre!("Unknown manifest format for {package_name}:{tag}"))
+Ok((package_name, tag, digests))
 ```
 
 **Files to modify:**
-- `src/client/client.rs` - Update manifest parsing logic
+- `src/client/client.rs` - Update manifest parsing logic with better error handling and logging
 
 ---
 
@@ -168,22 +183,41 @@ INFO: Found single-platform manifest for package:v1.0.1
 ```
 
 **Implementation:**
-- In `fetch_image_manifest`: Log manifest type and platforms
+- In `fetch_image_manifest`: Log manifest type (multi-platform vs single-platform) and platform count
 - In digest filtering loop: Log platform info when skipping deletion
-- Use structured logging with platform details from the `Platform` struct
+- Extract platform details from the `Platform` struct for each digest
 
 **Files to modify:**
-- `src/client/client.rs` - Add logging after manifest parsing
+- `src/client/client.rs` - Add logging after manifest parsing (partially done in issue #2)
 - `src/core/select_package_versions.rs` - Enhance digest filtering logs
 
-**Enhancement:** Store platform info in `digest_tag` HashMap:
+**Enhancement:** Store platform info in `digest_tag` HashMap and return it from fetch_image_manifest:
 ```rust
-// Current: digest -> "package:tag"
-// Enhanced: digest -> (tag, platform_string)
-digest_tag.insert(digest, (
-    format!("package:tag"),
-    format!("linux/amd64") // from platform.os/platform.architecture
-));
+// In fetch_image_manifest, return platform info along with digests:
+// Return type: Result<(String, String, Vec<(String, Option<String>)>)>
+//              (package_name, tag, vec![(digest, platform_string)])
+
+let digest_platform_pairs: Vec<(String, Option<String>)> = resp.manifests
+    .unwrap_or(vec![])
+    .iter()
+    .map(|manifest| {
+        let platform_str = manifest.platform.as_ref().map(|p|
+            format!("{}/{}", p.os, p.architecture)
+        );
+        (manifest.digest.clone(), platform_str)
+    })
+    .collect();
+
+// Then in select_package_versions.rs:
+for (digest, platform_opt) in package_digests {
+    let tag_str = if let Some(platform) = platform_opt {
+        format!("{package_name}:{tag} ({platform})")
+    } else {
+        format!("{package_name}:{tag}")
+    };
+    digest_tag.insert(digest.clone(), tag_str);
+    digests.insert(digest);
+}
 ```
 
 ---
@@ -307,16 +341,20 @@ if !response.status().is_success() {
 #[test]
 fn test_parse_multiplatform_manifest() {
     // Test parsing OCI Image Index with multiple platforms
+    // Verify digests are extracted correctly
+    // Verify platform info is captured
 }
 
 #[test]
 fn test_parse_singleplatform_manifest() {
-    // Test parsing Docker Distribution Manifest
+    // Test parsing OCI Image Index with empty/None manifests array
+    // Verify returns empty vec
 }
 
 #[test]
-fn test_parse_unknown_manifest() {
-    // Test handling of unknown format
+fn test_parse_invalid_manifest() {
+    // Test handling of invalid JSON
+    // Verify returns Ok with empty vec instead of Err
 }
 ```
 
@@ -364,6 +402,7 @@ None currently - all clarifications received:
 - ✅ Must support multiple owners
 - ✅ keep-n-most-recent calculated without matching tags/shas (after filtering)
 - ✅ Authentication approach is adequate (low priority)
+- ✅ Manifest parsing: Keep it simple - only parse OCI Image Index format (current approach is sufficient)
 
 ## Progress Tracking
 
