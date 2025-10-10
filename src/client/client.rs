@@ -502,9 +502,41 @@ impl PackagesClient {
         let url = format!("https://ghcr.io/v2/{}/manifests/{}", package_path, tag);
 
         // Construct initial request
-        let response = Client::new().get(url).headers(self.oci_headers.clone()).send().await?;
+        let response = match Client::new().get(url).headers(self.oci_headers.clone()).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                warn!(
+                    package_name = package_name,
+                    tag = tag,
+                    "Failed to fetch manifest for {package_name}:{tag}: {e}"
+                );
+                return Ok((package_name, tag, vec![]));
+            }
+        };
 
-        let raw_json = response.text().await?;
+        // Check for non-success HTTP status codes
+        if !response.status().is_success() {
+            warn!(
+                package_name = package_name,
+                tag = tag,
+                status = %response.status(),
+                "Got {} when fetching manifest for {package_name}:{tag}",
+                response.status()
+            );
+            return Ok((package_name, tag, vec![]));
+        }
+
+        let raw_json = match response.text().await {
+            Ok(text) => text,
+            Err(e) => {
+                warn!(
+                    package_name = package_name,
+                    tag = tag,
+                    "Failed to read manifest response body for {package_name}:{tag}: {e}"
+                );
+                return Ok((package_name, tag, vec![]));
+            }
+        };
 
         // Try parsing as OCI Image Index first (multi-platform)
         if let Ok(index) = serde_json::from_str::<OCIImageIndex>(&raw_json) {

@@ -276,7 +276,7 @@ package_versions.tagged = handle_keep_n_most_recent(
 
 ---
 
-### 5. Edge Cases and Error Handling ✅ **MEDIUM PRIORITY**
+### 5. Edge Cases and Error Handling ✅ **MEDIUM PRIORITY** - **COMPLETED**
 
 **Location:** [src/client/client.rs:483-515](src/client/client.rs#L483-L515)
 
@@ -317,6 +317,41 @@ if !response.status().is_success() {
 
 **Files to modify:**
 - `src/client/client.rs` - Add error handling
+
+**Implementation Summary:**
+
+1. **Added error handling for network failures** ([client.rs:505-515](src/client/client.rs#L505-L515))
+   - Wrapped `.send().await` in a match statement
+   - On network error, logs warning with error details
+   - Returns `Ok((package_name, tag, vec![]))` instead of failing entire operation
+   - Treats failed manifest fetches as single-platform images (no child digests)
+
+2. **Added HTTP status code checking** ([client.rs:517-527](src/client/client.rs#L517-L527))
+   - Checks if response status is successful before processing
+   - Handles 404 Not Found, 401 Unauthorized, 403 Forbidden, etc.
+   - Logs warning with HTTP status code
+   - Returns empty vec (treats as single-platform) instead of failing
+
+3. **Added error handling for response body reading** ([client.rs:529-539](src/client/client.rs#L529-L539))
+   - Wrapped `.text().await` in a match statement
+   - Handles errors reading response body
+   - Logs warning and returns empty vec
+
+**Error handling strategy:**
+
+All manifest fetch errors are treated as non-fatal:
+
+- Operation continues for other packages
+- Failed manifest is treated as single-platform (no child digests to protect)
+- Clear warning logs help users diagnose issues
+- Retention policy run completes successfully even if some manifests can't be fetched
+
+**Cases already handled:**
+
+- **Single-platform manifests**: Already handled correctly with debug logging ([client.rs:544-551,558-565](src/client/client.rs#L544-L551,L558-L565))
+- **Unknown manifest formats**: Already handled with warning logging ([client.rs:568-573](src/client/client.rs#L568-L573))
+
+**Result:** ✅ Code compiles successfully. Manifest fetching is now robust and won't fail the entire retention policy run due to individual manifest fetch failures.
 
 ---
 
@@ -384,7 +419,7 @@ fn test_keep_n_most_recent_after_digest_filtering() {
 2. ✅ **Improve manifest type handling** (critical for correctness) - **COMPLETED**
 3. ✅ **Enhanced logging** (improves user experience) - **COMPLETED**
 4. ✅ **Fix keep-n-most-recent logic** (potential bug) - **COMPLETED**
-5. ✅ **Edge case handling** (robustness)
+5. ✅ **Edge case handling** (robustness) - **COMPLETED**
 6. ✅ **Testing** (quality assurance)
 
 ## Open Questions
@@ -470,7 +505,7 @@ None currently - all clarifications received:
 - [x] Issue #3: Enhanced logging - **COMPLETED**
 - [x] **Refactoring: Simplify owner handling** - **COMPLETED**
 - [x] Issue #4: Fix keep-n-most-recent logic - **COMPLETED**
-- [ ] Issue #5: Edge case handling
+- [x] Issue #5: Edge case handling - **COMPLETED**
 - [ ] Issue #6: Testing
 - [ ] Final review and testing
 - [ ] Update documentation (README)
