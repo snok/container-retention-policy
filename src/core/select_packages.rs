@@ -10,7 +10,7 @@ use tracing::{debug, info};
 /// Filter packages by package name-matchers.
 ///
 /// See the [`Matchers`] definition for details on what matchers are.
-fn filter_by_matchers(packages: &[Package], matchers: &Matchers) -> Vec<(String, String)> {
+fn filter_by_matchers(packages: &[Package], matchers: &Matchers) -> Vec<String> {
     packages
         .iter()
         .filter_map(|p| {
@@ -18,10 +18,10 @@ fn filter_by_matchers(packages: &[Package], matchers: &Matchers) -> Vec<(String,
                 return None;
             };
             if matchers.positive.is_empty() {
-                return Some((p.name.to_string(), p.owner.login.to_string()));
+                return Some(p.name.to_string());
             };
             if matchers.positive_match(&p.name) {
-                return Some((p.name.to_string(), p.owner.login.to_string()));
+                return Some(p.name.to_string());
             };
             debug!("No match for package {} in {:?}", p.name, matchers.positive);
             None
@@ -30,14 +30,14 @@ fn filter_by_matchers(packages: &[Package], matchers: &Matchers) -> Vec<(String,
 }
 
 /// Fetch and filters packages based on token type, account type, and image name filters.
-/// Returns a vector of tuples (package_name, owner_login).
+/// Returns a vector of package names.
 pub async fn select_packages(
     client: &mut PackagesClient,
     image_names: &Vec<String>,
     token: &Token,
     account: &Account,
     counts: Arc<Counts>,
-) -> Vec<(String, String)> {
+) -> Vec<String> {
     // Fetch all packages that the account owns
     let packages = client.fetch_packages(token, image_names, counts.clone()).await;
 
@@ -79,7 +79,7 @@ mod tests {
             updated_at: None,
         }];
         // Negative matches
-        let empty_vec: Vec<(String, String)> = vec![];
+        let empty_vec: Vec<String> = vec![];
         assert_eq!(
             filter_by_matchers(&packages, &Matchers::from(&vec![String::from("!foo")])),
             empty_vec
@@ -99,11 +99,11 @@ mod tests {
                 &packages,
                 &Matchers::from(&vec![String::from("!bar"), String::from("!baz")])
             ),
-            vec![("foo".to_string(), "test-owner".to_string())]
+            vec!["foo".to_string()]
         );
         assert_eq!(
             filter_by_matchers(&packages, &Matchers::from(&vec![String::from("!")])),
-            vec![("foo".to_string(), "test-owner".to_string())]
+            vec!["foo".to_string()]
         );
 
         // No positive matches
@@ -118,15 +118,15 @@ mod tests {
         // Positive matches
         assert_eq!(
             filter_by_matchers(&packages, &Matchers::from(&vec![String::from("foo")])),
-            vec![("foo".to_string(), "test-owner".to_string())]
+            vec!["foo".to_string()]
         );
         assert_eq!(
             filter_by_matchers(&packages, &Matchers::from(&vec![String::from("*")])),
-            vec![("foo".to_string(), "test-owner".to_string())]
+            vec!["foo".to_string()]
         );
         assert_eq!(
             filter_by_matchers(&packages, &Matchers::from(&vec![String::from("f*")])),
-            vec![("foo".to_string(), "test-owner".to_string())]
+            vec!["foo".to_string()]
         );
     }
 }

@@ -385,11 +385,79 @@ None currently - all clarifications received:
 - ✅ keep-n-most-recent calculated without matching tags/shas (after filtering)
 - ✅ Authentication approach is adequate (low priority)
 
+## Refactoring: Simplify Owner Handling
+
+**Issue:** Issue #1 implementation passes owner per-package, but all packages in a single run belong to the same owner.
+
+**Current unnecessary complexity:**
+- `select_packages` returns `Vec<(String, String)>` with owner for each package
+- `select_package_versions` builds `HashMap<String, String>` to map package → owner
+- Each manifest fetch looks up owner from the HashMap
+
+**Simplified approach:**
+- Store owner once in `PackagesClient` after fetching first package
+- `select_packages` returns `Vec<String>` (just package names)
+- `select_package_versions` accepts `Vec<String>`
+- Manifest fetches use `self.owner` from client
+
+**Implementation:**
+
+1. **Add owner field to PackagesClient** ([client.rs:32](src/client/client.rs#L32))
+   ```rust
+   pub struct PackagesClient {
+       // ... existing fields ...
+       pub account: Account,
+       pub owner: Option<String>,  // Add this
+   }
+   ```
+
+2. **Update fetch_packages to store owner** ([client.rs:36-75](src/client/client.rs#L36-L75))
+   - After fetching first package, extract and store `owner.login`
+   - Store in `self.owner = Some(package.owner.login.clone())`
+
+3. **Revert select_packages to return Vec<String>** ([select_packages.rs:13-62](src/core/select_packages.rs#L13-L62))
+   - Change `filter_by_matchers` return type to `Vec<String>`
+   - Remove owner extraction from filter logic
+   - Update tests to expect just package names
+
+4. **Revert select_package_versions signature** ([select_package_versions.rs:239-254](src/core/select_package_versions.rs#L239-L254))
+   - Change parameter from `Vec<(String, String)>` to `Vec<String>`
+   - Remove `package_owners` HashMap construction
+   - Update loop to iterate over package names only
+
+5. **Update fetch_image_manifest** ([client.rs:484-537](src/client/client.rs#L484-L537))
+   - Remove `owner` parameter from signature
+   - Use `self.owner.as_ref().unwrap()` in URL construction
+
+6. **Update manifest fetch calls** ([select_package_versions.rs:309-313](src/core/select_package_versions.rs#L309-L313))
+   - Remove owner parameter from fetch calls
+
+7. **Keep Owner in Package model** ([models.rs:33-42](src/client/models.rs#L33-L42))
+   - Keep `Owner` struct and field in `Package` (still needed for API deserialization)
+   - Used only during initial fetch to populate `client.owner`
+
+**Benefits:**
+- Simpler code: no tuples, no HashMap lookup
+- Better performance: less memory allocation
+- Clearer intent: owner is a property of the client, not each package
+- More maintainable: single source of truth
+
+**Files modified:**
+- `src/client/client.rs` - Added owner field, store owner in fetch_packages, updated fetch_image_manifest
+- `src/client/builder.rs` - Initialize owner as None
+- `src/core/select_packages.rs` - Return Vec<String>, updated tests
+- `src/core/select_package_versions.rs` - Accept Vec<String>, removed HashMap, removed unused import
+
+**Result:** ✅ Code compiles successfully without warnings. Owner handling is now simplified with a single source of truth in PackagesClient.
+
+---
+
 ## Progress Tracking
 
 - [x] Issue #1: Fix hardcoded package name - **COMPLETED**
 - [x] Issue #2: Improve manifest fetching - **COMPLETED**
 - [x] Issue #3: Enhanced logging - **COMPLETED**
+- [x] **Refactoring: Simplify owner handling** - **COMPLETED**
 - [ ] Issue #4: Fix keep-n-most-recent logic
 - [ ] Issue #5: Edge case handling
 - [ ] Issue #6: Testing

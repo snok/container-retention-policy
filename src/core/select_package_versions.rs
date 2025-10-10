@@ -5,7 +5,6 @@ use crate::client::urls::Urls;
 use crate::matchers::Matchers;
 use crate::{Counts, PackageVersions};
 use chrono::Utc;
-use color_eyre::eyre::eyre;
 use color_eyre::Result;
 use humantime::Duration as HumantimeDuration;
 use indicatif::ProgressStyle;
@@ -237,7 +236,7 @@ pub fn filter_package_versions(
 /// Fetches and filters package versions by account type, image-tag filters, cut-off,
 /// tag-selection, and a bunch of other things. Fetches versions concurrently.
 pub async fn select_package_versions(
-    packages: Vec<(String, String)>,
+    packages: Vec<String>,
     client: &'static PackagesClient,
     image_tags: Vec<String>,
     shas_to_skip: Vec<String>,
@@ -250,12 +249,9 @@ pub async fn select_package_versions(
     // Create matchers for the image tags
     let matchers = Matchers::from(&image_tags);
 
-    // Create a map from package name to owner for later use
-    let package_owners: HashMap<String, String> = packages.iter().cloned().collect();
-
     // Create async tasks to fetch everything concurrently
     let mut set = JoinSet::new();
-    for (package_name, _owner) in packages {
+    for package_name in packages {
         let span = info_span!("fetch package versions", package_name = %package_name);
         span.pb_set_style(
             &ProgressStyle::default_spinner()
@@ -301,13 +297,9 @@ pub async fn select_package_versions(
         let (package_name, package_versions) = r??;
 
         // Queue fetching of digests for each tag
-        let owner = package_owners.get(&package_name).ok_or_else(|| {
-            eyre!("Could not find owner for package {}", package_name)
-        })?;
         for package_version in &package_versions.tagged {
             for tag in &package_version.metadata.container.tags {
                 fetch_digest_set.spawn(client.fetch_image_manifest(
-                    owner.clone(),
                     package_name.clone(),
                     tag.clone()
                 ));

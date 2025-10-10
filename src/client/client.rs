@@ -30,6 +30,7 @@ pub struct PackagesClient {
     pub delete_package_versions_service: RateLimitedService,
     pub token: Token,
     pub account: Account,
+    pub owner: Option<String>,
 }
 
 impl PackagesClient {
@@ -39,7 +40,7 @@ impl PackagesClient {
         image_names: &Vec<String>,
         counts: Arc<Counts>,
     ) -> Vec<Package> {
-        if let Token::Temporal(_) = *token {
+        let packages = if let Token::Temporal(_) = *token {
             // If a repo is assigned the admin role under Package Settings > Manage Actions Access,
             // then it can fetch a package's versions directly by name, and delete them. It cannot,
             // however, list packages, so for this token type we are limited to fetching packages
@@ -54,7 +55,14 @@ impl PackagesClient {
             self.list_packages(self.urls.list_packages_url.clone(), counts)
                 .await
                 .expect("Failed to fetch packages")
+        };
+
+        // Store the owner from the first package (all packages have the same owner in a single run)
+        if let Some(first_package) = packages.first() {
+            self.owner = Some(first_package.owner.login.clone());
         }
+
+        packages
     }
 
     async fn fetch_packages_with_pagination(
@@ -483,13 +491,13 @@ impl PackagesClient {
 
     pub async fn fetch_image_manifest(
         &self,
-        owner: String,
         package_name: String,
         tag: String,
     ) -> Result<(String, String, Vec<(String, Option<String>)>)> {
         debug!(tag = tag, "Retrieving image manifest");
 
         // URL-encode the package path (owner/package_name)
+        let owner = self.owner.as_ref().expect("Owner should be set after fetching packages");
         let package_path = format!("{}%2F{}", owner, package_name);
         let url = format!("https://ghcr.io/v2/{}/manifests/{}", package_path, tag);
 

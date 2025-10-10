@@ -168,6 +168,7 @@ impl PackagesClientBuilder {
             delete_package_versions_service: self.delete_package_versions_service.unwrap(),
             token: self.token.unwrap(),
             account: self.account.unwrap(),
+            owner: None,
         };
 
         Ok(client)
