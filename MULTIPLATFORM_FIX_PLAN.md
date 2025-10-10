@@ -153,78 +153,53 @@ Handle both manifest types gracefully:
 
 ---
 
-### 3. Enhanced Logging ✅ **MEDIUM PRIORITY**
+### 3. Enhanced Logging ✅ **MEDIUM PRIORITY** - **COMPLETED**
 
 **Locations:**
-- [src/core/select_package_versions.rs:313-335](src/core/select_package_versions.rs#L313-L335)
-- [src/client/client.rs:483-515](src/client/client.rs#L483-L515)
+- [src/core/select_package_versions.rs:320-374](src/core/select_package_versions.rs#L320-L374)
+- [src/client/client.rs:484-562](src/client/client.rs#L484-L562)
 
 **Current state:** Basic logging exists but lacks detail
 
 **Goals:**
+
 Users want to see:
+
 - Media type (multi-platform vs single-platform)
 - Platform details (architecture, OS) for each digest
 - Which SHAs are being preserved and why
 
-**Desired output:**
-```
-DEBUG: Fetching manifest for package:v1.0.0
-INFO: Found multi-platform manifest for package:v1.0.0
-  - linux/amd64: sha256:abc123...
-  - linux/arm64: sha256:def456...
-  - linux/arm/v7: sha256:ghi789...
-DEBUG: Skipping deletion of sha256:abc123 (truncated) because it's associated with package:v1.0.0 (linux/amd64)
+**Implementation Summary:**
 
-DEBUG: Fetching manifest for package:v1.0.1
-DEBUG: Found single-platform manifest for package:v1.0.1
+1. **Updated Platform struct** ([client.rs:585-591](src/client/client.rs#L585-L591))
+   - Added optional `variant` field to support platforms like `linux/arm/v7`
 
-INFO: Protected 15 platform-specific images from 5 multi-platform manifests
-```
+2. **Enhanced fetch_image_manifest logging** ([client.rs:514-543](src/client/client.rs#L514-L543))
+   - Changed return type to `Vec<(String, Option<String>)>` to include platform info
+   - Added INFO log when multi-platform manifest is found
+   - Logs each platform with Docker-style short digest (12 hex chars): `- linux/amd64: abc123def456`
+   - Handles platform variant (e.g., `linux/arm/v7`)
 
-**Implementation:**
-- In `fetch_image_manifest`: Log manifest type (multi-platform vs single-platform) and platform count
-- In digest filtering loop: Log platform info when skipping deletion (use truncated digest for readability)
-- Extract platform details from the `Platform` struct for each digest
-- Add summary log after processing all manifests showing total protected images
+3. **Updated digest processing** ([select_package_versions.rs:320-348](src/core/select_package_versions.rs#L320-L348))
+   - Modified to handle tuples of (digest, platform)
+   - Stores platform info in `digest_tag` HashMap with color coding
+   - Tracks `total_protected` and `manifest_count` for summary
 
-**Files to modify:**
-- `src/client/client.rs` - Add logging after manifest parsing (partially done in issue #2)
-- `src/core/select_package_versions.rs` - Enhance digest filtering logs
+4. **Enhanced SHA skipping logs** ([select_package_versions.rs:357-373](src/core/select_package_versions.rs#L357-L373))
+   - Truncates digests to Docker-style format (12 hex chars, removing "sha256:" prefix)
+   - Shows which tag and platform the digest is associated with
+   - Example: `Skipping deletion of abc123def456 because it's associated with package:v1.0.0 (linux/amd64)`
 
-**Enhancement:** Store platform info in `digest_tag` HashMap and return it from fetch_image_manifest:
-```rust
-// In fetch_image_manifest, return platform info along with digests:
-// Return type: Result<(String, String, Vec<(String, Option<String>)>)>
-//              (package_name, tag, vec![(digest, platform_string)])
-//              Note: For single-platform manifests, returns empty vec
+5. **Added summary logging** ([select_package_versions.rs:346-348](src/core/select_package_versions.rs#L346-L348))
+   - Shows total protected images and manifest count
+   - Example: `Protected 15 platform-specific image(s) from 5 multi-platform manifest(s)`
 
-let digest_platform_pairs: Vec<(String, Option<String>)> = resp.manifests
-    .unwrap_or(vec![])
-    .iter()
-    .map(|manifest| {
-        let platform_str = manifest.platform.as_ref().map(|p|
-            format!("{}/{}", p.os, p.architecture)
-        );
-        (manifest.digest.clone(), platform_str)
-    })
-    .collect();
+**Result:** ✅ Code compiles successfully. Logging now provides clear visibility into multi-platform images, platform details, and which digests are being protected.
 
-// Then in select_package_versions.rs:
-let mut total_protected = 0;
-for (digest, platform_opt) in package_digests {
-    let tag_str = if let Some(platform) = platform_opt {
-        format!("{package_name}:{tag} ({platform})")
-    } else {
-        format!("{package_name}:{tag}")
-    };
-    digest_tag.insert(digest.clone(), tag_str);
-    digests.insert(digest);
-    total_protected += 1;
-}
-// After processing all manifests:
-info!("Protected {total_protected} platform-specific images from {manifest_count} multi-platform manifests");
-```
+**Files modified:**
+
+- `src/client/client.rs` - Enhanced manifest parsing with platform logging
+- `src/core/select_package_versions.rs` - Enhanced digest filtering logs with platform details
 
 ---
 
@@ -396,8 +371,8 @@ fn test_keep_n_most_recent_after_digest_filtering() {
 
 1. ✅ **Fix hardcoded package name** (blocks everything else) - **COMPLETED**
 2. ✅ **Improve manifest type handling** (critical for correctness) - **COMPLETED**
-3. ✅ **Fix keep-n-most-recent logic** (potential bug)
-4. ✅ **Enhanced logging** (improves user experience)
+3. ✅ **Enhanced logging** (improves user experience) - **COMPLETED**
+4. ✅ **Fix keep-n-most-recent logic** (potential bug)
 5. ✅ **Edge case handling** (robustness)
 6. ✅ **Testing** (quality assurance)
 
@@ -414,7 +389,7 @@ None currently - all clarifications received:
 
 - [x] Issue #1: Fix hardcoded package name - **COMPLETED**
 - [x] Issue #2: Improve manifest fetching - **COMPLETED**
-- [ ] Issue #3: Enhanced logging
+- [x] Issue #3: Enhanced logging - **COMPLETED**
 - [ ] Issue #4: Fix keep-n-most-recent logic
 - [ ] Issue #5: Edge case handling
 - [ ] Issue #6: Testing

@@ -320,29 +320,31 @@ pub async fn select_package_versions(
     debug!("Fetching package versions");
     let mut digests = HashSet::new();
     let mut digest_tag = HashMap::new();
+    let mut total_protected = 0;
+    let mut manifest_count = 0;
 
     while let Some(r) = fetch_digest_set.join_next().await {
-        // Get all the digests for the package
+        // Get all the digests for the package with platform information
         let (package_name, tag, package_digests) = r??;
 
-        if package_digests.is_empty() {
-            debug!(
-                package_name = package_name,
-                "Found {} associated digests for \x1b[34m{package_name}\x1b[0m:\x1b[32m{tag}\x1b[0m",
-                package_digests.len()
-            );
-        } else {
-            info!(
-                package_name = package_name,
-                "Found {} associated digests for \x1b[34m{package_name}\x1b[0m:\x1b[32m{tag}\x1b[0m",
-                package_digests.len()
-            );
+        if !package_digests.is_empty() {
+            manifest_count += 1;
         }
 
-        digests.extend(package_digests.clone());
-        for digest in package_digests.into_iter() {
-            digest_tag.insert(digest, format!("\x1b[34m{package_name}\x1b[0m:\x1b[32m{tag}\x1b[0m"));
+        for (digest, platform_opt) in package_digests.into_iter() {
+            let tag_str = if let Some(platform) = platform_opt {
+                format!("\x1b[34m{package_name}\x1b[0m:\x1b[32m{tag}\x1b[0m (\x1b[36m{platform}\x1b[0m)")
+            } else {
+                format!("\x1b[34m{package_name}\x1b[0m:\x1b[32m{tag}\x1b[0m")
+            };
+            digest_tag.insert(digest.clone(), tag_str);
+            digests.insert(digest);
+            total_protected += 1;
         }
+    }
+
+    if total_protected > 0 {
+        info!("Protected {total_protected} platform-specific image(s) from {manifest_count} multi-platform manifest(s)");
     }
 
     let mut package_version_map = HashMap::new();
@@ -355,9 +357,14 @@ pub async fn select_package_versions(
                 if digests.contains(&package_version.name) {
                     let x: String = package_version.name.clone();
                     let association: &String = digest_tag.get(&x as &str).unwrap();
+                    // Truncate the digest for readability (Docker-style: 12 hex chars after sha256:)
+                    let digest_short = if package_version.name.starts_with("sha256:") && package_version.name.len() >= 19 {
+                        &package_version.name[7..19]  // Skip "sha256:" and take 12 hex chars
+                    } else {
+                        &package_version.name
+                    };
                     debug!(
-                        "Skipping deletion of {} because it's associated with {association}",
-                        package_version.name
+                        "Skipping deletion of {digest_short} because it's associated with {association}"
                     );
                     None
                 } else {

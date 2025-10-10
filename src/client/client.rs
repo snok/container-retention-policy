@@ -486,7 +486,7 @@ impl PackagesClient {
         owner: String,
         package_name: String,
         tag: String,
-    ) -> Result<(String, String, Vec<String>)> {
+    ) -> Result<(String, String, Vec<(String, Option<String>)>)> {
         debug!(tag = tag, "Retrieving image manifest");
 
         // URL-encode the package path (owner/package_name)
@@ -500,20 +500,49 @@ impl PackagesClient {
 
         // Try parsing as OCI Image Index first (multi-platform)
         if let Ok(index) = serde_json::from_str::<OCIImageIndex>(&raw_json) {
-            debug!(
+            let manifests = index.manifests.unwrap_or(vec![]);
+
+            if manifests.is_empty() {
+                debug!(
+                    package_name = package_name,
+                    tag = tag,
+                    "Found single-platform OCI Image Index manifest"
+                );
+                return Ok((package_name, tag, vec![]));
+            }
+
+            info!(
                 package_name = package_name,
                 tag = tag,
-                "Found multi-platform OCI Image Index manifest"
+                "Found multi-platform manifest for \x1b[34m{package_name}\x1b[0m:\x1b[32m{tag}\x1b[0m"
             );
-            return Ok((
-                package_name,
-                tag,
-                index.manifests
-                    .unwrap_or(vec![])
-                    .iter()
-                    .map(|manifest| manifest.digest.to_string())
-                    .collect(),
-            ));
+
+            let digest_platform_pairs: Vec<(String, Option<String>)> = manifests
+                .iter()
+                .map(|manifest| {
+                    let platform_str = manifest.platform.as_ref().map(|p| {
+                        if let Some(variant) = &p.variant {
+                            format!("{}/{}/{}", p.os, p.architecture, variant)
+                        } else {
+                            format!("{}/{}", p.os, p.architecture)
+                        }
+                    });
+
+                    // Log each platform with Docker-style short digest (12 chars after sha256:)
+                    if let Some(ref platform) = platform_str {
+                        let digest_short = if manifest.digest.starts_with("sha256:") && manifest.digest.len() >= 19 {
+                            &manifest.digest[7..19]  // Skip "sha256:" and take 12 hex chars
+                        } else {
+                            &manifest.digest
+                        };
+                        info!("  - {}: {}", platform, digest_short);
+                    }
+
+                    (manifest.digest.clone(), platform_str)
+                })
+                .collect();
+
+            return Ok((package_name, tag, digest_platform_pairs));
         }
 
         // Try parsing as Docker Distribution Manifest (single-platform)
@@ -561,6 +590,8 @@ struct Manifest {
 struct Platform {
     architecture: String,
     os: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    variant: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
