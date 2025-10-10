@@ -355,7 +355,9 @@ All manifest fetch errors are treated as non-fatal:
 
 ---
 
-### 6. Testing ✅ **MEDIUM PRIORITY**
+### 6. Testing ✅ **HIGH PRIORITY**
+
+#### A. Unit Tests
 
 **Locations:**
 - `src/client/client.rs` - Add tests in `mod tests`
@@ -363,7 +365,7 @@ All manifest fetch errors are treated as non-fatal:
 
 **Tests needed:**
 
-#### Unit tests for manifest parsing:
+##### Unit tests for manifest parsing:
 ```rust
 #[test]
 fn test_parse_multiplatform_manifest() {
@@ -385,7 +387,7 @@ fn test_parse_invalid_manifest() {
 }
 ```
 
-#### Unit tests for digest filtering:
+##### Unit tests for digest filtering:
 ```rust
 #[test]
 fn test_digest_filtering_removes_associated_shas() {
@@ -398,7 +400,7 @@ fn test_digest_filtering_preserves_unassociated_shas() {
 }
 ```
 
-#### Unit tests for keep-n-most-recent with digest filtering:
+##### Unit tests for keep-n-most-recent with digest filtering:
 ```rust
 #[test]
 fn test_keep_n_most_recent_after_digest_filtering() {
@@ -413,14 +415,99 @@ fn test_keep_n_most_recent_after_digest_filtering() {
 
 ---
 
+#### B. Integration Testing with Real GitHub Packages (Dry Run)
+
+**Purpose:** Verify the binary correctly identifies images for deletion against real multi-platform images on GitHub Container Registry.
+
+**Prerequisites:**
+- GitHub PAT with `read:packages` permission
+- Test repository with multi-platform images
+- Various scenarios: multi-platform images, single-platform images, tagged and untagged versions
+
+**Test Scenarios:**
+
+1. **Multi-platform image protection**
+   ```bash
+   # Should NOT delete platform-specific untagged images that are part of a tagged multi-platform image
+   cargo run -- \
+     --token "$GITHUB_PAT" \
+     --account user \
+     --package-names "test-package" \
+     --keep-n-most-recent 0 \
+     --dry-run
+   ```
+   **Expected:** Untagged platform images (linux/amd64, linux/arm64, etc.) associated with tagged multi-platform manifests are NOT selected for deletion
+
+2. **Old untagged images cleanup**
+   ```bash
+   # Should delete truly orphaned untagged images
+   cargo run -- \
+     --token "$GITHUB_PAT" \
+     --account user \
+     --package-names "test-package" \
+     --untagged-only \
+     --older-than "30 days" \
+     --dry-run
+   ```
+   **Expected:** Only untagged images not associated with any multi-platform manifest are selected
+
+3. **Keep-n-most-recent with multi-platform**
+   ```bash
+   # Should correctly calculate keep-n after filtering protected digests
+   cargo run -- \
+     --token "$GITHUB_PAT" \
+     --account user \
+     --package-names "test-package" \
+     --keep-n-most-recent 5 \
+     --dry-run
+   ```
+   **Expected:** Keeps 5 most recent tagged versions (not counting protected digest associations)
+
+4. **Logging verification**
+   ```bash
+   # Verify enhanced logging shows platform information
+   RUST_LOG=info cargo run -- \
+     --token "$GITHUB_PAT" \
+     --account user \
+     --package-names "test-package" \
+     --dry-run
+   ```
+   **Expected output includes:**
+   - `INFO: Found multi-platform manifest for package:tag`
+   - `  - linux/amd64: sha256:abc123...`
+   - `  - linux/arm64: sha256:def456...`
+   - `INFO: Protected X platform-specific images from Y multi-platform manifests`
+
+**Test Execution Plan:**
+
+1. Build the binary: `cargo build --release`
+2. Set up test environment with PAT
+3. Run each scenario and capture output
+4. Verify deletion candidates list matches expectations
+5. Check logs for correct platform information
+6. Document any issues found
+
+**Success Criteria:**
+- ✅ No platform-specific images from tagged multi-platform manifests are selected for deletion
+- ✅ Truly orphaned untagged images ARE selected for deletion
+- ✅ keep-n-most-recent correctly excludes protected digest associations
+- ✅ Logging clearly shows multi-platform image handling
+- ✅ No errors or warnings for valid images
+- ✅ Graceful handling of network errors and auth issues
+
+---
+
 ## Implementation Order
 
 1. ✅ **Fix hardcoded package name** (blocks everything else) - **COMPLETED**
 2. ✅ **Improve manifest type handling** (critical for correctness) - **COMPLETED**
 3. ✅ **Enhanced logging** (improves user experience) - **COMPLETED**
-4. ✅ **Fix keep-n-most-recent logic** (potential bug) - **COMPLETED**
-5. ✅ **Edge case handling** (robustness) - **COMPLETED**
-6. ✅ **Testing** (quality assurance)
+4. ✅ **Refactoring: Simplify owner handling** (code quality) - **COMPLETED**
+5. ⏳ **Fix keep-n-most-recent logic** (potential bug) - **NEXT**
+6. ⏳ **Edge case handling** (robustness) - **NEXT**
+7. ⏳ **Integration testing with dry run** (validation) - **REQUIRES PAT**
+8. 📝 **Unit tests** (code coverage) - **OPTIONAL**
+9. 📝 **Final review and documentation** (completeness)
 
 ## Open Questions
 
@@ -506,7 +593,8 @@ None currently - all clarifications received:
 - [x] **Refactoring: Simplify owner handling** - **COMPLETED**
 - [x] Issue #4: Fix keep-n-most-recent logic - **COMPLETED**
 - [x] Issue #5: Edge case handling - **COMPLETED**
-- [ ] Issue #6: Testing
+- [ ] Issue #6A: Unit tests (optional)
+- [ ] Issue #6B: Integration testing with dry run (requires PAT) - **CRITICAL**
 - [ ] Final review and testing
 - [ ] Update documentation (README)
 
