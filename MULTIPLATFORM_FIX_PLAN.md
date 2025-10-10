@@ -508,6 +508,29 @@ All 33 tests in the project pass:
 - ✅ No errors or warnings for valid images
 - ✅ Graceful handling of network errors and auth issues
 
+**Test Results:** ✅ **ALL TESTS PASSED**
+
+Executed integration tests against real GitHub Container Registry with PAT:
+- **Repository:** https://github.com/sennerholm/container-retention-policy/pkgs/container/container-retention-policy
+- **Test Images:** multi-1, multi-2 (multi-platform), test-1, test-2, test-3 (single-platform)
+
+**Scenario 1:** Keep multi-1 and keep=2
+- ✅ Protected 4 platform-specific images from multi-2 manifest
+- ✅ Kept: multi-1 (excluded by filter), multi-2, test-3
+- ✅ Would delete: test-1, test-2, and orphaned untagged images
+
+**Scenario 2:** Keep multi-2 and keep=1
+- ✅ Protected 4 platform-specific images from multi-1 manifest
+- ✅ Kept: multi-2 (excluded by filter), test-3
+- ✅ Would delete: multi-1, test-1, test-2, and orphaned untagged images
+
+**Logging Verification:**
+- ✅ Multi-platform manifests detected and logged
+- ✅ Platform details displayed (linux/amd64, linux/arm64, etc.)
+- ✅ Summary: "Protected X platform-specific image(s) from Y multi-platform manifest(s)"
+
+**Detailed results:** See [INTEGRATION_TEST_RESULTS.md](INTEGRATION_TEST_RESULTS.md)
+
 ---
 
 ## Implementation Order
@@ -607,7 +630,7 @@ None currently - all clarifications received:
 - [x] Issue #4: Fix keep-n-most-recent logic - **COMPLETED**
 - [x] Issue #5: Edge case handling - **COMPLETED**
 - [x] Issue #6A: Unit tests - **COMPLETED**
-- [ ] Issue #6B: Integration testing with dry run (requires PAT) - **CRITICAL**
+- [x] Issue #6B: Integration testing with dry run - **COMPLETED** ✅
 - [ ] Final review and testing
 - [ ] Update documentation (README)
 
