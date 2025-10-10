@@ -203,7 +203,7 @@ Users want to see:
 
 ---
 
-### 4. Fix keep-n-most-recent Logic ✅ **HIGH PRIORITY**
+### 4. Fix keep-n-most-recent Logic ✅ **HIGH PRIORITY** - **COMPLETED**
 
 **Location:** [src/core/select_package_versions.rs:375-387](src/core/select_package_versions.rs#L375-L387)
 
@@ -262,6 +262,17 @@ package_versions.tagged = handle_keep_n_most_recent(
 
 **Files to modify:**
 - `src/core/select_package_versions.rs` - Remove lines 375-380, use `keep_n_most_recent` directly
+
+**Implementation Summary:**
+
+1. **Removed incorrect adjustment logic** ([select_package_versions.rs:385-390](src/core/select_package_versions.rs#L385-L390))
+   - Deleted the `adjusted_keep_n_most_recent` calculation that tried to compensate for digest-filtered packages
+   - Now passes `keep_n_most_recent` directly to `handle_keep_n_most_recent` without adjustment
+
+2. **Removed unused variable** ([select_package_versions.rs:367](src/core/select_package_versions.rs#L367))
+   - Removed `count_before` variable that was only used for the adjustment calculation
+
+**Result:** ✅ Code compiles successfully without warnings. The `keep-n-most-recent` logic now correctly applies to the remaining packages AFTER digest filtering, matching the expected behavior described in the plan.
 
 ---
 
@@ -372,7 +383,7 @@ fn test_keep_n_most_recent_after_digest_filtering() {
 1. ✅ **Fix hardcoded package name** (blocks everything else) - **COMPLETED**
 2. ✅ **Improve manifest type handling** (critical for correctness) - **COMPLETED**
 3. ✅ **Enhanced logging** (improves user experience) - **COMPLETED**
-4. ✅ **Fix keep-n-most-recent logic** (potential bug)
+4. ✅ **Fix keep-n-most-recent logic** (potential bug) - **COMPLETED**
 5. ✅ **Edge case handling** (robustness)
 6. ✅ **Testing** (quality assurance)
 
@@ -458,7 +469,7 @@ None currently - all clarifications received:
 - [x] Issue #2: Improve manifest fetching - **COMPLETED**
 - [x] Issue #3: Enhanced logging - **COMPLETED**
 - [x] **Refactoring: Simplify owner handling** - **COMPLETED**
-- [ ] Issue #4: Fix keep-n-most-recent logic
+- [x] Issue #4: Fix keep-n-most-recent logic - **COMPLETED**
 - [ ] Issue #5: Edge case handling
 - [ ] Issue #6: Testing
 - [ ] Final review and testing

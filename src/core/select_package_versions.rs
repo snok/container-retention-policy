@@ -364,7 +364,7 @@ pub async fn select_package_versions(
                 }
             })
             .collect();
-        let count_before = package_versions.tagged.len();
+
         package_versions.tagged = package_versions
             .tagged
             .into_iter()
@@ -382,17 +382,10 @@ pub async fn select_package_versions(
             })
             .collect();
 
-        let adjusted_keep_n_most_recent =
-            if keep_n_most_recent as i64 - (count_before as i64 - package_versions.tagged.len() as i64) < 0 {
-                0
-            } else {
-                keep_n_most_recent as i64 - (count_before as i64 - package_versions.tagged.len() as i64)
-            };
-
         // Keep n package versions per package, if specified
         package_versions.tagged = handle_keep_n_most_recent(
             package_versions.tagged,
-            adjusted_keep_n_most_recent as u32,
+            keep_n_most_recent,
             timestamp_to_use,
         );
 
