@@ -497,7 +497,10 @@ impl PackagesClient {
         debug!(tag = tag, "Retrieving image manifest");
 
         // URL-encode the package path (owner/package_name)
-        let owner = self.owner.as_ref().expect("Owner should be set after fetching packages");
+        let owner = self
+            .owner
+            .as_ref()
+            .expect("Owner should be set after fetching packages");
         let package_path = format!("{}%2F{}", owner, package_name);
         let url = format!("https://ghcr.io/v2/{}/manifests/{}", package_path, tag);
 
@@ -571,7 +574,7 @@ impl PackagesClient {
                     // Log each platform with Docker-style short digest (12 chars after sha256:)
                     if let Some(ref platform) = platform_str {
                         let digest_short = if manifest.digest.starts_with("sha256:") && manifest.digest.len() >= 19 {
-                            &manifest.digest[7..19]  // Skip "sha256:" and take 12 hex chars
+                            &manifest.digest[7..19] // Skip "sha256:" and take 12 hex chars
                         } else {
                             &manifest.digest
                         };
@@ -915,20 +918,29 @@ mod tests {
         assert_eq!(manifests.len(), 3);
 
         // Verify first manifest (amd64)
-        assert_eq!(manifests[0].digest, "sha256:aabbccdd11223344556677889900aabbccdd11223344556677889900aabbccdd");
+        assert_eq!(
+            manifests[0].digest,
+            "sha256:aabbccdd11223344556677889900aabbccdd11223344556677889900aabbccdd"
+        );
         let platform0 = manifests[0].platform.as_ref().unwrap();
         assert_eq!(platform0.architecture, "amd64");
         assert_eq!(platform0.os, "linux");
         assert!(platform0.variant.is_none());
 
         // Verify second manifest (arm64)
-        assert_eq!(manifests[1].digest, "sha256:eeff00112233445566778899aabbccddeeff00112233445566778899aabbccdd");
+        assert_eq!(
+            manifests[1].digest,
+            "sha256:eeff00112233445566778899aabbccddeeff00112233445566778899aabbccdd"
+        );
         let platform1 = manifests[1].platform.as_ref().unwrap();
         assert_eq!(platform1.architecture, "arm64");
         assert_eq!(platform1.os, "linux");
 
         // Verify third manifest (arm/v7)
-        assert_eq!(manifests[2].digest, "sha256:1122334455667788990011223344556677889900aabbccddeeff00112233445566");
+        assert_eq!(
+            manifests[2].digest,
+            "sha256:1122334455667788990011223344556677889900aabbccddeeff00112233445566"
+        );
         let platform2 = manifests[2].platform.as_ref().unwrap();
         assert_eq!(platform2.architecture, "arm");
         assert_eq!(platform2.os, "linux");
@@ -992,8 +1004,14 @@ mod tests {
 
         let manifest = parsed.unwrap();
         assert_eq!(manifest.schema_version, 2);
-        assert_eq!(manifest.media_type, "application/vnd.docker.distribution.manifest.v2+json");
-        assert_eq!(manifest.config.digest, "sha256:aabbccdd11223344556677889900aabbccdd11223344556677889900aabbccdd");
+        assert_eq!(
+            manifest.media_type,
+            "application/vnd.docker.distribution.manifest.v2+json"
+        );
+        assert_eq!(
+            manifest.config.digest,
+            "sha256:aabbccdd11223344556677889900aabbccdd11223344556677889900aabbccdd"
+        );
         assert_eq!(manifest.layers.len(), 1);
     }
 

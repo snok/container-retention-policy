@@ -84,11 +84,11 @@ fn older_than_cutoff(
 /// of layers (one package version might have multiple tags), this function should ensure that:
 ///
 /// - If *any* negative matcher (e.g., `!latest`) matches *any* tag for a
-///    given package version, then we will not delete it.
+///   given package version, then we will not delete it.
 ///
 /// - If we have a partial match (2/3 tags match), then we also cannot delete;
-///    but it might be a bit unexpected to do nothing, so we log a warning to the
-///    user.
+///   but it might be a bit unexpected to do nothing, so we log a warning to the
+///   user.
 ///
 /// - If *all* tags match, then we will delete the package version.
 fn filter_by_matchers(
@@ -192,6 +192,7 @@ fn filter_by_tag_selection(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn filter_package_versions(
     package_versions: Vec<PackageVersion>,
     package_name: &str,
@@ -235,6 +236,7 @@ pub fn filter_package_versions(
 
 /// Fetches and filters package versions by account type, image-tag filters, cut-off,
 /// tag-selection, and a bunch of other things. Fetches versions concurrently.
+#[allow(clippy::too_many_arguments)]
 pub async fn select_package_versions(
     packages: Vec<String>,
     client: &'static PackagesClient,
@@ -266,7 +268,7 @@ pub async fn select_package_versions(
         let a = package_name.clone();
         let b = shas_to_skip.clone();
         let c = tag_selection.clone();
-        let d = cut_off.clone();
+        let d = *cut_off;
         let e = timestamp_to_use.clone();
         let f = matchers.clone();
 
@@ -299,10 +301,7 @@ pub async fn select_package_versions(
         // Queue fetching of digests for each tag
         for package_version in &package_versions.tagged {
             for tag in &package_version.metadata.container.tags {
-                fetch_digest_set.spawn(client.fetch_image_manifest(
-                    package_name.clone(),
-                    tag.clone()
-                ));
+                fetch_digest_set.spawn(client.fetch_image_manifest(package_name.clone(), tag.clone()));
             }
         }
 
@@ -336,7 +335,9 @@ pub async fn select_package_versions(
     }
 
     if total_protected > 0 {
-        info!("Protected {total_protected} platform-specific image(s) from {manifest_count} multi-platform manifest(s)");
+        info!(
+            "Protected {total_protected} platform-specific image(s) from {manifest_count} multi-platform manifest(s)"
+        );
     }
 
     let mut package_version_map = HashMap::new();
@@ -350,14 +351,13 @@ pub async fn select_package_versions(
                     let x: String = package_version.name.clone();
                     let association: &String = digest_tag.get(&x as &str).unwrap();
                     // Truncate the digest for readability (Docker-style: 12 hex chars after sha256:)
-                    let digest_short = if package_version.name.starts_with("sha256:") && package_version.name.len() >= 19 {
-                        &package_version.name[7..19]  // Skip "sha256:" and take 12 hex chars
-                    } else {
-                        &package_version.name
-                    };
-                    debug!(
-                        "Skipping deletion of {digest_short} because it's associated with {association}"
-                    );
+                    let digest_short =
+                        if package_version.name.starts_with("sha256:") && package_version.name.len() >= 19 {
+                            &package_version.name[7..19] // Skip "sha256:" and take 12 hex chars
+                        } else {
+                            &package_version.name
+                        };
+                    debug!("Skipping deletion of {digest_short} because it's associated with {association}");
                     None
                 } else {
                     Some(package_version)
@@ -365,29 +365,22 @@ pub async fn select_package_versions(
             })
             .collect();
 
-        package_versions.tagged = package_versions
-            .tagged
-            .into_iter()
-            .filter(|package_version| {
-                if digests.contains(&package_version.name) {
-                    let association = digest_tag.get(&*(package_version.name)).unwrap();
-                    debug!(
-                        "Skipping deletion of {} because it's associated with {association}",
-                        package_version.name
-                    );
-                    false
-                } else {
-                    true
-                }
-            })
-            .collect();
+        package_versions.tagged.retain(|package_version| {
+            if digests.contains(&package_version.name) {
+                let association = digest_tag.get(&*(package_version.name)).unwrap();
+                debug!(
+                    "Skipping deletion of {} because it's associated with {association}",
+                    package_version.name
+                );
+                false
+            } else {
+                true
+            }
+        });
 
         // Keep n package versions per package, if specified
-        package_versions.tagged = handle_keep_n_most_recent(
-            package_versions.tagged,
-            keep_n_most_recent,
-            timestamp_to_use,
-        );
+        package_versions.tagged =
+            handle_keep_n_most_recent(package_versions.tagged, keep_n_most_recent, timestamp_to_use);
 
         info!(
             package_name = package_name,
