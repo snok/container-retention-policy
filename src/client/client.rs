@@ -8,11 +8,11 @@ use reqwest::header::HeaderMap;
 use reqwest::{Client, Method, Request, StatusCode};
 use tokio::time::sleep;
 use tower::{Service, ServiceExt};
-use tracing::{debug, error, info, Span};
+use tracing::{debug, error, info, warn, Span};
 use tracing_indicatif::span_ext::IndicatifSpanExt;
 use url::Url;
 
-use crate::cli::models::Token;
+use crate::cli::models::{Account, Token};
 use crate::client::builder::RateLimitedService;
 use crate::client::headers::GithubHeaders;
 use crate::client::models::{Package, PackageVersion};
@@ -29,6 +29,8 @@ pub struct PackagesClient {
     pub list_package_versions_service: RateLimitedService,
     pub delete_package_versions_service: RateLimitedService,
     pub token: Token,
+    pub account: Account,
+    pub owner: Option<String>,
 }
 
 impl PackagesClient {
@@ -38,7 +40,7 @@ impl PackagesClient {
         image_names: &Vec<String>,
         counts: Arc<Counts>,
     ) -> Vec<Package> {
-        if let Token::Temporal(_) = *token {
+        let packages = if let Token::Temporal(_) = *token {
             // If a repo is assigned the admin role under Package Settings > Manage Actions Access,
             // then it can fetch a package's versions directly by name, and delete them. It cannot,
             // however, list packages, so for this token type we are limited to fetching packages
@@ -53,7 +55,14 @@ impl PackagesClient {
             self.list_packages(self.urls.list_packages_url.clone(), counts)
                 .await
                 .expect("Failed to fetch packages")
+        };
+
+        // Store the owner from the first package (all packages have the same owner in a single run)
+        if let Some(first_package) = packages.first() {
+            self.owner = Some(first_package.owner.login.clone());
         }
+
+        packages
     }
 
     async fn fetch_packages_with_pagination(
@@ -484,34 +493,119 @@ impl PackagesClient {
         &self,
         package_name: String,
         tag: String,
-    ) -> Result<(String, String, Vec<String>)> {
+    ) -> Result<(String, String, Vec<(String, Option<String>)>)> {
         debug!(tag = tag, "Retrieving image manifest");
 
-        let url = format!("https://ghcr.io/v2/snok%2Fcontainer-retention-policy/manifests/{tag}");
+        // URL-encode the package path (owner/package_name)
+        let owner = self
+            .owner
+            .as_ref()
+            .expect("Owner should be set after fetching packages");
+        let package_path = format!("{}%2F{}", owner, package_name);
+        let url = format!("https://ghcr.io/v2/{}/manifests/{}", package_path, tag);
 
         // Construct initial request
-        let response = Client::new().get(url).headers(self.oci_headers.clone()).send().await?;
-
-        let raw_json = response.text().await?;
-        let resp: OCIImageIndex = match serde_json::from_str(&raw_json) {
-            Ok(t) => t,
+        let response = match Client::new().get(url).headers(self.oci_headers.clone()).send().await {
+            Ok(r) => r,
             Err(e) => {
-                println!("{}", raw_json);
-                return Err(eyre!(
-                    "Failed to fetch image manifest for \x1b[34m{package_name}\x1b[0m:\x1b[32m{tag}\x1b[0m: {e}"
-                ));
+                warn!(
+                    package_name = package_name,
+                    tag = tag,
+                    "Failed to fetch manifest for {package_name}:{tag}: {e}"
+                );
+                return Ok((package_name, tag, vec![]));
             }
         };
 
-        Ok((
-            package_name,
-            tag,
-            resp.manifests
-                .unwrap_or(vec![])
+        // Check for non-success HTTP status codes
+        if !response.status().is_success() {
+            warn!(
+                package_name = package_name,
+                tag = tag,
+                status = %response.status(),
+                "Got {} when fetching manifest for {package_name}:{tag}",
+                response.status()
+            );
+            return Ok((package_name, tag, vec![]));
+        }
+
+        let raw_json = match response.text().await {
+            Ok(text) => text,
+            Err(e) => {
+                warn!(
+                    package_name = package_name,
+                    tag = tag,
+                    "Failed to read manifest response body for {package_name}:{tag}: {e}"
+                );
+                return Ok((package_name, tag, vec![]));
+            }
+        };
+
+        // Try parsing as OCI Image Index first (multi-platform)
+        if let Ok(index) = serde_json::from_str::<OCIImageIndex>(&raw_json) {
+            let manifests = index.manifests.unwrap_or(vec![]);
+
+            if manifests.is_empty() {
+                debug!(
+                    package_name = package_name,
+                    tag = tag,
+                    "Found single-platform OCI Image Index manifest"
+                );
+                return Ok((package_name, tag, vec![]));
+            }
+
+            info!(
+                package_name = package_name,
+                tag = tag,
+                "Found multi-platform manifest for \x1b[34m{package_name}\x1b[0m:\x1b[32m{tag}\x1b[0m"
+            );
+
+            let digest_platform_pairs: Vec<(String, Option<String>)> = manifests
                 .iter()
-                .map(|manifest| manifest.digest.to_string())
-                .collect(),
-        ))
+                .map(|manifest| {
+                    let platform_str = manifest.platform.as_ref().map(|p| {
+                        if let Some(variant) = &p.variant {
+                            format!("{}/{}/{}", p.os, p.architecture, variant)
+                        } else {
+                            format!("{}/{}", p.os, p.architecture)
+                        }
+                    });
+
+                    // Log each platform with Docker-style short digest (12 chars after sha256:)
+                    if let Some(ref platform) = platform_str {
+                        let digest_short = if manifest.digest.starts_with("sha256:") && manifest.digest.len() >= 19 {
+                            &manifest.digest[7..19] // Skip "sha256:" and take 12 hex chars
+                        } else {
+                            &manifest.digest
+                        };
+                        info!("  - {}: {}", platform, digest_short);
+                    }
+
+                    (manifest.digest.clone(), platform_str)
+                })
+                .collect();
+
+            return Ok((package_name, tag, digest_platform_pairs));
+        }
+
+        // Try parsing as Docker Distribution Manifest (single-platform)
+        if let Ok(_manifest) = serde_json::from_str::<DockerDistributionManifest>(&raw_json) {
+            debug!(
+                package_name = package_name,
+                tag = tag,
+                "Found single-platform Docker Distribution Manifest"
+            );
+            // Single-platform image - return empty vec (no child digests to protect)
+            return Ok((package_name, tag, vec![]));
+        }
+
+        // Unknown format - log warning and return empty vec
+        warn!(
+            package_name = package_name,
+            tag = tag,
+            "Unknown manifest format for {package_name}:{tag}, treating as single-platform"
+        );
+        Ok((package_name, tag, vec![]))
     }
 }
 
@@ -539,6 +633,8 @@ struct Manifest {
 struct Platform {
     architecture: String,
     os: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    variant: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -770,5 +866,188 @@ mod tests {
         assert!(urls.list_packages_url.as_str().contains("/foo/"));
         assert!(urls.packages_api_base.as_str().contains("/foo/"));
         assert!(urls.packages_frontend_base.as_str().contains(DEFAULT_GITHUB_SERVER_URL));
+    }
+
+    // Manifest parsing tests
+    #[test]
+    fn test_parse_multiplatform_manifest() {
+        // Test parsing OCI Image Index with multiple platforms
+        let manifest_json = r#"{
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "manifests": [
+                {
+                    "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                    "digest": "sha256:aabbccdd11223344556677889900aabbccdd11223344556677889900aabbccdd",
+                    "size": 1234,
+                    "platform": {
+                        "architecture": "amd64",
+                        "os": "linux"
+                    }
+                },
+                {
+                    "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                    "digest": "sha256:eeff00112233445566778899aabbccddeeff00112233445566778899aabbccdd",
+                    "size": 5678,
+                    "platform": {
+                        "architecture": "arm64",
+                        "os": "linux"
+                    }
+                },
+                {
+                    "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                    "digest": "sha256:1122334455667788990011223344556677889900aabbccddeeff00112233445566",
+                    "size": 9012,
+                    "platform": {
+                        "architecture": "arm",
+                        "os": "linux",
+                        "variant": "v7"
+                    }
+                }
+            ]
+        }"#;
+
+        let parsed: Result<OCIImageIndex, _> = serde_json::from_str(manifest_json);
+        assert!(parsed.is_ok());
+
+        let index = parsed.unwrap();
+        assert_eq!(index.schema_version, 2);
+        assert_eq!(index.media_type, "application/vnd.oci.image.index.v1+json");
+
+        let manifests = index.manifests.unwrap();
+        assert_eq!(manifests.len(), 3);
+
+        // Verify first manifest (amd64)
+        assert_eq!(
+            manifests[0].digest,
+            "sha256:aabbccdd11223344556677889900aabbccdd11223344556677889900aabbccdd"
+        );
+        let platform0 = manifests[0].platform.as_ref().unwrap();
+        assert_eq!(platform0.architecture, "amd64");
+        assert_eq!(platform0.os, "linux");
+        assert!(platform0.variant.is_none());
+
+        // Verify second manifest (arm64)
+        assert_eq!(
+            manifests[1].digest,
+            "sha256:eeff00112233445566778899aabbccddeeff00112233445566778899aabbccdd"
+        );
+        let platform1 = manifests[1].platform.as_ref().unwrap();
+        assert_eq!(platform1.architecture, "arm64");
+        assert_eq!(platform1.os, "linux");
+
+        // Verify third manifest (arm/v7)
+        assert_eq!(
+            manifests[2].digest,
+            "sha256:1122334455667788990011223344556677889900aabbccddeeff00112233445566"
+        );
+        let platform2 = manifests[2].platform.as_ref().unwrap();
+        assert_eq!(platform2.architecture, "arm");
+        assert_eq!(platform2.os, "linux");
+        assert_eq!(platform2.variant, Some("v7".to_string()));
+    }
+
+    #[test]
+    fn test_parse_singleplatform_oci_manifest() {
+        // Test parsing OCI Image Index with empty manifests array
+        let manifest_json = r#"{
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "manifests": []
+        }"#;
+
+        let parsed: Result<OCIImageIndex, _> = serde_json::from_str(manifest_json);
+        assert!(parsed.is_ok());
+
+        let index = parsed.unwrap();
+        let manifests = index.manifests.unwrap();
+        assert_eq!(manifests.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_singleplatform_oci_manifest_no_manifests_field() {
+        // Test parsing OCI Image Index with no manifests field (None)
+        let manifest_json = r#"{
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.index.v1+json"
+        }"#;
+
+        let parsed: Result<OCIImageIndex, _> = serde_json::from_str(manifest_json);
+        assert!(parsed.is_ok());
+
+        let index = parsed.unwrap();
+        assert!(index.manifests.is_none());
+    }
+
+    #[test]
+    fn test_parse_docker_distribution_manifest() {
+        // Test parsing Docker Distribution Manifest (single-platform)
+        let manifest_json = r#"{
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+            "config": {
+                "mediaType": "application/vnd.docker.container.image.v1+json",
+                "size": 7023,
+                "digest": "sha256:aabbccdd11223344556677889900aabbccdd11223344556677889900aabbccdd"
+            },
+            "layers": [
+                {
+                    "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+                    "size": 32654,
+                    "digest": "sha256:eeff00112233445566778899aabbccddeeff00112233445566778899aabbccdd"
+                }
+            ]
+        }"#;
+
+        let parsed: Result<DockerDistributionManifest, _> = serde_json::from_str(manifest_json);
+        assert!(parsed.is_ok());
+
+        let manifest = parsed.unwrap();
+        assert_eq!(manifest.schema_version, 2);
+        assert_eq!(
+            manifest.media_type,
+            "application/vnd.docker.distribution.manifest.v2+json"
+        );
+        assert_eq!(
+            manifest.config.digest,
+            "sha256:aabbccdd11223344556677889900aabbccdd11223344556677889900aabbccdd"
+        );
+        assert_eq!(manifest.layers.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_invalid_manifest() {
+        // Test handling of invalid JSON
+        let invalid_json = r#"{ invalid json }"#;
+
+        let parsed_oci: Result<OCIImageIndex, _> = serde_json::from_str(invalid_json);
+        assert!(parsed_oci.is_err());
+
+        let parsed_docker: Result<DockerDistributionManifest, _> = serde_json::from_str(invalid_json);
+        assert!(parsed_docker.is_err());
+    }
+
+    #[test]
+    fn test_parse_unknown_manifest_format() {
+        // Test handling of valid JSON but unknown manifest format
+        // Note: OCIImageIndex is flexible and will parse unknown formats
+        // (it only requires schemaVersion and mediaType). The unknown format
+        // will be handled at runtime in fetch_image_manifest through logging.
+        let unknown_json = r#"{
+            "schemaVersion": 3,
+            "mediaType": "application/vnd.unknown.manifest.v1+json",
+            "someField": "someValue"
+        }"#;
+
+        // OCI format is flexible and will parse (but won't have manifests field)
+        let parsed_oci: Result<OCIImageIndex, _> = serde_json::from_str(unknown_json);
+        assert!(parsed_oci.is_ok());
+        let index = parsed_oci.unwrap();
+        assert_eq!(index.schema_version, 3);
+        assert!(index.manifests.is_none()); // No manifests field
+
+        // Docker format is strict and will fail
+        let parsed_docker: Result<DockerDistributionManifest, _> = serde_json::from_str(unknown_json);
+        assert!(parsed_docker.is_err());
     }
 }

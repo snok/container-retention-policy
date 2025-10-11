@@ -1,7 +1,13 @@
 [advisories]
 version = 2
 yanked = "warn"
-ignore = []
+ignore = [
+    # adler is unmaintained but adler2 is available - however this is a transitive dependency from flate2
+    # We can ignore this until flate2 updates its dependency
+    "RUSTSEC-2025-0056",
+    # instant is unmaintained - transitive dependency, recommend web-time but not compatible
+    "RUSTSEC-2024-0384",
+]
 
 [sources]
 unknown-registry = "deny"
@@ -12,6 +18,7 @@ version = 2
 confidence-threshold = 0.93
 allow = [
     "Unicode-DFS-2016",
+    "Unicode-3.0",
     "MIT",
     "Apache-2.0",
     "ISC",

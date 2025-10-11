@@ -78,6 +78,7 @@ pub enum Account {
 }
 
 impl Account {
+    #[allow(clippy::needless_return)]
     pub fn try_from_str(value: &str) -> Result<Self, String> {
         let value = value.trim();
         if value == "user" {
