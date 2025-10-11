@@ -16,10 +16,10 @@ reqwest = {version = "0.12.2", features = ["json", "rustls-tls"], default-featur
 secrecy = { version =  "0.8.0" }
 serde = { version = "1.0.197", features = ["derive"], default-features = false }
 serde_json = { version = "1.0.115", default-features = false }
-tokio = { version = "1.36.0", features = ["rt-multi-thread", "macros"], default-features = false }
+tokio = { version = "1.42.1", features = ["rt-multi-thread", "macros"], default-features = false }
 tower = { version = "0.4.13", default-features = false, features = ["limit"] }
 tracing = { version = "0.1.40", default-features = false }
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"], default-features = false }
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"], default-features = false }
 tracing-indicatif = "0.3.6"
 url = { version = "2.5.0" , default-features = false}
 urlencoding = { version="2.1.3" }
