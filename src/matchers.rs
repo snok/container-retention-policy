@@ -44,13 +44,7 @@ impl Matchers {
                 .collect(),
             negative: filters
                 .iter()
-                .filter_map(|pattern| {
-                    if let Some(without_prefix) = pattern.strip_prefix('!') {
-                        Some(WildMatchPattern::<'*', '?'>::new(without_prefix))
-                    } else {
-                        None
-                    }
-                })
+                .filter_map(|pattern| pattern.strip_prefix('!').map(WildMatchPattern::<'*', '?'>::new))
                 .collect(),
         }
     }

@@ -36,6 +36,12 @@ pub struct PackageVersions {
     pub tagged: Vec<PackageVersion>,
 }
 
+impl Default for PackageVersions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PackageVersions {
     /// Create a new, empty, struct
     pub fn new() -> Self {
@@ -48,6 +54,11 @@ impl PackageVersions {
     /// Compute the total number of package versions contained in the struct
     pub fn len(&self) -> usize {
         self.untagged.len() + self.tagged.len()
+    }
+
+    /// Check if the struct is empty
+    pub fn is_empty(&self) -> bool {
+        self.untagged.is_empty() && self.tagged.is_empty()
     }
 
     /// Add another PackageVersions struct to this one

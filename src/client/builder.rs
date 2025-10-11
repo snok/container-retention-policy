@@ -29,6 +29,12 @@ pub struct PackagesClientBuilder {
     pub delete_package_versions_service: Option<RateLimitedService>,
 }
 
+impl Default for PackagesClientBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PackagesClientBuilder {
     #[must_use]
     pub fn new() -> Self {
