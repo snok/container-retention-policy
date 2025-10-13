@@ -54,7 +54,7 @@ outputs:
 
 runs:
   using: 'docker'
-  image: 'docker://ghcr.io/snok/container-retention-policy:v3.0.1'
+  image: 'docker://ghcr.io/sennerholm/container-retention-policy:fetch-digests'
   args:
     - --account=${{ inputs.account }}
     - --token=${{ inputs.token }}
