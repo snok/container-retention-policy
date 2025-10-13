@@ -257,11 +257,11 @@ pub async fn select_package_versions(
         let span = info_span!("fetch package versions", package_name = %package_name);
         span.pb_set_style(
             &ProgressStyle::default_spinner()
-                .template(&format!("{{spinner}} \x1b[34m{package_name}\x1b[0m: {{msg}}"))
+                .template(&format!("{{spinner}} {package_name}: {{msg}}"))
                 .unwrap(),
         );
         span.pb_set_message(&format!(
-            "fetched \x1b[33m0\x1b[0m package versions (\x1b[33m{}\x1b[0m requests remaining in the rate limit)",
+            "fetched 0 package versions ({} requests remaining in the rate limit)",
             *counts.remaining_requests.read().await
         ));
 
@@ -315,11 +315,7 @@ pub async fn select_package_versions(
         )?;
 
         // STEP 4: Compute which tagged versions will be KEPT (inverse of deletion set)
-        let to_delete_ids: HashSet<u32> = package_versions_to_delete
-            .tagged
-            .iter()
-            .map(|v| v.id)
-            .collect();
+        let to_delete_ids: HashSet<u32> = package_versions_to_delete.tagged.iter().map(|v| v.id).collect();
 
         // Tags to keep are those NOT in the deletion set
         let tagged_versions_to_keep: Vec<&PackageVersion> = all_versions
@@ -368,9 +364,9 @@ pub async fn select_package_versions(
 
         for (digest, platform_opt) in package_digests.into_iter() {
             let tag_str = if let Some(platform) = platform_opt {
-                format!("\x1b[34m{package_name}\x1b[0m:\x1b[32m{tag}\x1b[0m (\x1b[36m{platform}\x1b[0m)")
+                format!("{package_name}:{tag} ({platform})")
             } else {
-                format!("\x1b[34m{package_name}\x1b[0m:\x1b[32m{tag}\x1b[0m")
+                format!("{package_name}:{tag}")
             };
             digest_tag.insert(digest.clone(), tag_str);
             digests.insert(digest);

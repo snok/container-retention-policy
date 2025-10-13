@@ -226,7 +226,7 @@ impl PackagesClient {
             };
 
             Span::current().pb_set_message(&format!(
-                "fetched \x1b[33m{}\x1b[0m package versions (\x1b[33m{}\x1b[0m requests remaining in the rate limit)",
+                "fetched {} package versions ({} requests remaining in the rate limit)",
                 result.len(),
                 *counts.remaining_requests.read().await
             ));
@@ -341,14 +341,14 @@ impl PackagesClient {
         // it had these three tags, and ["foo:untagged"] if it had no tags. This isn't really how things
         // work, but is what users will expect to see output.
         let names = if package_version.metadata.container.tags.is_empty() {
-            vec![format!("\x1b[34m{package_name}\x1b[0m:\x1b[33m<untagged>\x1b[0m")]
+            vec![format!("{package_name}:<untagged>")]
         } else {
             package_version
                 .metadata
                 .container
                 .tags
                 .iter()
-                .map(|tag| format!("\x1b[34m{package_name}\x1b[0m:\x1b[32m{tag}\x1b[0m"))
+                .map(|tag| format!("{package_name}:{tag}"))
                 .collect()
         };
 
@@ -557,7 +557,7 @@ impl PackagesClient {
             info!(
                 package_name = package_name,
                 tag = tag,
-                "Found multi-platform manifest for \x1b[34m{package_name}\x1b[0m:\x1b[32m{tag}\x1b[0m"
+                "Found multi-platform manifest for {package_name}:{tag}"
             );
 
             let digest_platform_pairs: Vec<(String, Option<String>)> = manifests
