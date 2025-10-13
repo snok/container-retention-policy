@@ -1,5 +1,5 @@
 # Stage 1: Build the binary
-FROM --platform=$BUILDPLATFORM clux/muslrust:stable as builder
+FROM --platform=$BUILDPLATFORM clux/muslrust:stable AS builder
 
 ARG TARGETPLATFORM
 

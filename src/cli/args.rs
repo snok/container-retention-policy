@@ -115,10 +115,9 @@ pub struct Input {
 
 #[cfg(test)]
 mod tests {
-    use clap::ValueEnum;
-    use secrecy::Secret;
-
     use super::*;
+    use clap::ValueEnum;
+    use secrecy::SecretString;
 
     #[test]
     fn test_vec_of_string_from_str() {
@@ -189,11 +188,15 @@ mod tests {
     fn parse_token() {
         assert_eq!(
             Token::try_from_str("ghs_U4fUiyjT4gUZKJeUEI3AX501oTqIvV0loS62").unwrap(),
-            Token::Temporal(Secret::new("ghs_U4fUiyjT4gUZKJeUEI3AX501oTqIvV0loS62".to_string()))
+            Token::Temporal(SecretString::new(Box::from(
+                "ghs_U4fUiyjT4gUZKJeUEI3AX501oTqIvV0loS62".to_string()
+            )))
         );
         assert_eq!(
             Token::try_from_str("ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT").unwrap(),
-            Token::ClassicPersonalAccess(Secret::new("ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT".to_string()))
+            Token::ClassicPersonalAccess(SecretString::new(Box::from(
+                "ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT".to_string()
+            )))
         );
     }
 

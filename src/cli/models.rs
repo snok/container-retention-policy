@@ -1,6 +1,6 @@
 use clap::ValueEnum;
 use regex::Regex;
-use secrecy::{ExposeSecret, Secret};
+use secrecy::{ExposeSecret, SecretString};
 use tracing::debug;
 
 #[derive(Debug, Clone, ValueEnum, PartialEq)]
@@ -23,8 +23,8 @@ pub enum TagSelection {
 /// for a list of existing token types.
 #[derive(Debug, Clone)]
 pub enum Token {
-    ClassicPersonalAccess(Secret<String>),
-    Temporal(Secret<String>),
+    ClassicPersonalAccess(SecretString),
+    Temporal(SecretString),
 }
 
 impl PartialEq for Token {
@@ -51,7 +51,7 @@ impl PartialEq for Token {
 impl Token {
     pub fn try_from_str(value: &str) -> Result<Self, String> {
         let trimmed_value = value.trim_matches('"'); // Remove surrounding quotes
-        let secret = Secret::new(trimmed_value.to_string());
+        let secret = SecretString::new(Box::from(trimmed_value));
 
         // Classic PAT
         if Regex::new(r"ghp_[a-zA-Z0-9]{36}$").unwrap().is_match(trimmed_value) {
@@ -84,10 +84,10 @@ impl Account {
         if value == "user" {
             Ok(Self::User)
         } else if value.is_empty() {
-            return Err(
+            Err(
                 "`account` must be set to 'user' for personal accounts, or to the name of your organization"
                     .to_string(),
-            );
+            )
         } else {
             Ok(Self::Organization(value.to_string()))
         }

@@ -11,6 +11,9 @@ makes sense in most cases.
 - 👮 Supports multiple token types for authentication
 - 🌱 The docker image used is sized below 10Mi, and the total runtime is a few seconds for most workloads
 
+> [!WARNING]
+> If you're building multi-arch images, see [Safely handling multi-platform/multi-arch images](#safely-handling-multi-platform-multi-arch-packages).
+
 # Content
 
 - [Usage](#usage)
@@ -335,7 +338,25 @@ The action will prioritize keeping newer package versions over older ones.
 
 ## Safely handling multi-platform (multi-arch) packages
 
-This action (or rather, naïve deletion of package version in GitHub's container registry, in general) can break your multi-platform packages. If you're hosting multi-platform packages, please implement the action as described below.
+This action (or rather, naïve deletion of package version in GitHub's container registry, in general) can break your images.
+
+### How to know whether you're safe
+
+Try and run the equivalent of this curl request:
+
+```shell
+curl -L \
+     -X GET \
+     -H "Accept: application/vnd.oci.image.index.v1+json" \
+     -H "Authorization: Bearer $(echo $PAT | base64)" \
+     -H "X-GitHub-Api-Version: 2022-11-28" \
+     https://ghcr.io/v2/snok%2Fcontainer-retention-policy/manifests/v3.0.0
+```
+
+> [!NOTE]
+> The `%2F` is the percent-encoded value for `/`. Make sure you also url-encode any symbols that might need it from the package name or tag.
+
+If the response has a `manifests` key with several elements, it is not recommended to use the action without implementing the workaround explained below:
 
 ### The problem
 

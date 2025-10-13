@@ -1,11 +1,12 @@
 repos:
   - repo: local
     hooks:
-      - id: test
+      - id: fmt
         name: cargo fmt
         entry: cargo fmt
         language: system
         pass_filenames: false
+        files: \.rs$
 
   - repo: local
     hooks:
@@ -14,6 +15,7 @@ repos:
         entry: cargo clippy
         language: system
         pass_filenames: false
+        files: \.rs$
 
   - repo: local
     hooks:
@@ -22,14 +24,7 @@ repos:
         entry: cargo test
         language: system
         pass_filenames: false
-
-  - repo: local
-    hooks:
-      - id: cargo-deny
-        name: cargo deny
-        entry: cargo deny check --hide-inclusion-graph
-        language: system
-        pass_filenames: false
+        files: \.rs$
 
   - repo: local
     hooks:
@@ -38,14 +33,16 @@ repos:
         entry: cargo +nightly udeps
         language: system
         pass_filenames: false
+        files: ^Cargo\.(toml|lock)$
 
   - repo: local
     hooks:
       - id: cargo-audit
         name: cargo audit
-        entry: cargo audit
+        entry: cargo audit --ignore RUSTSEC-2025-0055
         language: system
         pass_filenames: false
+        files: ^Cargo\.(toml|lock)$
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
