@@ -621,6 +621,96 @@ None currently - all clarifications received:
 
 ---
 
+## Critical Bug Discovery and Fix
+
+### Issue #7: Fetching Manifests for Wrong Tags ❌ **CRITICAL** - **FIXED** ✅
+
+**Discovered:** After initial implementation
+**Severity:** Critical - Implementation was doing the opposite of intended behavior
+
+**Problem:**
+
+The manifest fetching logic was fetching manifests for tagged versions selected FOR DELETION instead of tagged versions to KEEP. This resulted in:
+
+- Protecting digests from tags we planned to delete anyway
+- NOT protecting digests from tags we wanted to keep
+- Platform-specific images from KEPT multi-platform tags were being deleted
+
+**Root Cause:**
+
+In [src/core/select_package_versions.rs:302-306](src/core/select_package_versions.rs#L302-L306), we were fetching manifests for `package_versions.tagged`, which contained versions selected for deletion by the filter logic.
+
+**Example of bug:**
+
+```text
+Scenario: Two multi-platform tags: v1.0.0 (keep) and v0.9.0 (delete)
+
+OLD BUGGY BEHAVIOR:
+1. Filter determines: Delete v0.9.0, Keep v1.0.0
+2. Fetch manifest for v0.9.0 ❌ (wrong!)
+3. Protect v0.9.0's digests (sha256:abc, sha256:def)
+4. Delete v0.9.0 and try to delete its digests (but they're protected, confusing)
+5. v1.0.0's digests (sha256:123, sha256:456) NOT protected
+6. Result: v1.0.0's platform images deleted! 💥
+
+NEW FIXED BEHAVIOR:
+1. Filter determines: Delete v0.9.0, Keep v1.0.0
+2. Compute inverse: v1.0.0 should be kept
+3. Fetch manifest for v1.0.0 ✅ (correct!)
+4. Protect v1.0.0's digests (sha256:123, sha256:456)
+5. Delete v0.9.0 and its unprotected digests
+6. Result: v1.0.0's platform images protected ✅
+```
+
+**Solution:**
+
+Refactored `select_package_versions` to:
+
+1. Fetch ALL package versions (unfiltered)
+2. Apply filtering to determine versions TO DELETE
+3. Compute inverse set to determine versions TO KEEP
+4. Fetch manifests for versions TO KEEP (not delete)
+5. Build digest protection set from kept tags
+6. Apply digest protection when processing deletions
+
+**Implementation Summary:**
+
+1. **Modified fetch flow** ([select_package_versions.rs:254-285](src/core/select_package_versions.rs#L254-L285))
+   - Changed to fetch ALL package versions without applying filters in the callback
+   - Separate tagged and untagged for later processing
+
+2. **Added inverse computation** ([select_package_versions.rs:294-332](src/core/select_package_versions.rs#L294-L332))
+   - Apply filters to get versions TO DELETE
+   - Create HashSet of deletion candidate IDs
+   - Filter all versions to find those NOT in deletion set (versions to KEEP)
+
+3. **Updated manifest fetching** ([select_package_versions.rs:340-350](src/core/select_package_versions.rs#L340-L350))
+   - Fetch manifests for `tagged_versions_to_keep` instead of `package_versions_to_delete.tagged`
+   - Added logging: "Fetching manifest for kept tag to protect its digests"
+
+4. **Enhanced logging** ([select_package_versions.rs:321-328](src/core/select_package_versions.rs#L321-L328))
+   - Show count of versions to keep vs delete
+   - Helps verify correct behavior during testing
+
+**Files Modified:**
+
+- `src/core/select_package_versions.rs` - Fixed manifest fetching logic
+
+**Result:** ✅ Code compiles successfully. All 33 unit tests pass. Manifest fetching now correctly protects digests from tags we want to KEEP.
+
+**Testing:**
+
+- ✅ Unit tests: All 33 tests pass
+- ✅ Integration tests: All 2 tests pass
+- ✅ Compilation: No warnings or errors
+- ⏳ Real-world testing: Requires PAT (pending)
+
+**Documentation:**
+
+- Created [BUG_FIX_MANIFEST_FETCHING.md](BUG_FIX_MANIFEST_FETCHING.md) with detailed analysis
+
+---
+
 ## Progress Tracking
 
 - [x] Issue #1: Fix hardcoded package name - **COMPLETED**
@@ -631,7 +721,8 @@ None currently - all clarifications received:
 - [x] Issue #5: Edge case handling - **COMPLETED**
 - [x] Issue #6A: Unit tests - **COMPLETED**
 - [x] Issue #6B: Integration testing with dry run - **COMPLETED** ✅
-- [ ] Final review and testing
+- [x] **Issue #7: Fix manifest fetching for wrong tags** - **COMPLETED** ✅
+- [ ] Final integration testing with PAT (requires new PAT)
 - [ ] Update documentation (README)
 
 ## References
