@@ -247,7 +247,7 @@ pub async fn select_package_versions(
     cut_off: &HumantimeDuration,
     timestamp_to_use: &Timestamp,
     counts: Arc<Counts>,
-) -> Result<HashMap<String, PackageVersions>> {
+) -> Result<(HashMap<String, PackageVersions>, HashMap<String, Vec<String>>)> {
     // Create matchers for the image tags
     let matchers = Matchers::from(&image_tags);
 
@@ -333,13 +333,14 @@ pub async fn select_package_versions(
             package_versions_to_delete.tagged.len()
         );
 
-        // STEP 5: Fetch manifests for KEPT tagged versions (not deleted ones!)
-        for package_version in &tagged_versions_to_keep {
+        // STEP 5: Fetch manifests for ALL tagged versions (not just kept ones!)
+        // This provides complete tag-to-digest associations for enhanced logging and troubleshooting
+        for package_version in &all_versions.tagged {
             for tag in &package_version.metadata.container.tags {
                 debug!(
                     package_name = package_name,
                     tag = tag,
-                    "Fetching manifest for kept tag to protect its digests"
+                    "Fetching manifest for tag to discover digest associations"
                 );
                 fetch_digest_set.spawn(client.fetch_image_manifest(package_name.clone(), tag.clone()));
             }
@@ -350,7 +351,7 @@ pub async fn select_package_versions(
 
     debug!("Fetching package versions");
     let mut digests = HashSet::new();
-    let mut digest_tag = HashMap::new();
+    let mut digest_tag: HashMap<String, Vec<String>> = HashMap::new();
     let mut total_protected = 0;
     let mut manifest_count = 0;
 
@@ -368,7 +369,7 @@ pub async fn select_package_versions(
             } else {
                 format!("{package_name}:{tag}")
             };
-            digest_tag.insert(digest.clone(), tag_str);
+            digest_tag.entry(digest.clone()).or_default().push(tag_str);
             digests.insert(digest);
             total_protected += 1;
         }
@@ -376,7 +377,7 @@ pub async fn select_package_versions(
 
     if total_protected > 0 {
         info!(
-            "Protected {total_protected} platform-specific image(s) from {manifest_count} multi-platform manifest(s)"
+            "Discovered {total_protected} platform-specific digest(s) from {manifest_count} manifest(s) (will protect those from kept tags)"
         );
     }
 
@@ -389,7 +390,7 @@ pub async fn select_package_versions(
             .filter_map(|package_version| {
                 if digests.contains(&package_version.name) {
                     let x: String = package_version.name.clone();
-                    let association: &String = digest_tag.get(&x as &str).unwrap();
+                    let associations: &Vec<String> = digest_tag.get(&x as &str).unwrap();
                     // Truncate the digest for readability (Docker-style: 12 hex chars after sha256:)
                     let digest_short =
                         if package_version.name.starts_with("sha256:") && package_version.name.len() >= 19 {
@@ -397,7 +398,8 @@ pub async fn select_package_versions(
                         } else {
                             &package_version.name
                         };
-                    debug!("Skipping deletion of {digest_short} because it's associated with {association}");
+                    let association_str = associations.join(", ");
+                    debug!("Skipping deletion of {digest_short} because it's associated with {association_str}");
                     None
                 } else {
                     Some(package_version)
@@ -407,9 +409,10 @@ pub async fn select_package_versions(
 
         package_versions.tagged.retain(|package_version| {
             if digests.contains(&package_version.name) {
-                let association = digest_tag.get(&*(package_version.name)).unwrap();
+                let associations = digest_tag.get(&*(package_version.name)).unwrap();
+                let association_str = associations.join(", ");
                 debug!(
-                    "Skipping deletion of {} because it's associated with {association}",
+                    "Skipping deletion of {} because it's associated with {association_str}",
                     package_version.name
                 );
                 false
@@ -431,7 +434,7 @@ pub async fn select_package_versions(
         package_version_map.insert(package_name, package_versions);
     }
 
-    Ok(package_version_map)
+    Ok((package_version_map, digest_tag))
 }
 
 #[cfg(test)]

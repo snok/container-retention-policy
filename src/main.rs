@@ -137,7 +137,7 @@ async fn main() -> Result<()> {
     );
 
     // Fetch package versions to delete
-    let package_version_map = match select_package_versions(
+    let (package_version_map, digest_associations) = match select_package_versions(
         selected_package_names,
         client,
         input.image_tags,
@@ -161,10 +161,15 @@ async fn main() -> Result<()> {
         *counts.remaining_requests.read().await
     );
 
-    let (deleted_packages, failed_packages) =
-        delete_package_versions(package_version_map, client, counts.clone(), input.dry_run)
-            .instrument(info_span!("deleting package versions"))
-            .await;
+    let (deleted_packages, failed_packages) = delete_package_versions(
+        package_version_map,
+        digest_associations,
+        client,
+        counts.clone(),
+        input.dry_run,
+    )
+    .instrument(info_span!("deleting package versions"))
+    .await;
 
     let mut github_output = env::var("GITHUB_OUTPUT").unwrap_or_default();
 

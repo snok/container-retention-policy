@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::process::exit;
 use std::sync::Arc;
 use std::time::Duration;
@@ -335,6 +336,7 @@ impl PackagesClient {
         package_name: String,
         package_version: PackageVersion,
         dry_run: bool,
+        digest_associations: Option<&HashMap<String, Vec<String>>>,
     ) -> std::result::Result<Vec<String>, Vec<String>> {
         // Create a vec of all the permutations of package tags stored in this package version
         // The vec will look something like ["foo:latest", "foo:production", "foo:2024-10-10T08:00:00"] given
@@ -359,9 +361,20 @@ impl PackagesClient {
             // and other logs if they're output right away.
             sleep(Duration::from_millis(10)).await;
             for name in &names {
+                // Check if this is an untagged version and if we have digest associations
+                let association_info = if package_version.metadata.container.tags.is_empty() {
+                    // This is an untagged version, check if it's a known digest
+                    digest_associations
+                        .and_then(|map| map.get(&package_version.name))
+                        .map(|tags| format!(" (part of: {})", tags.join(", ")))
+                        .unwrap_or_else(|| " (orphaned - not part of any tag)".to_string())
+                } else {
+                    String::new()
+                };
+
                 info!(
                     package_version = package_version.id,
-                    "dry-run: Would have deleted {name}"
+                    "dry-run: Would have deleted {name}{association_info}"
                 );
             }
             return Ok(Vec::new());
