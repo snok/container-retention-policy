@@ -289,6 +289,9 @@ pub async fn select_package_versions(
     let mut all_package_data = vec![];
     let mut fetch_digest_set = JoinSet::new();
 
+    // NEW: Track which tags are kept vs deleted for digest categorization
+    let mut tag_is_kept: HashMap<String, bool> = HashMap::new();
+
     debug!("Processing package versions and computing tags to keep");
 
     while let Some(r) = fetch_all_set.join_next().await {
@@ -333,6 +336,23 @@ pub async fn select_package_versions(
             package_versions_to_delete.tagged.len()
         );
 
+        // NEW: Build tag categorization map for this package
+        // Mark kept tags
+        for package_version in &tagged_versions_to_keep {
+            for tag in &package_version.metadata.container.tags {
+                let tag_key = format!("{package_name}:{tag}");
+                tag_is_kept.insert(tag_key, true);
+            }
+        }
+
+        // Mark deleted tags
+        for package_version in &package_versions_to_delete.tagged {
+            for tag in &package_version.metadata.container.tags {
+                let tag_key = format!("{package_name}:{tag}");
+                tag_is_kept.insert(tag_key, false);
+            }
+        }
+
         // STEP 5: Fetch manifests for ALL tagged versions (not just kept ones!)
         // This provides complete tag-to-digest associations for enhanced logging and troubleshooting
         for package_version in &all_versions.tagged {
@@ -346,13 +366,14 @@ pub async fn select_package_versions(
             }
         }
 
-        all_package_data.push((package_name, package_versions_to_delete));
+        all_package_data.push((package_name, package_versions_to_delete, all_versions));
     }
 
     debug!("Fetching package versions");
-    let mut digests = HashSet::new();
+    let mut kept_digests = HashSet::new();
+    let mut deleted_digests = HashSet::new();
     let mut digest_tag: HashMap<String, Vec<String>> = HashMap::new();
-    let mut total_protected = 0;
+    let mut total_digests = 0;
     let mut manifest_count = 0;
 
     while let Some(r) = fetch_digest_set.join_next().await {
@@ -363,34 +384,67 @@ pub async fn select_package_versions(
             manifest_count += 1;
         }
 
+        // Determine if this tag is being kept or deleted
+        let tag_key = format!("{package_name}:{tag}");
+        let is_kept_tag = tag_is_kept.get(&tag_key).copied().unwrap_or(false);
+
         for (digest, platform_opt) in package_digests.into_iter() {
             let tag_str = if let Some(platform) = platform_opt {
                 format!("{package_name}:{tag} ({platform})")
             } else {
                 format!("{package_name}:{tag}")
             };
+
+            // Track all digest-to-tag associations for logging
             digest_tag.entry(digest.clone()).or_default().push(tag_str);
-            digests.insert(digest);
-            total_protected += 1;
+
+            // Categorize digest based on whether the tag is kept or deleted
+            if is_kept_tag {
+                kept_digests.insert(digest.clone());
+            } else {
+                deleted_digests.insert(digest.clone());
+            }
+
+            total_digests += 1;
         }
     }
 
-    if total_protected > 0 {
+    // Handle shared digests: if a digest is in both sets, kept takes precedence
+    // Remove from deleted_digests any that are also in kept_digests
+    deleted_digests.retain(|digest| !kept_digests.contains(digest));
+
+    if total_digests > 0 {
         info!(
-            "Discovered {total_protected} platform-specific digest(s) from {manifest_count} manifest(s) (will protect those from kept tags)"
+            "Discovered {} platform-specific digest(s) from {} manifest(s) ({} to keep, {} to delete)",
+            total_digests,
+            manifest_count,
+            kept_digests.len(),
+            deleted_digests.len()
         );
     }
 
     let mut package_version_map = HashMap::new();
 
-    for (package_name, mut package_versions) in all_package_data {
+    for (package_name, mut package_versions, all_versions) in all_package_data {
+        // NEW: Add platform-specific digests from deleted tags to the deletion list
+        // Find untagged versions from all_versions that match deleted_digests
+        let deleted_tag_digests: Vec<PackageVersion> = all_versions
+            .untagged
+            .into_iter()
+            .filter(|pv| deleted_digests.contains(&pv.name))
+            .collect();
+
+        // Add these to the untagged deletion list
+        package_versions.untagged.extend(deleted_tag_digests);
+
+        // Filter out untagged versions: only protect digests from KEPT tags
         package_versions.untagged = package_versions
             .untagged
             .into_iter()
             .filter_map(|package_version| {
-                if digests.contains(&package_version.name) {
-                    let x: String = package_version.name.clone();
-                    let associations: &Vec<String> = digest_tag.get(&x as &str).unwrap();
+                if kept_digests.contains(&package_version.name) {
+                    // This digest belongs to a KEPT tag - protect it
+                    let associations: &Vec<String> = digest_tag.get(&package_version.name).unwrap();
                     // Truncate the digest for readability (Docker-style: 12 hex chars after sha256:)
                     let digest_short =
                         if package_version.name.starts_with("sha256:") && package_version.name.len() >= 19 {
@@ -399,20 +453,22 @@ pub async fn select_package_versions(
                             &package_version.name
                         };
                     let association_str = associations.join(", ");
-                    debug!("Skipping deletion of {digest_short} because it's associated with {association_str}");
+                    debug!("Skipping deletion of {digest_short} because it's associated with KEPT tag(s): {association_str}");
                     None
                 } else {
+                    // This digest is either from a DELETED tag or is orphaned - allow deletion
                     Some(package_version)
                 }
             })
             .collect();
 
+        // Filter tagged versions: protect digests from KEPT tags
         package_versions.tagged.retain(|package_version| {
-            if digests.contains(&package_version.name) {
+            if kept_digests.contains(&package_version.name) {
                 let associations = digest_tag.get(&*(package_version.name)).unwrap();
                 let association_str = associations.join(", ");
                 debug!(
-                    "Skipping deletion of {} because it's associated with {association_str}",
+                    "Skipping deletion of {} because it's associated with KEPT tag(s): {association_str}",
                     package_version.name
                 );
                 false
