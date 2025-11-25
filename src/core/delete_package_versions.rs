@@ -9,6 +9,7 @@ use tracing::{debug, error, info, warn};
 
 async fn select_package_versions_to_delete(
     package_version_map: HashMap<String, PackageVersions>,
+    digest_associations: HashMap<String, Vec<String>>,
     client: &'static PackagesClient,
     counts: Arc<Counts>,
     dry_run: bool,
@@ -16,6 +17,9 @@ async fn select_package_versions_to_delete(
     let initial_allocatable_requests = *counts.remaining_requests.read().await;
     let mut allocatable_requests = initial_allocatable_requests;
     let mut set = JoinSet::new();
+
+    // Wrap digest_associations in Arc so we can share it across tasks
+    let digest_associations = Arc::new(digest_associations);
 
     // Make a first-pass of all packages, adding untagged package versions
     package_version_map.iter().for_each(|(package_name, package_versions)| {
@@ -28,7 +32,12 @@ async fn select_package_versions_to_delete(
 
         for version in &package_versions.untagged {
             if allocatable_requests > 0 {
-                set.spawn(client.delete_package_version(package_name.clone(), version.clone(), dry_run));
+                let digest_assoc_clone = digest_associations.clone();
+                let pkg_name = package_name.clone();
+                let ver = version.clone();
+                set.spawn(async move {
+                    client.delete_package_version(pkg_name, ver, dry_run, Some(&digest_assoc_clone)).await
+                });
                 package_version_count += 1;
                 allocatable_requests -= 1;
             } else {
@@ -59,7 +68,12 @@ async fn select_package_versions_to_delete(
 
             for version in &package_versions.tagged {
                 if allocatable_requests > 0 {
-                    set.spawn(client.delete_package_version(package_name.clone(), version.clone(), dry_run));
+                    let digest_assoc_clone = digest_associations.clone();
+                    let pkg_name = package_name.clone();
+                    let ver = version.clone();
+                    set.spawn(async move {
+                        client.delete_package_version(pkg_name, ver, dry_run, Some(&digest_assoc_clone)).await
+                    });
                     package_version_count += 1;
                     allocatable_requests -= 1;
                 } else {
@@ -74,11 +88,13 @@ async fn select_package_versions_to_delete(
 
 pub async fn delete_package_versions(
     package_version_map: HashMap<String, PackageVersions>,
+    digest_associations: HashMap<String, Vec<String>>,
     client: &'static PackagesClient,
     counts: Arc<Counts>,
     dry_run: bool,
 ) -> (Vec<String>, Vec<String>) {
-    let mut set = select_package_versions_to_delete(package_version_map, client, counts, dry_run).await;
+    let mut set =
+        select_package_versions_to_delete(package_version_map, digest_associations, client, counts, dry_run).await;
 
     let mut deleted_packages = Vec::new();
     let mut failed_packages = Vec::new();

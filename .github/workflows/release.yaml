@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  REGISTRY_IMAGE: ghcr.io/snok/container-retention-policy
+  REGISTRY_IMAGE: ghcr.io/sennerholm/container-retention-policy
 
 jobs:
   build:
