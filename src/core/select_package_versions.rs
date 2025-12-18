@@ -8,7 +8,7 @@ use chrono::Utc;
 use color_eyre::Result;
 use humantime::Duration as HumantimeDuration;
 use indicatif::ProgressStyle;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinSet;
@@ -192,6 +192,7 @@ fn filter_by_tag_selection(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn filter_package_versions(
     package_versions: Vec<PackageVersion>,
     package_name: &str,
@@ -235,8 +236,9 @@ pub fn filter_package_versions(
 
 /// Fetches and filters package versions by account type, image-tag filters, cut-off,
 /// tag-selection, and a bunch of other things. Fetches versions concurrently.
+#[allow(clippy::too_many_arguments)]
 pub async fn select_package_versions(
-    package_names: Vec<String>,
+    packages: Vec<String>,
     client: &'static PackagesClient,
     image_tags: Vec<String>,
     shas_to_skip: Vec<String>,
@@ -245,54 +247,235 @@ pub async fn select_package_versions(
     cut_off: &HumantimeDuration,
     timestamp_to_use: &Timestamp,
     counts: Arc<Counts>,
-) -> Result<HashMap<String, PackageVersions>> {
+) -> Result<(HashMap<String, PackageVersions>, HashMap<String, Vec<String>>)> {
     // Create matchers for the image tags
     let matchers = Matchers::from(&image_tags);
 
-    // Create async tasks to fetch everything concurrently
-    let mut set = JoinSet::new();
-    for package_name in package_names {
+    // STEP 1: Fetch ALL package versions (unfiltered) so we can compute both kept and deleted versions
+    let mut fetch_all_set = JoinSet::new();
+    for package_name in packages {
         let span = info_span!("fetch package versions", package_name = %package_name);
         span.pb_set_style(
             &ProgressStyle::default_spinner()
-                .template(&format!("{{spinner}} \x1b[34m{package_name}\x1b[0m: {{msg}}"))
+                .template(&format!("{{spinner}} {package_name}: {{msg}}"))
                 .unwrap(),
         );
         span.pb_set_message(&format!(
-            "fetched \x1b[33m0\x1b[0m package versions (\x1b[33m{}\x1b[0m requests remaining in the rate limit)",
-            *counts.remaining_requests.read().await + keep_n_most_recent as usize
+            "fetched 0 package versions ({} requests remaining in the rate limit)",
+            *counts.remaining_requests.read().await
         ));
 
-        let a = package_name.clone();
-        let b = shas_to_skip.clone();
-        let c = tag_selection.clone();
-        let d = *cut_off;
-        let e = timestamp_to_use.clone();
-        let f = matchers.clone();
-
-        set.spawn(
+        fetch_all_set.spawn(
             client
                 .list_package_versions(
                     package_name,
                     counts.clone(),
-                    move |package_versions| {
-                        let b = b.clone();
-                        let c = c.clone();
-                        let f = f.clone();
-                        filter_package_versions(package_versions, &a, b, c, &d, &e, f, client)
+                    move |versions| {
+                        // Return all versions unfiltered - we'll filter later
+                        // Separate tagged and untagged for processing
+                        let (tagged, untagged): (Vec<_>, Vec<_>) = versions
+                            .iter()
+                            .cloned()
+                            .partition(|v| !v.metadata.container.tags.is_empty());
+                        Ok(PackageVersions { tagged, untagged })
                     },
-                    keep_n_most_recent as usize,
+                    0, // No rate limit offset for initial fetch
                 )
                 .instrument(span),
         );
     }
 
-    let mut package_version_map = HashMap::new();
+    // STEP 2: Collect all versions and apply filtering to compute deletion candidates
+    let mut all_package_data = vec![];
+    let mut fetch_digest_set = JoinSet::new();
+
+    // NEW: Track which tags are kept vs deleted for digest categorization
+    let mut tag_is_kept: HashMap<String, bool> = HashMap::new();
+
+    debug!("Processing package versions and computing tags to keep");
+
+    while let Some(r) = fetch_all_set.join_next().await {
+        let (package_name, all_versions) = r??;
+
+        // STEP 3: Apply filtering to determine which versions should be DELETED
+        // Combine tagged and untagged for filtering
+        let all_versions_combined: Vec<PackageVersion> = all_versions
+            .tagged
+            .iter()
+            .chain(all_versions.untagged.iter())
+            .cloned()
+            .collect();
+
+        let package_versions_to_delete = filter_package_versions(
+            all_versions_combined,
+            &package_name,
+            shas_to_skip.clone(),
+            tag_selection.clone(),
+            cut_off,
+            timestamp_to_use,
+            matchers.clone(),
+            client,
+        )?;
+
+        // STEP 4: Compute which tagged versions will be KEPT (inverse of deletion set)
+        let to_delete_ids: HashSet<u32> = package_versions_to_delete.tagged.iter().map(|v| v.id).collect();
+
+        // Tags to keep are those NOT in the deletion set
+        let tagged_versions_to_keep: Vec<&PackageVersion> = all_versions
+            .tagged
+            .iter()
+            .filter(|v| !to_delete_ids.contains(&v.id))
+            .collect();
+
+        info!(
+            package_name = package_name,
+            to_delete = package_versions_to_delete.tagged.len(),
+            to_keep = tagged_versions_to_keep.len(),
+            "Computed {} tagged versions to keep (will protect their digests), {} to delete",
+            tagged_versions_to_keep.len(),
+            package_versions_to_delete.tagged.len()
+        );
+
+        // NEW: Build tag categorization map for this package
+        // Mark kept tags
+        for package_version in &tagged_versions_to_keep {
+            for tag in &package_version.metadata.container.tags {
+                let tag_key = format!("{package_name}:{tag}");
+                tag_is_kept.insert(tag_key, true);
+            }
+        }
+
+        // Mark deleted tags
+        for package_version in &package_versions_to_delete.tagged {
+            for tag in &package_version.metadata.container.tags {
+                let tag_key = format!("{package_name}:{tag}");
+                tag_is_kept.insert(tag_key, false);
+            }
+        }
+
+        // STEP 5: Fetch manifests for ALL tagged versions (not just kept ones!)
+        // This provides complete tag-to-digest associations for enhanced logging and troubleshooting
+        for package_version in &all_versions.tagged {
+            for tag in &package_version.metadata.container.tags {
+                debug!(
+                    package_name = package_name,
+                    tag = tag,
+                    "Fetching manifest for tag to discover digest associations"
+                );
+                fetch_digest_set.spawn(client.fetch_image_manifest(package_name.clone(), tag.clone()));
+            }
+        }
+
+        all_package_data.push((package_name, package_versions_to_delete, all_versions));
+    }
 
     debug!("Fetching package versions");
-    while let Some(r) = set.join_next().await {
-        // Get all the package versions for a package
-        let (package_name, mut package_versions) = r??;
+    let mut kept_digests = HashSet::new();
+    let mut deleted_digests = HashSet::new();
+    let mut digest_tag: HashMap<String, Vec<String>> = HashMap::new();
+    let mut total_digests = 0;
+    let mut manifest_count = 0;
+
+    while let Some(r) = fetch_digest_set.join_next().await {
+        // Get all the digests for the package with platform information
+        let (package_name, tag, package_digests) = r??;
+
+        if !package_digests.is_empty() {
+            manifest_count += 1;
+        }
+
+        // Determine if this tag is being kept or deleted
+        let tag_key = format!("{package_name}:{tag}");
+        let is_kept_tag = tag_is_kept.get(&tag_key).copied().unwrap_or(false);
+
+        for (digest, platform_opt) in package_digests.into_iter() {
+            let tag_str = if let Some(platform) = platform_opt {
+                format!("{package_name}:{tag} ({platform})")
+            } else {
+                format!("{package_name}:{tag}")
+            };
+
+            // Track all digest-to-tag associations for logging
+            digest_tag.entry(digest.clone()).or_default().push(tag_str);
+
+            // Categorize digest based on whether the tag is kept or deleted
+            if is_kept_tag {
+                kept_digests.insert(digest.clone());
+            } else {
+                deleted_digests.insert(digest.clone());
+            }
+
+            total_digests += 1;
+        }
+    }
+
+    // Handle shared digests: if a digest is in both sets, kept takes precedence
+    // Remove from deleted_digests any that are also in kept_digests
+    deleted_digests.retain(|digest| !kept_digests.contains(digest));
+
+    if total_digests > 0 {
+        info!(
+            "Discovered {} platform-specific digest(s) from {} manifest(s) ({} to keep, {} to delete)",
+            total_digests,
+            manifest_count,
+            kept_digests.len(),
+            deleted_digests.len()
+        );
+    }
+
+    let mut package_version_map = HashMap::new();
+
+    for (package_name, mut package_versions, all_versions) in all_package_data {
+        // NEW: Add platform-specific digests from deleted tags to the deletion list
+        // Find untagged versions from all_versions that match deleted_digests
+        let deleted_tag_digests: Vec<PackageVersion> = all_versions
+            .untagged
+            .into_iter()
+            .filter(|pv| deleted_digests.contains(&pv.name))
+            .collect();
+
+        // Add these to the untagged deletion list
+        package_versions.untagged.extend(deleted_tag_digests);
+
+        // Filter out untagged versions: only protect digests from KEPT tags
+        package_versions.untagged = package_versions
+            .untagged
+            .into_iter()
+            .filter_map(|package_version| {
+                if kept_digests.contains(&package_version.name) {
+                    // This digest belongs to a KEPT tag - protect it
+                    let associations: &Vec<String> = digest_tag.get(&package_version.name).unwrap();
+                    // Truncate the digest for readability (Docker-style: 12 hex chars after sha256:)
+                    let digest_short =
+                        if package_version.name.starts_with("sha256:") && package_version.name.len() >= 19 {
+                            &package_version.name[7..19] // Skip "sha256:" and take 12 hex chars
+                        } else {
+                            &package_version.name
+                        };
+                    let association_str = associations.join(", ");
+                    debug!("Skipping deletion of {digest_short} because it's associated with KEPT tag(s): {association_str}");
+                    None
+                } else {
+                    // This digest is either from a DELETED tag or is orphaned - allow deletion
+                    Some(package_version)
+                }
+            })
+            .collect();
+
+        // Filter tagged versions: protect digests from KEPT tags
+        package_versions.tagged.retain(|package_version| {
+            if kept_digests.contains(&package_version.name) {
+                let associations = digest_tag.get(&*(package_version.name)).unwrap();
+                let association_str = associations.join(", ");
+                debug!(
+                    "Skipping deletion of {} because it's associated with KEPT tag(s): {association_str}",
+                    package_version.name
+                );
+                false
+            } else {
+                true
+            }
+        });
 
         // Keep n package versions per package, if specified
         package_versions.tagged =
@@ -307,7 +490,7 @@ pub async fn select_package_versions(
         package_version_map.insert(package_name, package_versions);
     }
 
-    Ok(package_version_map)
+    Ok((package_version_map, digest_tag))
 }
 
 #[cfg(test)]
