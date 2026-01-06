@@ -5,3 +5,7 @@
 __pycache__/
 .coverage
 target
+# Test environment files with tokens
+.env
+.env.local
+*.token

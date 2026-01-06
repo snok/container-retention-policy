@@ -30,6 +30,7 @@ fn filter_by_matchers(packages: &[Package], matchers: &Matchers) -> Vec<String> 
 }
 
 /// Fetch and filters packages based on token type, account type, and image name filters.
+/// Returns a vector of package names.
 pub async fn select_packages(
     client: &mut PackagesClient,
     image_names: &Vec<String>,
@@ -51,26 +52,29 @@ pub async fn select_packages(
 
     // Filter image names
     let image_name_matchers = Matchers::from(image_names);
-    let selected_package_names = filter_by_matchers(&packages, &image_name_matchers);
+    let selected_packages = filter_by_matchers(&packages, &image_name_matchers);
     info!(
         "{}/{} package names matched the `package-name` filters",
-        selected_package_names.len(),
+        selected_packages.len(),
         packages.len()
     );
 
-    selected_package_names
+    selected_packages
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::client::models::Package;
+    use crate::client::models::{Owner, Package};
 
     #[test]
     fn test_filter_by_matchers() {
         let packages = vec![Package {
             id: 0,
             name: "foo".to_string(),
+            owner: Owner {
+                login: "test-owner".to_string(),
+            },
             created_at: Default::default(),
             updated_at: None,
         }];

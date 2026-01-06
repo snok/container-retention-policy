@@ -1,10 +1,10 @@
-use std::sync::Arc;
-use std::time::Duration;
-
+use base64::{alphabet, engine, engine::general_purpose::GeneralPurpose, Engine as _};
 use color_eyre::eyre::Result;
 use reqwest::header::HeaderMap;
 use reqwest::Client;
 use secrecy::ExposeSecret;
+use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
 use tower::limit::{ConcurrencyLimit, RateLimit};
 use tower::ServiceBuilder;
@@ -14,14 +14,15 @@ use url::Url;
 use crate::cli::models::{Account, Token};
 use crate::client::client::PackagesClient;
 use crate::client::urls::Urls;
-
 pub type RateLimitedService = Arc<Mutex<ConcurrencyLimit<RateLimit<Client>>>>;
 
 #[derive(Debug)]
 pub struct PackagesClientBuilder {
     pub headers: Option<HeaderMap>,
+    pub oci_headers: Option<HeaderMap>,
     pub urls: Option<Urls>,
     pub token: Option<Token>,
+    pub account: Option<Account>,
     pub fetch_package_service: Option<RateLimitedService>,
     pub list_packages_service: Option<RateLimitedService>,
     pub list_package_versions_service: Option<RateLimitedService>,
@@ -39,12 +40,14 @@ impl PackagesClientBuilder {
     pub fn new() -> Self {
         Self {
             headers: None,
+            oci_headers: None,
             urls: None,
             fetch_package_service: None,
             list_packages_service: None,
             list_package_versions_service: None,
             delete_package_versions_service: None,
             token: None,
+            account: None,
         }
     }
 
@@ -57,12 +60,24 @@ impl PackagesClientBuilder {
                 Token::Temporal(token) | Token::ClassicPersonalAccess(token) => token.expose_secret(),
             }
         );
+        let engine = GeneralPurpose::new(&alphabet::STANDARD, engine::general_purpose::PAD);
+        let encoded_auth_header_value = format!(
+            "Bearer {}",
+            match &token {
+                Token::Temporal(token) | Token::ClassicPersonalAccess(token) => engine.encode(token.expose_secret()),
+            }
+        );
         let mut headers = HeaderMap::new();
         headers.insert("Authorization", auth_header_value.as_str().parse()?);
         headers.insert("X-GitHub-Api-Version", "2022-11-28".parse()?);
         headers.insert("Accept", "application/vnd.github+json".parse()?);
         headers.insert("User-Agent", "snok/container-retention-policy".parse()?);
-        self.headers = Some(headers);
+        self.headers = Some(headers.clone());
+
+        headers.insert("Accept", "application/vnd.oci.image.index.v1+json".parse()?);
+        headers.insert("Authorization", encoded_auth_header_value.as_str().parse()?);
+        self.oci_headers = Some(headers);
+
         self.token = Some(token);
         Ok(self)
     }
@@ -71,6 +86,7 @@ impl PackagesClientBuilder {
     pub fn generate_urls(mut self, github_server_url: &Url, github_api_url: &Url, account: &Account) -> Self {
         debug!("Constructing base urls");
         self.urls = Some(Urls::new(github_server_url, github_api_url, account));
+        self.account = Some(account.clone());
         self
     }
 
@@ -142,6 +158,7 @@ impl PackagesClientBuilder {
             || self.list_package_versions_service.is_none()
             || self.delete_package_versions_service.is_none()
             || self.token.is_none()
+            || self.account.is_none()
         {
             return Err("All required fields are not set".into());
         }
@@ -149,12 +166,15 @@ impl PackagesClientBuilder {
         // Create PackageVersionsClient instance
         let client = PackagesClient {
             headers: self.headers.unwrap(),
+            oci_headers: self.oci_headers.unwrap(),
             urls: self.urls.unwrap(),
             fetch_package_service: self.fetch_package_service.unwrap(),
             list_packages_service: self.list_packages_service.unwrap(),
             list_package_versions_service: self.list_package_versions_service.unwrap(),
             delete_package_versions_service: self.delete_package_versions_service.unwrap(),
             token: self.token.unwrap(),
+            account: self.account.unwrap(),
+            owner: None,
         };
 
         Ok(client)
