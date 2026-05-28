@@ -8,7 +8,7 @@ use tracing::debug;
 static RE_CLASSIC_PAT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^ghp_[a-zA-Z0-9]{36}$").unwrap());
 static RE_TEMPORAL_LEGACY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^ghs_[a-zA-Z0-9]{36}$").unwrap());
 static RE_TEMPORAL_JWT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^ghs_\d+_[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$").unwrap());
+    LazyLock::new(|| Regex::new(r"^ghs_[0-9]+_[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$").unwrap());
 
 #[derive(Debug, Clone, ValueEnum, PartialEq)]
 #[clap(rename_all = "snake-case")]
