@@ -3,7 +3,7 @@ use crate::client::client::PackagesClient;
 use crate::client::models::PackageVersion;
 use crate::client::urls::Urls;
 use crate::matchers::Matchers;
-use crate::{Counts, PackageVersions};
+use crate::{Counts, PackageVersions, TaggedDigest};
 use chrono::Utc;
 use color_eyre::Result;
 use humantime::Duration as HumantimeDuration;
@@ -238,7 +238,7 @@ pub fn filter_package_versions(
 /// `all_tagged` contains `(id, digest)` pairs for every tagged version fetched
 /// from the API. We subtract the IDs selected for deletion to get the kept set,
 /// whose OCI manifests we need to check for multi-arch child digests.
-pub fn kept_tagged_digests(all_tagged: &[(u32, String)], deleted: &PackageVersions) -> Vec<String> {
+pub fn kept_tagged_digests(all_tagged: &[TaggedDigest], deleted: &PackageVersions) -> Vec<String> {
     let deleted_ids: HashSet<u32> = deleted.tagged.iter().map(|pv| pv.id).collect();
 
     all_tagged
@@ -696,7 +696,7 @@ mod tests {
         assert!(!contains_shas_to_skip(&["fo".to_string()], &p));
     }
 
-    fn tagged(id: u32, digest: &str) -> (u32, String) {
+    fn tagged(id: u32, digest: &str) -> TaggedDigest {
         (id, digest.to_string())
     }
 
