@@ -8,7 +8,7 @@ use chrono::Utc;
 use color_eyre::Result;
 use humantime::Duration as HumantimeDuration;
 use indicatif::ProgressStyle;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinSet;
@@ -231,6 +231,20 @@ pub fn filter_package_versions(
     }
 
     Ok(PackageVersions { untagged, tagged })
+}
+
+/// Returns the digests of tagged package versions that should **not** be deleted.
+///
+/// We need to check these versions' OCI manifests to discover which
+/// (if any) multi-arch child digests must be protected from deletion.
+pub fn kept_tagged_digests(all_versions: &[PackageVersion], deleted: &PackageVersions) -> Vec<String> {
+    let deleted_ids: HashSet<u32> = deleted.tagged.iter().map(|pv| pv.id).collect();
+
+    all_versions
+        .iter()
+        .filter(|pv| !pv.metadata.container.tags.is_empty() && !deleted_ids.contains(&pv.id))
+        .map(|pv| pv.name.clone())
+        .collect()
 }
 
 /// Fetches and filters package versions by account type, image-tag filters, cut-off,
@@ -669,5 +683,83 @@ mod tests {
         assert!(contains_shas_to_skip(&["foo".to_string()], &p));
         assert!(!contains_shas_to_skip(&["foos".to_string()], &p));
         assert!(!contains_shas_to_skip(&["fo".to_string()], &p));
+    }
+
+    #[test]
+    fn test_kept_tagged_digests_basic() {
+        let all = vec![
+            create_pv(1, "sha256:aaa", vec!["latest", "v1"]),
+            create_pv(2, "sha256:bbb", vec!["v2"]),
+            create_pv(3, "sha256:ccc", vec![]), // untagged
+            create_pv(4, "sha256:ddd", vec!["v3"]),
+        ];
+
+        // Version 2 selected for deletion (tagged), version 3 is untagged
+        let deleted = PackageVersions {
+            tagged: vec![create_pv(2, "sha256:bbb", vec!["v2"])],
+            untagged: vec![create_pv(3, "sha256:ccc", vec![])],
+        };
+
+        let kept = kept_tagged_digests(&all, &deleted);
+        assert_eq!(kept, vec!["sha256:aaa", "sha256:ddd"]);
+    }
+
+    #[test]
+    fn test_kept_tagged_digests_excludes_untagged() {
+        // Even if an untagged version is not in the deletion set,
+        // it should not appear in kept_tagged_digests
+        let all = vec![
+            create_pv(1, "sha256:aaa", vec!["v1"]),
+            create_pv(2, "sha256:bbb", vec![]), // untagged, not deleted
+        ];
+
+        let deleted = PackageVersions {
+            tagged: vec![],
+            untagged: vec![],
+        };
+
+        let kept = kept_tagged_digests(&all, &deleted);
+        assert_eq!(kept, vec!["sha256:aaa"]);
+    }
+
+    #[test]
+    fn test_kept_tagged_digests_all_deleted() {
+        let all = vec![
+            create_pv(1, "sha256:aaa", vec!["v1"]),
+            create_pv(2, "sha256:bbb", vec!["v2"]),
+        ];
+
+        let deleted = PackageVersions {
+            tagged: vec![
+                create_pv(1, "sha256:aaa", vec!["v1"]),
+                create_pv(2, "sha256:bbb", vec!["v2"]),
+            ],
+            untagged: vec![],
+        };
+
+        let kept = kept_tagged_digests(&all, &deleted);
+        assert!(kept.is_empty());
+    }
+
+    #[test]
+    fn test_kept_tagged_digests_none_deleted() {
+        let all = vec![
+            create_pv(1, "sha256:aaa", vec!["v1"]),
+            create_pv(2, "sha256:bbb", vec!["v2"]),
+        ];
+
+        let deleted = PackageVersions {
+            tagged: vec![],
+            untagged: vec![],
+        };
+
+        let kept = kept_tagged_digests(&all, &deleted);
+        assert_eq!(kept, vec!["sha256:aaa", "sha256:bbb"]);
+    }
+
+    #[test]
+    fn test_kept_tagged_digests_empty_input() {
+        let kept = kept_tagged_digests(&[], &PackageVersions::new());
+        assert!(kept.is_empty());
     }
 }
