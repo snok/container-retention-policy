@@ -1,7 +1,14 @@
+use std::sync::LazyLock;
+
 use clap::ValueEnum;
 use regex::Regex;
 use secrecy::{ExposeSecret, SecretString};
 use tracing::debug;
+
+static RE_CLASSIC_PAT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"ghp_[a-zA-Z0-9]{36}$").unwrap());
+static RE_TEMPORAL_LEGACY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"ghs_[a-zA-Z0-9]{36}$").unwrap());
+static RE_TEMPORAL_JWT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"ghs_\d+_[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$").unwrap());
 
 #[derive(Debug, Clone, ValueEnum, PartialEq)]
 #[clap(rename_all = "snake-case")]
@@ -54,13 +61,16 @@ impl Token {
         let secret = SecretString::new(Box::from(trimmed_value));
 
         // Classic PAT
-        if Regex::new(r"ghp_[a-zA-Z0-9]{36}$").unwrap().is_match(trimmed_value) {
+        if RE_CLASSIC_PAT.is_match(trimmed_value) {
             debug!("Recognized token as personal access token");
             return Ok(Self::ClassicPersonalAccess(secret));
         };
 
         // Temporal token - i.e., $GITHUB_TOKEN or token acquired for a GitHub app
-        if Regex::new(r"ghs_[a-zA-Z0-9]{36}$").unwrap().is_match(trimmed_value) {
+        // Supports both the legacy 40-char format (ghs_ + 36 alnum) and the new
+        // JWT-based format (ghs_APPID_JWT, ~520 chars) introduced April 2026.
+        // See: https://github.blog/changelog/2026-04-24-notice-about-upcoming-new-format-for-github-app-installation-tokens/
+        if RE_TEMPORAL_LEGACY.is_match(trimmed_value) || RE_TEMPORAL_JWT.is_match(trimmed_value) {
             debug!("Recognized token as temporal token");
             return Ok(Self::Temporal(secret));
         };
