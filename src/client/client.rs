@@ -135,17 +135,18 @@ impl PackagesClient {
         counts: Arc<Counts>,
         filter_fn: F,
         rate_limit_offset: usize,
-    ) -> Result<PackageVersions>
+    ) -> Result<(PackageVersions, Vec<(u32, String)>)>
     where
         F: Fn(Vec<PackageVersion>) -> Result<PackageVersions>,
     {
         let mut result = PackageVersions::new();
+        let mut all_tagged = Vec::new();
         let mut next_url = Some(url);
 
         while let Some(current_url) = next_url {
             if (*counts.package_versions.read().await) > (*counts.remaining_requests.read().await) + rate_limit_offset {
                 info!("Returning without fetching all package versions, since the remaining requests are less or equal to the number of package versions already selected");
-                return Ok(result);
+                return Ok((result, all_tagged));
             }
 
             debug!("Fetching data from {}", current_url);
@@ -195,12 +196,19 @@ impl PackagesClient {
                 }
             };
 
-            let package_versions = filter_fn(items.clone())?;
+            let page_count = items.len();
+            all_tagged.extend(
+                items
+                    .iter()
+                    .filter(|pv| !pv.metadata.container.tags.is_empty())
+                    .map(|pv| (pv.id, pv.name.clone())),
+            );
+            let package_versions = filter_fn(items)?;
 
             debug!(
                 "Filtered out {}/{} package versions",
-                items.len() - package_versions.len(),
-                items.len()
+                page_count - package_versions.len(),
+                page_count
             );
 
             // Decrement the rate limiter count
@@ -221,7 +229,7 @@ impl PackagesClient {
                 *counts.remaining_requests.read().await
             ));
         }
-        Ok(result)
+        Ok((result, all_tagged))
     }
 
     async fn list_packages(&mut self, url: Url, counts: Arc<Counts>) -> Result<Vec<Package>> {
@@ -235,12 +243,12 @@ impl PackagesClient {
         counts: Arc<Counts>,
         filter_fn: F,
         rate_limit_offset: usize,
-    ) -> Result<(String, PackageVersions)>
+    ) -> Result<(String, PackageVersions, Vec<(u32, String)>)>
     where
         F: Fn(Vec<PackageVersion>) -> Result<PackageVersions>,
     {
         let url = self.urls.list_package_versions_url(&package_name)?;
-        let package_versions = Self::fetch_package_versions_with_pagination(
+        let (package_versions, all_tagged) = Self::fetch_package_versions_with_pagination(
             url,
             self.list_package_versions_service.clone(),
             self.headers.clone(),
@@ -254,7 +262,7 @@ impl PackagesClient {
             "Selected {} package versions",
             package_versions.len()
         );
-        Ok((package_name, package_versions))
+        Ok((package_name, package_versions, all_tagged))
     }
 
     async fn fetch_individual_package(&self, url: Url, counts: Arc<Counts>) -> Result<Package> {
