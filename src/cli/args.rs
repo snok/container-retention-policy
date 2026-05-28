@@ -1,4 +1,5 @@
 use std::convert::Infallible;
+use std::sync::LazyLock;
 
 use crate::cli::models::{Account, TagSelection, Timestamp, Token};
 use clap::ArgAction;
@@ -7,6 +8,8 @@ use humantime::Duration;
 use regex::Regex;
 use tracing::Level;
 use url::Url;
+
+static RE_SHA256: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^sha256:[0-9a-fA-F]{64}$").unwrap());
 
 pub const DEFAULT_GITHUB_SERVER_URL: &str = "https://github.com";
 pub const DEFAULT_GITHUB_API_URL: &str = "https://api.github.com";
@@ -31,9 +34,8 @@ pub fn vec_of_string_from_str(value: &str) -> Result<Vec<String>, Infallible> {
 
 pub fn try_parse_shas_as_list(s: &str) -> Result<Vec<String>, String> {
     let shas = vec_of_string_from_str(s).unwrap();
-    let re = Regex::new(r"^sha256:[0-9a-fA-F]{64}$").unwrap();
     for sha in &shas {
-        if !re.is_match(sha) {
+        if !RE_SHA256.is_match(sha) {
             return Err(format!("Invalid image SHA received: {sha}"));
         }
     }
@@ -206,7 +208,11 @@ mod tests {
         // Format: ghs_APPID_JWT (~520 characters, variable length)
         let new_format_token = "ghs_12345_eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiaWF0IjoxNzE2MDAwMDAwLCJleHAiOjE3MTYwMDM2MDAsImlzcyI6ImdpdGh1Yi5jb20iLCJhdWQiOiJnaXRodWIuY29tIiwiaW5zdGFsbGF0aW9uX2lkIjoxMjM0NTY3OCwiYXBwX2lkIjoxMjM0NSwiZW52IjoicHJvZHVjdGlvbiIsInNjb3BlcyI6WyJwYWNrYWdlczp3cml0ZSJdfQ.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
         let result = Token::try_from_str(new_format_token);
-        assert!(result.is_ok(), "New format ghs_ token should be accepted, got: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "New format ghs_ token should be accepted, got: {:?}",
+            result
+        );
         assert_eq!(
             result.unwrap(),
             Token::Temporal(SecretString::new(Box::from(new_format_token.to_string())))
@@ -218,7 +224,11 @@ mod tests {
         // New format GITHUB_TOKEN issued by Actions (also ghs_ prefix, JWT-based)
         let actions_token = "ghs_98765_eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhY3Rpb25zIiwiaWF0IjoxNzE2MDAwMDAwfQ.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
         let result = Token::try_from_str(actions_token);
-        assert!(result.is_ok(), "New format GITHUB_TOKEN should be accepted, got: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "New format GITHUB_TOKEN should be accepted, got: {:?}",
+            result
+        );
         assert_eq!(
             result.unwrap(),
             Token::Temporal(SecretString::new(Box::from(actions_token.to_string())))
