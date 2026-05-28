@@ -24,6 +24,7 @@ mod cli;
 pub mod client;
 mod core;
 mod matchers;
+pub mod registry;
 
 pub struct Counts {
     pub remaining_requests: RwLock<usize>,
