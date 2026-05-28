@@ -236,6 +236,18 @@ mod tests {
     }
 
     #[test]
+    fn parse_token_rejects_invalid() {
+        assert!(Token::try_from_str("").is_err());
+        assert!(Token::try_from_str("not-a-token").is_err());
+        assert!(Token::try_from_str("ghx_U4fUiyjT4gUZKJeUEI3AX501oTqIvV0loS62").is_err());
+        // JWT missing a dot-separated segment
+        assert!(Token::try_from_str("ghs_12345_header.payload").is_err());
+        // Legacy format embedded after a prefix should not match
+        assert!(Token::try_from_str("prefix_ghs_U4fUiyjT4gUZKJeUEI3AX501oTqIvV0loS62").is_err());
+        assert!(Token::try_from_str("prefix_ghp_sSIL4kMdtzfbfDdm1MC1OU2q5DbRqA3eSszT").is_err());
+    }
+
+    #[test]
     fn parse_account() {
         assert_eq!(Account::try_from_str("user").unwrap(), Account::User);
         assert_eq!(
