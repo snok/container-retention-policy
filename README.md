@@ -9,10 +9,8 @@ makes sense in most cases.
 
 - ✅ Supports organizational and personal accounts
 - 👮 Supports multiple token types for authentication
+- 🏗️ Automatically protects multi-arch image children from deletion
 - 🌱 The docker image used is sized below 10Mi, and the total runtime is a few seconds for most workloads
-
-> [!WARNING]
-> If you're building multi-arch images, see [Safely handling multi-platform/multi-arch images](#safely-handling-multi-platform-multi-arch-packages).
 
 # Content
 
@@ -37,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Delete old test images
     steps:
-      - uses: snok/container-retention-policy@v3.0.0
+      - uses: snok/container-retention-policy@v3.1.0
         with:
           account: snok
           token: ${{ secrets.PAT }}
@@ -99,7 +97,7 @@ To fetch an app token, you can structure your workflow like this:
     app-id: ${{ secrets.GH_APP_ID }}
     private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
 
-- uses: snok/container-retention-policy@v3.0.0
+- uses: snok/container-retention-policy@v3.1.0
   with:
     account: snok
     token: ${{ steps.generate-token.outputs.token }}
@@ -145,8 +143,8 @@ Like for image-names, these operators are only available for personal- and GitHu
 * **Required**: `No`
 * **Example**: `skip-shas: sha256:610a8286bda2dcc713754078070341b8e696be0b02c0e36b2d48f1447c7162af,sha256:a1b6216dfcb74a02b33a2ed68b5dc9c1bd6aa1552d1e377155e8cb348525c533`
 
-Optionally protects specific package versions by their digest. This parameter was added to support
-proper handling of multi-platform images. See [safely handling multi-platform (multi-arch) packages](#safely-handling-multi-platform-multi-arch-packages) for details.
+Optionally protects specific package versions by their digest. Since v3.1.0, multi-arch children are
+protected automatically, but this parameter can still be used to manually protect additional digests.
 
 ### tag-selection
 
@@ -221,7 +219,7 @@ jobs:
     name: Delete package versions older than 4 weeks
     runs-on: ubuntu-latest
     steps:
-      - uses: snok/container-retention-policy@v3.0.0
+      - uses: snok/container-retention-policy@v3.1.0
         with:
           account: snok
           token: ${{ secrets.PAT }}
@@ -244,7 +242,7 @@ jobs:
     name: Delete untagged package versions
     runs-on: ubuntu-latest
     steps:
-      - uses: snok/container-retention-policy@v3.0.0
+      - uses: snok/container-retention-policy@v3.1.0
         with:
           account: user
           token: ${{ secrets.PAT }}
@@ -281,7 +279,7 @@ to run the program elsewhere you may:
   ```
   docker run \
             -e RUST_LOG=container_retention_policy=info \
-            ghcr.io/snok/container-retention-policy:v3.0.0-alpha2  \
+            ghcr.io/snok/container-retention-policy:v3.1.0  \
             --account snok \
             --token $PAT \
             --cut-off 1d \
@@ -323,7 +321,7 @@ jobs:
     name: Delete package versions older than 4 weeks, but keep the latest 5 in case of rollbacks
     runs-on: ubuntu-latest
     steps:
-      - uses: snok/container-retention-policy@v3.0.0
+      - uses: snok/container-retention-policy@v3.1.0
         with:
           account: snok
           token: ${{ secrets.PAT }}
@@ -336,181 +334,20 @@ jobs:
 
 The action will prioritize keeping newer package versions over older ones.
 
-## Safely handling multi-platform (multi-arch) packages
+## Multi-platform (multi-arch) image safety
 
-This action (or rather, naïve deletion of package version in GitHub's container registry, in general) can break your images.
+When you build multi-platform images (e.g., `docker buildx build --platform linux/amd64,linux/arm64`), GHCR stores the tagged image index plus several untagged platform-specific child manifests. Deleting any of these children breaks the parent image.
 
-### How to know whether you're safe
+Starting with v3.1.0, this action **automatically protects multi-arch children**. Before deleting, the action fetches the OCI manifest of every kept tagged version via the GHCR registry API. If a manifest is a multi-arch image index, all of its child digests are removed from the deletion candidates.
 
-Try and run the equivalent of this curl request:
+This protection is:
+- **Automatic** — no configuration needed
+- **Fail-closed** — if a manifest can't be fetched (network error, auth issue, rate limit), deletion is skipped entirely for that package rather than risking orphaned children
+- **Bounded** — concurrent registry requests are capped to avoid rate limit spikes
 
-```shell
-curl -L \
-     -X GET \
-     -H "Accept: application/vnd.oci.image.index.v1+json" \
-     -H "Authorization: Bearer $(echo $PAT | base64)" \
-     -H "X-GitHub-Api-Version: 2022-11-28" \
-     https://ghcr.io/v2/snok%2Fcontainer-retention-policy/manifests/v3.0.0
-```
+### Manual override with `skip-shas`
 
-> [!NOTE]
-> The `%2F` is the percent-encoded value for `/`. Make sure you also url-encode any symbols that might need it from the package name or tag.
-
-If the response has a `manifests` key with several elements, it is not recommended to use the action without implementing the workaround explained below:
-
-### The problem
-
-GitHub's container registry supports uploads of multi-platform  packages, with commands like:
-
-```
-docker buildx build \
-    -t ghcr.io/snok/container-retention-policy:multi-arch \
-    --platform linux/amd64,linux/arm64 . \
-    --push
-```
-
-However, they do not provide enough metadata in the packages API to properly handle deletion for multi-platform packages. From the build above, the API will return 5 package versions. From these five, one package version contains our `multi-arch` tag, and four are untagged, with no references to each-other:
-
-```json
-[
-  {
-    "id": 214880827,
-    "name": "sha256:e8530d7d4c44954276715032c027882a2569318bb7f79c5a4fce6c80c0c1018e",
-    "created_at": "2024-05-11T12:42:55Z",
-    "metadata": {
-      "package_type": "container",
-      "container": {
-        "tags": [
-          "multi-arch"
-        ]
-      }
-    }
-  },
-  {
-    "id": 214880825,
-    "name": "sha256:ca5bf1eaa2a393f30d079e8fa005c73318829251613a359d6972bbae90b491fe",
-    "created_at": "2024-05-11T12:42:54Z",
-    "metadata": {
-      "package_type": "container",
-      "container": {
-        "tags": []
-      }
-    }
-  },
-  {
-    "id": 214880822,
-    "name": "sha256:6cff2700a9a29ace200788b556210973bd35a541166e6c8a682421adb0b6e7bb",
-    "created_at": "2024-05-11T12:42:54Z",
-    "metadata": {
-      "package_type": "container",
-      "container": {
-        "tags": []
-      }
-    }
-  },
-  {
-    "id": 214880821,
-    "name": "sha256:f8bc799ae7b6ba95595c32e12075d21328dac783c9c0304cf80c61d41025aeb2",
-    "created_at": "2024-05-11T12:42:53Z",
-    "html_url": "https://github.com/orgs/snok/packages/container/container-retention-policy/214880821",
-    "metadata": {
-      "package_type": "container",
-      "container": {
-        "tags": []
-      }
-    }
-  },
-  {
-    "id": 214880818,
-    "name": "sha256:a86523225e8d21faae518a5ea117e06887963a4a9ac123683d91890af092cf03",
-    "created_at": "2024-05-11T12:42:53Z",
-    "html_url": "https://github.com/orgs/snok/packages/container/container-retention-policy/214880818",
-    "metadata": {
-      "package_type": "container",
-      "container": {
-        "tags": []
-      }
-    }
-  }
-]
-```
-
-If we delete some of these, we'll either delete some of the platform targets, or the underlying image manifests, which consequently will lead to missing-manifest-errors when trying to pull the image for any platform. In other words, deleting any one of these is bad.
-
-### The solution
-
-While GitHub's packages API does not provide enough metadata for us to adequately handle this, the docker-cli does. If we use `docker manifest inspect ghcr.io/snok/container-retention-policy:multi-arch`, we'll see:
-
-```json
-{
-   "schemaVersion": 2,
-   "mediaType": "application/vnd.oci.image.index.v1+json",
-   "manifests": [
-      {
-         "mediaType": "application/vnd.oci.image.manifest.v1+json",
-         "size": 754,
-         "digest": "sha256:f8bc799ae7b6ba95595c32e12075d21328dac783c9c0304cf80c61d41025aeb2",
-         "platform": {
-            "architecture": "amd64",
-            "os": "linux"
-         }
-      },
-      {
-         "mediaType": "application/vnd.oci.image.manifest.v1+json",
-         "size": 754,
-         "digest": "sha256:a86523225e8d21faae518a5ea117e06887963a4a9ac123683d91890af092cf03",
-         "platform": {
-            "architecture": "arm64",
-            "os": "linux"
-         }
-      },
-      {
-         "mediaType": "application/vnd.oci.image.manifest.v1+json",
-         "size": 567,
-         "digest": "sha256:17152a70ea10de6ecd804fffed4b5ebd3abc638e8920efb6fab2993c5a77600a",
-         "platform": {
-            "architecture": "unknown",
-            "os": "unknown"
-         }
-      },
-      {
-         "mediaType": "application/vnd.oci.image.manifest.v1+json",
-         "size": 567,
-         "digest": "sha256:86215617a0ea1f77e9f314b45ffd578020935996612fb497239509b151a6f1ba",
-         "platform": {
-            "architecture": "unknown",
-            "os": "unknown"
-         }
-      }
-   ]
-}
-```
-
-Which lists all the SHAs of the images associated with this tag.
-
-This means, you can do the following when implementing this action, to protect against partial deletion of your multi-platform images:
-
-```yaml
-- name: Login to GitHub Container Registry
-  uses: docker/login-action@v3.0.0
-  with:
-    registry: ghcr.io
-    username: ${{ github.actor }}
-    password: ${{ secrets.GITHUB_TOKEN }}
-
-- name: Fetch multi-platform package version SHAs
-  id: multi-arch-digests
-  run: |
-    package1=$(docker manifest inspect ghcr.io/package1 | jq -r '.manifests.[] | .digest' | paste -s -d ' ' -)
-    package2=$(docker manifest inspect ghcr.io/package2 | jq -r '.manifests.[] | .digest' | paste -s -d ' ' -)
-    echo "multi-arch-digests=$package1,$package2" >> $GITHUB_OUTPUT
-
-- uses: snok/container-retention-policy
-  with:
-    skip-shas: ${{ steps.multi-arch-digests.outputs.multi-arch-digests }}
-```
-
-This should pass the SHAs of any multi-platform images you care about, so that we can avoid deleting them.
+The `skip-shas` parameter is still available if you need to manually protect specific digests beyond what the automatic detection covers. This can be useful for older action versions or edge cases.
 
 ## Rate limits
 
