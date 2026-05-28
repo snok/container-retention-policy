@@ -278,6 +278,7 @@ name = "container-retention-policy"
 version = "3.0.0"
 dependencies = [
  "assert_cmd",
+ "base64",
  "chrono",
  "clap",
  "color-eyre",

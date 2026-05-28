@@ -8,6 +8,7 @@ license = "MIT"
 description = "This crate uses Unicode data provided by the Unicode Consortium under the Unicode 3.0 License."
 
 [dependencies]
+base64 = "0.22"
 clap = { version = "4.5.4", features = ["derive", "env"]}
 chrono = { version="0.4.37" , features=["serde", "clock"], default-features = false}
 color-eyre = { version = "0.6.3", default-features = false }
