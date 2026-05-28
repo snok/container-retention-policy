@@ -201,6 +201,31 @@ mod tests {
     }
 
     #[test]
+    fn parse_new_format_temporal_token() {
+        // New JWT-based GitHub App installation token format (April 2026+)
+        // Format: ghs_APPID_JWT (~520 characters, variable length)
+        let new_format_token = "ghs_12345_eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiaWF0IjoxNzE2MDAwMDAwLCJleHAiOjE3MTYwMDM2MDAsImlzcyI6ImdpdGh1Yi5jb20iLCJhdWQiOiJnaXRodWIuY29tIiwiaW5zdGFsbGF0aW9uX2lkIjoxMjM0NTY3OCwiYXBwX2lkIjoxMjM0NSwiZW52IjoicHJvZHVjdGlvbiIsInNjb3BlcyI6WyJwYWNrYWdlczp3cml0ZSJdfQ.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        let result = Token::try_from_str(new_format_token);
+        assert!(result.is_ok(), "New format ghs_ token should be accepted, got: {:?}", result);
+        assert_eq!(
+            result.unwrap(),
+            Token::Temporal(SecretString::new(Box::from(new_format_token.to_string())))
+        );
+    }
+
+    #[test]
+    fn parse_new_format_github_actions_token() {
+        // New format GITHUB_TOKEN issued by Actions (also ghs_ prefix, JWT-based)
+        let actions_token = "ghs_98765_eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhY3Rpb25zIiwiaWF0IjoxNzE2MDAwMDAwfQ.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+        let result = Token::try_from_str(actions_token);
+        assert!(result.is_ok(), "New format GITHUB_TOKEN should be accepted, got: {:?}", result);
+        assert_eq!(
+            result.unwrap(),
+            Token::Temporal(SecretString::new(Box::from(actions_token.to_string())))
+        );
+    }
+
+    #[test]
     fn parse_account() {
         assert_eq!(Account::try_from_str("user").unwrap(), Account::User);
         assert_eq!(
