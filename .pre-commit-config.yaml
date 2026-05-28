@@ -45,7 +45,7 @@ repos:
         files: ^Cargo\.(toml|lock)$
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+    rev: v6.0.0
     hooks:
       - id: check-merge-conflict
       - id: check-case-conflict
@@ -63,7 +63,7 @@ repos:
           - --extensions=.yml
 
   - repo: https://github.com/rhysd/actionlint
-    rev: v1.7.1
+    rev: v1.7.12
     hooks:
       - id: actionlint
         args:
