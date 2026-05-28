@@ -133,7 +133,7 @@ async fn main() -> Result<()> {
     );
 
     // Fetch package versions to delete
-    let package_version_map = match select_package_versions(
+    let (package_version_map, _kept_digests_map) = match select_package_versions(
         selected_package_names,
         client,
         input.image_tags,
