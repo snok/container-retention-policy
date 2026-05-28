@@ -17,7 +17,7 @@ use crate::client::builder::RateLimitedService;
 use crate::client::headers::GithubHeaders;
 use crate::client::models::{Package, PackageVersion};
 use crate::client::urls::Urls;
-use crate::{Counts, PackageVersions};
+use crate::{Counts, PackageVersions, TaggedDigest};
 
 #[derive(Debug)]
 pub struct PackagesClient {
@@ -135,12 +135,12 @@ impl PackagesClient {
         counts: Arc<Counts>,
         filter_fn: F,
         rate_limit_offset: usize,
-    ) -> Result<(PackageVersions, Vec<(u32, String)>)>
+    ) -> Result<(PackageVersions, Vec<TaggedDigest>)>
     where
         F: Fn(Vec<PackageVersion>) -> Result<PackageVersions>,
     {
         let mut result = PackageVersions::new();
-        let mut all_tagged = Vec::new();
+        let mut all_tagged: Vec<TaggedDigest> = Vec::new();
         let mut next_url = Some(url);
 
         while let Some(current_url) = next_url {
@@ -243,7 +243,7 @@ impl PackagesClient {
         counts: Arc<Counts>,
         filter_fn: F,
         rate_limit_offset: usize,
-    ) -> Result<(String, PackageVersions, Vec<(u32, String)>)>
+    ) -> Result<(String, PackageVersions, Vec<TaggedDigest>)>
     where
         F: Fn(Vec<PackageVersion>) -> Result<PackageVersions>,
     {

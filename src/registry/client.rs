@@ -1,8 +1,10 @@
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use color_eyre::eyre::{eyre, Result};
 use reqwest::Client;
 use secrecy::ExposeSecret;
+use tokio::sync::Semaphore;
 use tracing::{debug, warn};
 use url::Url;
 
@@ -13,6 +15,9 @@ use crate::registry::models::OciManifest;
 ///
 /// Separate from `PackagesClient` which talks to the GitHub REST API (api.github.com)
 /// Only this registry API provides child digests of multi-arch image indexes.
+///
+/// A single `RegistryClient` can serve multiple packages via `fetch_manifest`
+/// and `collect_child_digests`, which take the package name as a parameter.
 pub struct RegistryClient {
     http: Client,
     base_url: Url,
@@ -20,11 +25,11 @@ pub struct RegistryClient {
 }
 
 impl RegistryClient {
-    /// Creates a new registry client.
+    /// Creates a new registry client scoped to a given owner.
     ///
-    /// The `owner` and `package_name` are used to construct the v2 API path.
+    /// The shared `http` client enables connection pooling across calls.
     /// The token is base64-encoded for Bearer auth.
-    pub fn new(base_url: &Url, owner: &str, package_name: &str, token: &Token) -> Result<Self> {
+    pub fn new(http: Client, base_url: &Url, owner: &str, token: &Token) -> Result<Self> {
         use base64::Engine;
 
         let raw_token = match token {
@@ -33,15 +38,11 @@ impl RegistryClient {
         let encoded = base64::engine::general_purpose::STANDARD.encode(raw_token);
         let auth_header = format!("Bearer {encoded}");
 
-        let path = format!(
-            "v2/{}/{}/",
-            urlencoding::encode(owner),
-            urlencoding::encode(package_name),
-        );
+        let path = format!("v2/{}/", urlencoding::encode(owner));
         let registry_base = base_url.join(&path)?;
 
         Ok(Self {
-            http: Client::new(),
+            http,
             base_url: registry_base,
             auth_header,
         })
@@ -50,40 +51,52 @@ impl RegistryClient {
     /// Fetches the manifest for a given digest from the registry.
     ///
     /// Accepts both image indexes (manifest lists) and single-platform manifests.
-    pub async fn fetch_manifest(&self, digest: &str) -> Result<OciManifest> {
-        let url = self.base_url.join(&format!("manifests/{digest}"))?;
-        debug!(digest = digest, "Fetching manifest from registry");
-
-        let response = self
-            .http
-            .get(url)
-            .header("Authorization", &self.auth_header)
-            .header(
-                "Accept",
-                "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json",
-            )
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            return Err(eyre!("Registry returned {} for digest {digest}", response.status()));
-        }
-
-        let raw = response.text().await?;
-        OciManifest::from_json(&raw).map_err(|e| eyre!("Failed to deserialize manifest for {digest}: {e}"))
+    pub async fn fetch_manifest(&self, package_name: &str, digest: &str) -> Result<OciManifest> {
+        let url = self.build_manifest_url(package_name, digest)?;
+        Self::fetch_manifest_from_url(&self.http, &url, &self.auth_header).await
     }
 
     /// Given a set of tagged package version digests, fetches their manifests
-    /// and returns the set of all child digests that should be protected from
-    /// deletion.
+    /// concurrently and returns the set of all child digests that should be
+    /// protected from deletion.
     ///
     /// Only multi-arch image indexes contribute child digests. Single-platform
     /// manifests are skipped.
-    pub async fn collect_child_digests(&self, parent_digests: &[&str]) -> HashSet<String> {
-        let mut protected = HashSet::new();
+    ///
+    /// Returns `Err` if any manifest fetch failed, meaning the result is
+    /// incomplete and callers should not proceed with deletion.
+    /// Maximum number of concurrent registry manifest fetches.
+    const MAX_CONCURRENT_FETCHES: usize = 10;
 
-        for digest in parent_digests {
-            match self.fetch_manifest(digest).await {
+    pub async fn collect_child_digests(&self, package_name: &str, parent_digests: &[&str]) -> Result<HashSet<String>> {
+        let mut set = tokio::task::JoinSet::new();
+        let mut protected = HashSet::new();
+        let mut failed = Vec::new();
+        let semaphore = Arc::new(Semaphore::new(Self::MAX_CONCURRENT_FETCHES));
+
+        for &digest in parent_digests {
+            let url = self.build_manifest_url(package_name, digest)?;
+            let http = self.http.clone();
+            let auth = self.auth_header.clone();
+            let digest_owned = digest.to_string();
+            let permit = semaphore.clone();
+
+            set.spawn(async move {
+                let _permit = permit.acquire().await.expect("semaphore closed");
+                let result = Self::fetch_manifest_from_url(&http, &url, &auth).await;
+                (digest_owned, result)
+            });
+        }
+
+        while let Some(result) = set.join_next().await {
+            let (digest, manifest_result) = match result {
+                Ok(t) => t,
+                Err(e) => {
+                    failed.push(format!("task join error: {e}"));
+                    continue;
+                }
+            };
+            match manifest_result {
                 Ok(OciManifest::ImageIndex(entries)) => {
                     debug!(
                         digest = digest,
@@ -98,16 +111,48 @@ impl RegistryClient {
                     debug!(digest = digest, "Single-platform manifest, no children to protect");
                 }
                 Err(e) => {
-                    warn!(
-                        digest = digest,
-                        error = %e,
-                        "Failed to fetch manifest from registry, skipping digest protection"
-                    );
+                    failed.push(format!("{digest}: {e}"));
                 }
             }
         }
 
-        protected
+        if failed.is_empty() {
+            Ok(protected)
+        } else {
+            Err(eyre!(
+                "Failed to fetch {} manifest(s): {}",
+                failed.len(),
+                failed.join("; ")
+            ))
+        }
+    }
+
+    fn build_manifest_url(&self, package_name: &str, digest: &str) -> Result<Url> {
+        let package_base = self.base_url.join(&format!("{}/", urlencoding::encode(package_name)))?;
+        package_base
+            .join(&format!("manifests/{digest}"))
+            .map_err(|e| eyre!("Failed to build manifest URL: {e}"))
+    }
+
+    async fn fetch_manifest_from_url(http: &Client, url: &Url, auth_header: &str) -> Result<OciManifest> {
+        debug!(url = %url, "Fetching manifest from registry");
+
+        let response = http
+            .get(url.clone())
+            .header("Authorization", auth_header)
+            .header(
+                "Accept",
+                "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json",
+            )
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(eyre!("Registry returned {} for {url}", response.status()));
+        }
+
+        let raw = response.text().await?;
+        OciManifest::from_json(&raw).map_err(|e| eyre!("Failed to deserialize manifest from {url}: {e}"))
     }
 }
 
@@ -122,11 +167,8 @@ mod tests {
         let base = Url::parse(DEFAULT_REGISTRY_URL).unwrap();
         let token = Token::ClassicPersonalAccess(secrecy::SecretString::new(Box::from("test_token".to_string())));
 
-        let client = RegistryClient::new(&base, "snok", "container-retention-policy", &token).unwrap();
-        assert_eq!(
-            client.base_url.as_str(),
-            "https://ghcr.io/v2/snok/container-retention-policy/"
-        );
+        let client = RegistryClient::new(Client::new(), &base, "snok", &token).unwrap();
+        assert_eq!(client.base_url.as_str(), "https://ghcr.io/v2/snok/");
     }
 
     #[test]
@@ -134,8 +176,8 @@ mod tests {
         let base = Url::parse(DEFAULT_REGISTRY_URL).unwrap();
         let token = Token::ClassicPersonalAccess(secrecy::SecretString::new(Box::from("test_token".to_string())));
 
-        let client = RegistryClient::new(&base, "my-org", "my/package", &token).unwrap();
-        assert_eq!(client.base_url.as_str(), "https://ghcr.io/v2/my-org/my%2Fpackage/");
+        let client = RegistryClient::new(Client::new(), &base, "my-org", &token).unwrap();
+        assert_eq!(client.base_url.as_str(), "https://ghcr.io/v2/my-org/");
     }
 
     #[test]
@@ -143,7 +185,7 @@ mod tests {
         let base = Url::parse(DEFAULT_REGISTRY_URL).unwrap();
         let token = Token::ClassicPersonalAccess(secrecy::SecretString::new(Box::from("ghp_abc123".to_string())));
 
-        let client = RegistryClient::new(&base, "owner", "pkg", &token).unwrap();
+        let client = RegistryClient::new(Client::new(), &base, "owner", &token).unwrap();
 
         use base64::Engine;
         let expected = format!(

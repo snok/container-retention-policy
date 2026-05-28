@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use color_eyre::eyre::Result;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, info_span, trace, Instrument};
+use tracing::{debug, error, info, info_span, trace, warn, Instrument};
 use tracing_indicatif::IndicatifLayer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -15,6 +15,7 @@ use crate::client::builder::PackagesClientBuilder;
 use crate::client::client::PackagesClient;
 use crate::client::models::PackageVersion;
 use crate::core::delete_package_versions::delete_package_versions;
+use crate::core::filter_out_multi_arch_children::filter_out_multi_arch_children;
 use crate::core::select_package_versions::select_package_versions;
 use crate::core::select_packages::select_packages;
 use chrono::{DateTime, Utc};
@@ -31,6 +32,9 @@ pub struct Counts {
     pub rate_limit_reset: DateTime<Utc>,
     pub package_versions: RwLock<usize>,
 }
+
+/// A tagged package version's ID and digest (name), used for multi-arch child protection.
+pub type TaggedDigest = (u32, String);
 
 pub struct PackageVersions {
     pub untagged: Vec<PackageVersion>,
@@ -133,7 +137,7 @@ async fn main() -> Result<()> {
     );
 
     // Fetch package versions to delete
-    let (package_version_map, _kept_digests_map) = match select_package_versions(
+    let (mut package_version_map, kept_digests_map) = match select_package_versions(
         selected_package_names,
         client,
         input.image_tags,
@@ -156,6 +160,15 @@ async fn main() -> Result<()> {
         "There are now {} requests remaining in the rate limit",
         *counts.remaining_requests.read().await
     );
+
+    // Protect multi-arch child digests from deletion
+    if let Some(owner) = input.account.owner_name() {
+        filter_out_multi_arch_children(&mut package_version_map, &kept_digests_map, &owner, &input.token)
+            .instrument(info_span!("filter out multi-arch children"))
+            .await;
+    } else {
+        warn!("Could not determine package owner (set GITHUB_REPOSITORY_OWNER for personal accounts). Skipping multi-arch protection.");
+    }
 
     let (deleted_packages, failed_packages) =
         delete_package_versions(package_version_map, client, counts.clone(), input.dry_run)

@@ -88,6 +88,18 @@ pub enum Account {
 }
 
 impl Account {
+    /// Returns the owner name for use in registry API paths.
+    ///
+    /// For organizations, the name is known from the CLI input.
+    /// For personal accounts, we read `GITHUB_REPOSITORY_OWNER` which is
+    /// always set in the GitHub Actions environment.
+    pub fn owner_name(&self) -> Option<String> {
+        match self {
+            Self::Organization(name) => Some(name.clone()),
+            Self::User => std::env::var("GITHUB_REPOSITORY_OWNER").ok(),
+        }
+    }
+
     pub fn try_from_str(value: &str) -> Result<Self, String> {
         let value = value.trim();
         if value == "user" {
