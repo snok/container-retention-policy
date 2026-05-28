@@ -44,11 +44,7 @@ impl Matchers {
                 .collect(),
             negative: filters
                 .iter()
-                .filter_map(|pattern| {
-                    pattern
-                        .strip_prefix('!')
-                        .map(|without_prefix| WildMatchPattern::<'*', '?'>::new(without_prefix))
-                })
+                .filter_map(|pattern| pattern.strip_prefix('!').map(WildMatchPattern::<'*', '?'>::new))
                 .collect(),
         }
     }
