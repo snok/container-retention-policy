@@ -56,7 +56,11 @@ pub async fn filter_out_multi_arch_children(
     let registry_base = match Url::parse(DEFAULT_REGISTRY_URL) {
         Ok(u) => u,
         Err(e) => {
-            warn!(error = %e, "Failed to parse registry URL, skipping multi-arch protection");
+            warn!(error = %e, "Failed to parse registry URL, clearing all deletion candidates as a safety measure");
+            for versions in package_version_map.values_mut() {
+                versions.untagged.clear();
+                versions.tagged.clear();
+            }
             return;
         }
     };
@@ -64,7 +68,11 @@ pub async fn filter_out_multi_arch_children(
     let client = match RegistryClient::new(Client::new(), &registry_base, owner, token) {
         Ok(c) => c,
         Err(e) => {
-            warn!(error = %e, "Failed to create registry client, skipping multi-arch protection");
+            warn!(error = %e, "Failed to create registry client, clearing all deletion candidates as a safety measure");
+            for versions in package_version_map.values_mut() {
+                versions.untagged.clear();
+                versions.tagged.clear();
+            }
             return;
         }
     };
