@@ -167,7 +167,10 @@ async fn main() -> Result<()> {
             .instrument(info_span!("filter out multi-arch children"))
             .await;
     } else {
-        warn!("Could not determine package owner (set GITHUB_REPOSITORY_OWNER for personal accounts). Skipping multi-arch protection.");
+        warn!("Could not determine package owner (set GITHUB_REPOSITORY_OWNER for personal accounts). Clearing untagged deletion candidates as a safety measure.");
+        for versions in package_version_map.values_mut() {
+            versions.untagged.clear();
+        }
     }
 
     let (deleted_packages, failed_packages) =
