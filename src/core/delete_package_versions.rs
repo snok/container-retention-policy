@@ -38,14 +38,12 @@ async fn select_package_versions_to_delete(
         debug!("Trimmed the selection to {} untagged package versions to delete for package \"{}\"", package_version_count, package_name);
     });
 
-    let duration = (counts.rate_limit_reset - Utc::now()).to_std().unwrap();
-    let formatted_duration = format_duration(duration);
     if allocatable_requests == 0 {
+        let reset_msg = format_rate_limit_reset(counts.rate_limit_reset);
         warn!(
-            "There aren't enough requests remaining in the rate limit to delete all package versions. Prioritizing deleting the first {} untagged package versions. The rate limit resets in {} (at {}).",
+            "There aren't enough requests remaining in the rate limit to delete all package versions. Prioritizing deleting the first {} untagged package versions. The rate limit {}.",
             set.len(),
-            formatted_duration,
-            counts.rate_limit_reset.to_string()
+            reset_msg,
         );
     } else {
         // Do a second pass over the map to add tagged versions
@@ -72,6 +70,11 @@ async fn select_package_versions_to_delete(
     set
 }
 
+fn format_rate_limit_reset(rate_limit_reset: chrono::DateTime<Utc>) -> String {
+    let duration = (rate_limit_reset - Utc::now()).to_std().unwrap();
+    format!("resets in {} (at {})", format_duration(duration), rate_limit_reset)
+}
+
 pub async fn delete_package_versions(
     package_version_map: HashMap<String, PackageVersions>,
     client: &'static PackagesClient,
@@ -92,4 +95,25 @@ pub async fn delete_package_versions(
     }
 
     (deleted_packages, failed_packages)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Duration;
+
+    #[test]
+    fn test_format_rate_limit_reset_future() {
+        let future = Utc::now() + Duration::hours(1);
+        let msg = format_rate_limit_reset(future);
+        assert!(msg.starts_with("resets in"));
+    }
+
+    #[test]
+    fn test_format_rate_limit_reset_past() {
+        let past = Utc::now() - Duration::hours(1);
+        // This should not panic even when the reset time is in the past
+        let msg = format_rate_limit_reset(past);
+        assert!(msg.contains("already passed"));
+    }
 }
