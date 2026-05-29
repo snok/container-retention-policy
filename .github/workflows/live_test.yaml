@@ -17,7 +17,7 @@ jobs:
           cut-off: 30m
           image-names: container-retention-policy
           image-tags: test-1*
-          tag-selection: tagged_only
+          tag-selection: tagged
           timestamp-to-use: created_at
           dry-run: false
           rust-log: container_retention_policy=debug
@@ -34,7 +34,7 @@ jobs:
           cut-off: 30m
           image-names: container-retention-policy
           image-tags: test-2*
-          tag-selection: tagged_only
+          tag-selection: tagged
           timestamp-to-use: created_at
           dry-run: false
           rust-log: container_retention_policy=debug
