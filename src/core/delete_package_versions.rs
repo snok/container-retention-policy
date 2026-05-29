@@ -71,8 +71,10 @@ async fn select_package_versions_to_delete(
 }
 
 fn format_rate_limit_reset(rate_limit_reset: chrono::DateTime<Utc>) -> String {
-    let duration = (rate_limit_reset - Utc::now()).to_std().unwrap();
-    format!("resets in {} (at {})", format_duration(duration), rate_limit_reset)
+    match (rate_limit_reset - Utc::now()).to_std() {
+        Ok(d) => format!("resets in {} (at {})", format_duration(d), rate_limit_reset),
+        Err(_) => format!("reset was at {} (already passed)", rate_limit_reset),
+    }
 }
 
 pub async fn delete_package_versions(
