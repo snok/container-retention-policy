@@ -23,7 +23,6 @@ jobs:
           rust-log: container_retention_policy=debug
 
   clean-v301:
-    needs: clean-v300
     runs-on: ubuntu-latest
     name: Delete test-2-* images with v3.0.1 (PAT)
     steps:
@@ -39,39 +38,9 @@ jobs:
           dry-run: false
           rust-log: container_retention_policy=debug
 
-  produce-v300:
-    needs: clean-v300
-    runs-on: ubuntu-latest
-    name: Upload test-1-* images
-    steps:
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push test-1-* images
-        run: |
-          randomString=$(LC_ALL=C tr -dc A-Za-z0-9 </dev/urandom | head -c 10 2>/dev/null || echo RANDOM)
-          {
-            echo "FROM alpine AS builder"
-            echo "RUN echo \"$randomString\" > test.txt"
-            echo "FROM scratch"
-            echo "COPY --from=builder /test.txt ."
-          } > Dockerfile
-
-          docker build -f Dockerfile -t "ghcr.io/snok/container-retention-policy:test-1" --push .
-
-          for ((j=1; j<=3; j++))
-          do
-            docker tag "ghcr.io/snok/container-retention-policy:test-1" "ghcr.io/snok/container-retention-policy:test-1-${j}"
-            docker push "ghcr.io/snok/container-retention-policy:test-1-${j}"
-          done
-
   clean-main:
-    needs: clean-v301
     runs-on: ubuntu-latest
-    name: Delete test-3-* images with main branch (temporal token, no skip-shas)
+    name: Delete test-3-* images with main branch (temporal token)
     steps:
       - uses: docker/login-action@v4
         with:
@@ -91,43 +60,13 @@ jobs:
             --image-names=container-retention-policy \
             --shas-to-skip="" \
             --image-tags="test-3*" \
-            --tag-selection=both \
+            --tag-selection=tagged \
             --timestamp-to-use=created_at \
             --dry-run=false
         env:
           RUST_LOG: container_retention_policy=debug
 
-  produce-v301:
-    needs: clean-v301
-    runs-on: ubuntu-latest
-    name: Upload test-2-* images
-    steps:
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push test-2-* images
-        run: |
-          randomString=$(LC_ALL=C tr -dc A-Za-z0-9 </dev/urandom | head -c 10 2>/dev/null || echo RANDOM)
-          {
-            echo "FROM alpine AS builder"
-            echo "RUN echo \"$randomString\" > test.txt"
-            echo "FROM scratch"
-            echo "COPY --from=builder /test.txt ."
-          } > Dockerfile
-
-          docker build -f Dockerfile -t "ghcr.io/snok/container-retention-policy:test-2" --push .
-
-          for ((j=1; j<=3; j++))
-          do
-            docker tag "ghcr.io/snok/container-retention-policy:test-2" "ghcr.io/snok/container-retention-policy:test-2-${j}"
-            docker push "ghcr.io/snok/container-retention-policy:test-2-${j}"
-          done
-
   clean-action-main:
-    needs: clean-main
     runs-on: ubuntu-latest
     name: Delete test-4-* images with @main action (temporal token)
     steps:
@@ -143,10 +82,10 @@ jobs:
           dry-run: false
           rust-log: container_retention_policy=debug
 
-  produce-main:
-    needs: clean-action-main
+  produce:
+    needs: [clean-v300, clean-v301, clean-main, clean-action-main]
     runs-on: ubuntu-latest
-    name: Upload test-3-*, test-4-*, and multi-arch images
+    name: Upload test images
     steps:
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
@@ -155,7 +94,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push test-3-* images
+      - name: Build and push test images
         run: |
           randomString=$(LC_ALL=C tr -dc A-Za-z0-9 </dev/urandom | head -c 10 2>/dev/null || echo RANDOM)
           {
@@ -165,21 +104,16 @@ jobs:
             echo "COPY --from=builder /test.txt ."
           } > Dockerfile
 
-          docker build -f Dockerfile -t "ghcr.io/snok/container-retention-policy:test-3" --push .
+          docker build -f Dockerfile -t "ghcr.io/snok/container-retention-policy:test-1" --push .
 
-          for ((j=1; j<=3; j++))
-          do
-            docker tag "ghcr.io/snok/container-retention-policy:test-3" "ghcr.io/snok/container-retention-policy:test-3-${j}"
-            docker push "ghcr.io/snok/container-retention-policy:test-3-${j}"
-          done
+          for prefix in test-1 test-2 test-3 test-4; do
+            docker tag "ghcr.io/snok/container-retention-policy:test-1" "ghcr.io/snok/container-retention-policy:${prefix}"
+            docker push "ghcr.io/snok/container-retention-policy:${prefix}"
 
-          docker tag "ghcr.io/snok/container-retention-policy:test-3" "ghcr.io/snok/container-retention-policy:test-4"
-          docker push "ghcr.io/snok/container-retention-policy:test-4"
-
-          for ((j=1; j<=3; j++))
-          do
-            docker tag "ghcr.io/snok/container-retention-policy:test-4" "ghcr.io/snok/container-retention-policy:test-4-${j}"
-            docker push "ghcr.io/snok/container-retention-policy:test-4-${j}"
+            for ((j=1; j<=3; j++)); do
+              docker tag "ghcr.io/snok/container-retention-policy:${prefix}" "ghcr.io/snok/container-retention-policy:${prefix}-${j}"
+              docker push "ghcr.io/snok/container-retention-policy:${prefix}-${j}"
+            done
           done
       - name: Build and push multi-arch test image
         run: |
