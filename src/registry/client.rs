@@ -5,7 +5,7 @@ use color_eyre::eyre::{eyre, Result};
 use reqwest::Client;
 use secrecy::ExposeSecret;
 use tokio::sync::Semaphore;
-use tracing::{debug, warn};
+use tracing::debug;
 use url::Url;
 
 use crate::cli::models::Token;
