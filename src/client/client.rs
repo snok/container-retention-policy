@@ -135,7 +135,7 @@ impl PackagesClient {
         counts: Arc<Counts>,
         filter_fn: F,
         rate_limit_offset: usize,
-    ) -> Result<(PackageVersions, Vec<TaggedDigest>)>
+    ) -> Result<(PackageVersions, Vec<TaggedDigest>, bool)>
     where
         F: Fn(Vec<PackageVersion>) -> Result<PackageVersions>,
     {
@@ -146,7 +146,7 @@ impl PackagesClient {
         while let Some(current_url) = next_url {
             if (*counts.package_versions.read().await) > (*counts.remaining_requests.read().await) + rate_limit_offset {
                 info!("Returning without fetching all package versions, since the remaining requests are less or equal to the number of package versions already selected");
-                return Ok((result, all_tagged));
+                return Ok((result, all_tagged, false));
             }
 
             debug!("Fetching data from {}", current_url);
@@ -233,7 +233,7 @@ impl PackagesClient {
                 *counts.remaining_requests.read().await
             ));
         }
-        Ok((result, all_tagged))
+        Ok((result, all_tagged, true))
     }
 
     async fn list_packages(&mut self, url: Url, counts: Arc<Counts>) -> Result<Vec<Package>> {
@@ -247,12 +247,12 @@ impl PackagesClient {
         counts: Arc<Counts>,
         filter_fn: F,
         rate_limit_offset: usize,
-    ) -> Result<(String, PackageVersions, Vec<TaggedDigest>)>
+    ) -> Result<(String, PackageVersions, Vec<TaggedDigest>, bool)>
     where
         F: Fn(Vec<PackageVersion>) -> Result<PackageVersions>,
     {
         let url = self.urls.list_package_versions_url(&package_name)?;
-        let (package_versions, all_tagged) = Self::fetch_package_versions_with_pagination(
+        let (package_versions, all_tagged, pagination_complete) = Self::fetch_package_versions_with_pagination(
             url,
             self.list_package_versions_service.clone(),
             self.headers.clone(),
@@ -266,7 +266,7 @@ impl PackagesClient {
             "Selected {} package versions",
             package_versions.len()
         );
-        Ok((package_name, package_versions, all_tagged))
+        Ok((package_name, package_versions, all_tagged, pagination_complete))
     }
 
     async fn fetch_individual_package(&self, url: Url, counts: Arc<Counts>) -> Result<Package> {

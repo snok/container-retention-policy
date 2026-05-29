@@ -312,19 +312,29 @@ pub async fn select_package_versions(
     debug!("Fetching package versions");
     while let Some(r) = set.join_next().await {
         // Get all the package versions for a package
-        let (package_name, mut package_versions, all_tagged) = r??;
+        let (package_name, mut package_versions, all_tagged, pagination_complete) = r??;
 
         // Keep n package versions per package, if specified
         package_versions.tagged =
             handle_keep_n_most_recent(package_versions.tagged, keep_n_most_recent, timestamp_to_use);
 
         // Compute kept tagged digests for multi-arch child protection
-        let kept_digests = kept_tagged_digests(&all_tagged, &package_versions);
-        debug!(
-            package_name = package_name,
-            kept_tagged_count = kept_digests.len(),
-            "Computed kept tagged digests for multi-arch protection"
-        );
+        let kept_digests = if pagination_complete {
+            let digests = kept_tagged_digests(&all_tagged, &package_versions);
+            debug!(
+                package_name = package_name,
+                kept_tagged_count = digests.len(),
+                "Computed kept tagged digests for multi-arch protection"
+            );
+            digests
+        } else {
+            warn!(
+                package_name = package_name,
+                "Pagination was incomplete due to rate limiting. Clearing untagged deletion candidates as a safety measure."
+            );
+            package_versions.untagged.clear();
+            HashMap::new()
+        };
 
         info!(
             package_name = package_name,
