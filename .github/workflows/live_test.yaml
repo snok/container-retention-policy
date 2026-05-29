@@ -10,20 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     name: Delete test-1-* images with v3.0.0 (PAT)
     steps:
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Fetch multi-platform package version SHAs
-        id: multi-arch-digests
-        run: |
-          digest300=$(docker manifest inspect ghcr.io/snok/container-retention-policy:v3.0.0 | jq -r '.manifests[].digest' | paste -s -d ' ' -)
-          digest301=$(docker manifest inspect ghcr.io/snok/container-retention-policy:v3.0.1 | jq -r '.manifests[].digest' | paste -s -d ' ' -)
-          echo "multi-arch-digests=$digest300 $digest301" >> $GITHUB_OUTPUT
-
       - uses: snok/container-retention-policy@v3.0.0
         with:
           account: snok
@@ -31,31 +17,16 @@ jobs:
           cut-off: 30m
           image-names: container-retention-policy
           image-tags: test-1*
-          tag-selection: both
+          tag-selection: tagged_only
           timestamp-to-use: created_at
           dry-run: false
           rust-log: container_retention_policy=debug
-          skip-shas: ${{ steps.multi-arch-digests.outputs.multi-arch-digests }}
 
   clean-v301:
     needs: clean-v300
     runs-on: ubuntu-latest
     name: Delete test-2-* images with v3.0.1 (PAT)
     steps:
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Fetch multi-platform package version SHAs
-        id: multi-arch-digests
-        run: |
-          digest300=$(docker manifest inspect ghcr.io/snok/container-retention-policy:v3.0.0 | jq -r '.manifests[].digest' | paste -s -d ' ' -)
-          digest301=$(docker manifest inspect ghcr.io/snok/container-retention-policy:v3.0.1 | jq -r '.manifests[].digest' | paste -s -d ' ' -)
-          echo "multi-arch-digests=$digest300 $digest301" >> $GITHUB_OUTPUT
-
       - uses: snok/container-retention-policy@v3.0.1
         with:
           account: snok
@@ -63,11 +34,10 @@ jobs:
           cut-off: 30m
           image-names: container-retention-policy
           image-tags: test-2*
-          tag-selection: both
+          tag-selection: tagged_only
           timestamp-to-use: created_at
           dry-run: false
           rust-log: container_retention_policy=debug
-          skip-shas: ${{ steps.multi-arch-digests.outputs.multi-arch-digests }}
 
   produce-v300:
     needs: clean-v300
@@ -156,10 +126,27 @@ jobs:
             docker push "ghcr.io/snok/container-retention-policy:test-2-${j}"
           done
 
-  produce-main:
+  clean-action-main:
     needs: clean-main
     runs-on: ubuntu-latest
-    name: Upload test-3-* and multi-arch images
+    name: Delete test-4-* images with @main action (temporal token)
+    steps:
+      - uses: snok/container-retention-policy@main
+        with:
+          account: snok
+          token: ${{ secrets.GITHUB_TOKEN }}
+          cut-off: 30m
+          image-names: container-retention-policy
+          image-tags: test-4*
+          tag-selection: both
+          timestamp-to-use: created_at
+          dry-run: false
+          rust-log: container_retention_policy=debug
+
+  produce-main:
+    needs: clean-action-main
+    runs-on: ubuntu-latest
+    name: Upload test-3-*, test-4-*, and multi-arch images
     steps:
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
@@ -184,6 +171,15 @@ jobs:
           do
             docker tag "ghcr.io/snok/container-retention-policy:test-3" "ghcr.io/snok/container-retention-policy:test-3-${j}"
             docker push "ghcr.io/snok/container-retention-policy:test-3-${j}"
+          done
+
+          docker tag "ghcr.io/snok/container-retention-policy:test-3" "ghcr.io/snok/container-retention-policy:test-4"
+          docker push "ghcr.io/snok/container-retention-policy:test-4"
+
+          for ((j=1; j<=3; j++))
+          do
+            docker tag "ghcr.io/snok/container-retention-policy:test-4" "ghcr.io/snok/container-retention-policy:test-4-${j}"
+            docker push "ghcr.io/snok/container-retention-policy:test-4-${j}"
           done
       - name: Build and push multi-arch test image
         run: |
