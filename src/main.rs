@@ -33,8 +33,12 @@ pub struct Counts {
     pub package_versions: RwLock<usize>,
 }
 
-/// A tagged package version's ID and digest (name), used for multi-arch child protection.
-pub type TaggedDigest = (u32, String);
+/// A tagged package version's ID, digest, and tags, used for multi-arch child protection.
+pub struct TaggedDigest {
+    pub id: u32,
+    pub digest: String,
+    pub tags: Vec<String>,
+}
 
 pub struct PackageVersions {
     pub untagged: Vec<PackageVersion>,

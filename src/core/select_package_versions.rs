@@ -233,18 +233,19 @@ pub fn filter_package_versions(
     Ok(PackageVersions { untagged, tagged })
 }
 
-/// Returns the digests of tagged package versions that should **not** be deleted.
+/// Returns a map of digest → tags for tagged package versions that should **not** be deleted.
 ///
-/// `all_tagged` contains `(id, digest)` pairs for every tagged version fetched
-/// from the API. We subtract the IDs selected for deletion to get the kept set,
-/// whose OCI manifests we need to check for multi-arch child digests.
-pub fn kept_tagged_digests(all_tagged: &[TaggedDigest], deleted: &PackageVersions) -> Vec<String> {
+/// `all_tagged` contains every tagged version fetched from the API. We subtract
+/// the IDs selected for deletion to get the kept set, whose OCI manifests we
+/// need to check for multi-arch child digests. The tag names are preserved so
+/// downstream logging can report which tags protect which child digests.
+pub fn kept_tagged_digests(all_tagged: &[TaggedDigest], deleted: &PackageVersions) -> HashMap<String, Vec<String>> {
     let deleted_ids: HashSet<u32> = deleted.tagged.iter().map(|pv| pv.id).collect();
 
     all_tagged
         .iter()
-        .filter(|(id, _)| !deleted_ids.contains(id))
-        .map(|(_, digest)| digest.clone())
+        .filter(|td| !deleted_ids.contains(&td.id))
+        .map(|td| (td.digest.clone(), td.tags.clone()))
         .collect()
 }
 
@@ -260,7 +261,10 @@ pub async fn select_package_versions(
     cut_off: &HumantimeDuration,
     timestamp_to_use: &Timestamp,
     counts: Arc<Counts>,
-) -> Result<(HashMap<String, PackageVersions>, HashMap<String, Vec<String>>)> {
+) -> Result<(
+    HashMap<String, PackageVersions>,
+    HashMap<String, HashMap<String, Vec<String>>>,
+)> {
     // Create matchers for the image tags
     let matchers = Matchers::from(&image_tags);
 
@@ -696,16 +700,20 @@ mod tests {
         assert!(!contains_shas_to_skip(&["fo".to_string()], &p));
     }
 
-    fn tagged(id: u32, digest: &str) -> TaggedDigest {
-        (id, digest.to_string())
+    fn td(id: u32, digest: &str, tags: &[&str]) -> TaggedDigest {
+        TaggedDigest {
+            id,
+            digest: digest.to_string(),
+            tags: tags.iter().map(|t| t.to_string()).collect(),
+        }
     }
 
     #[test]
     fn test_kept_tagged_digests_basic() {
         let all_tagged = vec![
-            tagged(1, "sha256:aaa"),
-            tagged(2, "sha256:bbb"),
-            tagged(4, "sha256:ddd"),
+            td(1, "sha256:aaa", &["v1"]),
+            td(2, "sha256:bbb", &["v2"]),
+            td(4, "sha256:ddd", &["v4"]),
         ];
 
         let deleted = PackageVersions {
@@ -714,12 +722,14 @@ mod tests {
         };
 
         let kept = kept_tagged_digests(&all_tagged, &deleted);
-        assert_eq!(kept, vec!["sha256:aaa", "sha256:ddd"]);
+        assert_eq!(kept.len(), 2);
+        assert_eq!(kept["sha256:aaa"], vec!["v1"]);
+        assert_eq!(kept["sha256:ddd"], vec!["v4"]);
     }
 
     #[test]
     fn test_kept_tagged_digests_all_deleted() {
-        let all_tagged = vec![tagged(1, "sha256:aaa"), tagged(2, "sha256:bbb")];
+        let all_tagged = vec![td(1, "sha256:aaa", &["v1"]), td(2, "sha256:bbb", &["v2"])];
 
         let deleted = PackageVersions {
             tagged: vec![
@@ -735,7 +745,7 @@ mod tests {
 
     #[test]
     fn test_kept_tagged_digests_none_deleted() {
-        let all_tagged = vec![tagged(1, "sha256:aaa"), tagged(2, "sha256:bbb")];
+        let all_tagged = vec![td(1, "sha256:aaa", &["v1", "latest"]), td(2, "sha256:bbb", &["v2"])];
 
         let deleted = PackageVersions {
             tagged: vec![],
@@ -743,7 +753,9 @@ mod tests {
         };
 
         let kept = kept_tagged_digests(&all_tagged, &deleted);
-        assert_eq!(kept, vec!["sha256:aaa", "sha256:bbb"]);
+        assert_eq!(kept.len(), 2);
+        assert_eq!(kept["sha256:aaa"], vec!["v1", "latest"]);
+        assert_eq!(kept["sha256:bbb"], vec!["v2"]);
     }
 
     #[test]

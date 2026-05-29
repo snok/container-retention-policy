@@ -201,7 +201,11 @@ impl PackagesClient {
                 items
                     .iter()
                     .filter(|pv| !pv.metadata.container.tags.is_empty())
-                    .map(|pv| (pv.id, pv.name.clone())),
+                    .map(|pv| TaggedDigest {
+                        id: pv.id,
+                        digest: pv.name.clone(),
+                        tags: pv.metadata.container.tags.clone(),
+                    }),
             );
             let package_versions = filter_fn(items)?;
 

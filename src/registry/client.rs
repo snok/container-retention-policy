@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use color_eyre::eyre::{eyre, Result};
@@ -57,20 +57,22 @@ impl RegistryClient {
     }
 
     /// Given a set of tagged package version digests, fetches their manifests
-    /// concurrently and returns the set of all child digests that should be
-    /// protected from deletion.
+    /// concurrently and returns a map of child digest → parent digest for all
+    /// multi-arch image indexes found.
     ///
-    /// Only multi-arch image indexes contribute child digests. Single-platform
-    /// manifests are skipped.
+    /// Single-platform manifests are skipped (they have no children).
     ///
     /// Returns `Err` if any manifest fetch failed, meaning the result is
     /// incomplete and callers should not proceed with deletion.
-    /// Maximum number of concurrent registry manifest fetches.
     const MAX_CONCURRENT_FETCHES: usize = 10;
 
-    pub async fn collect_child_digests(&self, package_name: &str, parent_digests: &[&str]) -> Result<HashSet<String>> {
+    pub async fn collect_child_digests(
+        &self,
+        package_name: &str,
+        parent_digests: &[&str],
+    ) -> Result<HashMap<String, String>> {
         let mut set = tokio::task::JoinSet::new();
-        let mut protected = HashSet::new();
+        let mut child_to_parent: HashMap<String, String> = HashMap::new();
         let mut failed = Vec::new();
         let semaphore = Arc::new(Semaphore::new(Self::MAX_CONCURRENT_FETCHES));
 
@@ -89,7 +91,7 @@ impl RegistryClient {
         }
 
         while let Some(result) = set.join_next().await {
-            let (digest, manifest_result) = match result {
+            let (parent_digest, manifest_result) = match result {
                 Ok(t) => t,
                 Err(e) => {
                     failed.push(format!("task join error: {e}"));
@@ -99,25 +101,28 @@ impl RegistryClient {
             match manifest_result {
                 Ok(OciManifest::ImageIndex(entries)) => {
                     debug!(
-                        digest = digest,
+                        digest = parent_digest,
                         child_count = entries.len(),
                         "Found multi-arch index, protecting child digests"
                     );
                     for entry in &entries {
-                        protected.insert(entry.digest.clone());
+                        child_to_parent.insert(entry.digest.clone(), parent_digest.clone());
                     }
                 }
                 Ok(OciManifest::SinglePlatform) => {
-                    debug!(digest = digest, "Single-platform manifest, no children to protect");
+                    debug!(
+                        digest = parent_digest,
+                        "Single-platform manifest, no children to protect"
+                    );
                 }
                 Err(e) => {
-                    failed.push(format!("{digest}: {e}"));
+                    failed.push(format!("{parent_digest}: {e}"));
                 }
             }
         }
 
         if failed.is_empty() {
-            Ok(protected)
+            Ok(child_to_parent)
         } else {
             Err(eyre!(
                 "Failed to fetch {} manifest(s): {}",

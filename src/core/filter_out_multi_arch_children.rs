@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use reqwest::Client;
 use tracing::{debug, info, warn};
@@ -10,13 +10,32 @@ use crate::PackageVersions;
 
 const DEFAULT_REGISTRY_URL: &str = "https://ghcr.io/";
 
-/// Removes protected digests from both tagged and untagged deletion candidates.
+/// Removes protected child digests from both tagged and untagged deletion candidates.
+///
+/// `child_to_parent` maps child digest → parent digest.
+/// `parent_tags` maps parent digest → tag names.
 ///
 /// Returns the number of candidates removed.
-pub fn remove_protected_digests(versions: &mut PackageVersions, protected: &HashSet<String>) -> usize {
+pub fn remove_protected_digests(
+    versions: &mut PackageVersions,
+    child_to_parent: &HashMap<String, String>,
+    parent_tags: &HashMap<String, Vec<String>>,
+) -> usize {
     let before = versions.untagged.len() + versions.tagged.len();
-    versions.untagged.retain(|pv| !protected.contains(&pv.name));
-    versions.tagged.retain(|pv| !protected.contains(&pv.name));
+
+    let is_protected = |name: &str| -> bool {
+        if let Some(parent) = child_to_parent.get(name) {
+            let tags = parent_tags.get(parent.as_str());
+            let tag_list = tags.map(|t| t.join(", ")).unwrap_or_default();
+            debug!("Protecting {name} (child of kept tag(s): {tag_list})");
+            true
+        } else {
+            false
+        }
+    };
+
+    versions.untagged.retain(|pv| !is_protected(&pv.name));
+    versions.tagged.retain(|pv| !is_protected(&pv.name));
     before - versions.untagged.len() - versions.tagged.len()
 }
 
@@ -30,7 +49,7 @@ pub fn remove_protected_digests(versions: &mut PackageVersions, protected: &Hash
 /// package are cleared entirely (fail-closed).
 pub async fn filter_out_multi_arch_children(
     package_version_map: &mut HashMap<String, PackageVersions>,
-    kept_digests_map: &HashMap<String, Vec<String>>,
+    kept_digests_map: &HashMap<String, HashMap<String, Vec<String>>>,
     owner: &str,
     token: &Token,
 ) {
@@ -50,8 +69,8 @@ pub async fn filter_out_multi_arch_children(
         }
     };
 
-    for (package_name, kept_digests) in kept_digests_map {
-        if kept_digests.is_empty() {
+    for (package_name, parent_tags) in kept_digests_map {
+        if parent_tags.is_empty() {
             debug!(
                 package_name = package_name,
                 "No kept tagged versions, skipping multi-arch protection"
@@ -59,8 +78,8 @@ pub async fn filter_out_multi_arch_children(
             continue;
         }
 
-        let digest_refs: Vec<&str> = kept_digests.iter().map(|s| s.as_str()).collect();
-        let protected = match client.collect_child_digests(package_name, &digest_refs).await {
+        let digest_refs: Vec<&str> = parent_tags.keys().map(|s| s.as_str()).collect();
+        let child_to_parent = match client.collect_child_digests(package_name, &digest_refs).await {
             Ok(p) => p,
             Err(e) => {
                 warn!(
@@ -76,13 +95,13 @@ pub async fn filter_out_multi_arch_children(
             }
         };
 
-        if protected.is_empty() {
+        if child_to_parent.is_empty() {
             debug!(package_name = package_name, "No multi-arch children to protect");
             continue;
         }
 
         if let Some(versions) = package_version_map.get_mut(package_name) {
-            let removed = remove_protected_digests(versions, &protected);
+            let removed = remove_protected_digests(versions, &child_to_parent, parent_tags);
             if removed > 0 {
                 info!(
                     package_name = package_name,
@@ -113,15 +132,27 @@ mod tests {
         }
     }
 
+    fn child_parent_map(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs.iter().map(|(c, p)| (c.to_string(), p.to_string())).collect()
+    }
+
+    fn tag_map(pairs: &[(&str, &[&str])]) -> HashMap<String, Vec<String>> {
+        pairs
+            .iter()
+            .map(|(d, tags)| (d.to_string(), tags.iter().map(|t| t.to_string()).collect()))
+            .collect()
+    }
+
     #[test]
     fn test_remove_protected_untagged_child() {
         let mut versions = PackageVersions {
             untagged: vec![pv(1, "sha256:child1", vec![]), pv(2, "sha256:keep", vec![])],
             tagged: vec![],
         };
-        let protected: HashSet<String> = ["sha256:child1".to_string()].into();
+        let child_to_parent = child_parent_map(&[("sha256:child1", "sha256:parent")]);
+        let parent_tags = tag_map(&[("sha256:parent", &["v1.0"])]);
 
-        let removed = remove_protected_digests(&mut versions, &protected);
+        let removed = remove_protected_digests(&mut versions, &child_to_parent, &parent_tags);
         assert_eq!(removed, 1);
         assert_eq!(versions.untagged.len(), 1);
         assert_eq!(versions.untagged[0].name, "sha256:keep");
@@ -133,9 +164,10 @@ mod tests {
             untagged: vec![],
             tagged: vec![pv(1, "sha256:child1", vec!["v1"]), pv(2, "sha256:keep", vec!["v2"])],
         };
-        let protected: HashSet<String> = ["sha256:child1".to_string()].into();
+        let child_to_parent = child_parent_map(&[("sha256:child1", "sha256:parent")]);
+        let parent_tags = tag_map(&[("sha256:parent", &["latest"])]);
 
-        let removed = remove_protected_digests(&mut versions, &protected);
+        let removed = remove_protected_digests(&mut versions, &child_to_parent, &parent_tags);
         assert_eq!(removed, 1);
         assert_eq!(versions.tagged.len(), 1);
         assert_eq!(versions.tagged[0].name, "sha256:keep");
@@ -147,9 +179,10 @@ mod tests {
             untagged: vec![pv(1, "sha256:aaa", vec![]), pv(2, "sha256:bbb", vec![])],
             tagged: vec![pv(3, "sha256:ccc", vec!["latest"])],
         };
-        let protected: HashSet<String> = ["sha256:zzz".to_string()].into();
+        let child_to_parent = child_parent_map(&[("sha256:zzz", "sha256:parent")]);
+        let parent_tags = tag_map(&[("sha256:parent", &["v1.0"])]);
 
-        let removed = remove_protected_digests(&mut versions, &protected);
+        let removed = remove_protected_digests(&mut versions, &child_to_parent, &parent_tags);
         assert_eq!(removed, 0);
         assert_eq!(versions.untagged.len(), 2);
         assert_eq!(versions.tagged.len(), 1);
@@ -161,9 +194,10 @@ mod tests {
             untagged: vec![pv(1, "sha256:aaa", vec![])],
             tagged: vec![pv(2, "sha256:bbb", vec!["v1"])],
         };
-        let protected: HashSet<String> = HashSet::new();
+        let child_to_parent = HashMap::new();
+        let parent_tags = HashMap::new();
 
-        let removed = remove_protected_digests(&mut versions, &protected);
+        let removed = remove_protected_digests(&mut versions, &child_to_parent, &parent_tags);
         assert_eq!(removed, 0);
         assert_eq!(versions.untagged.len(), 1);
         assert_eq!(versions.tagged.len(), 1);
