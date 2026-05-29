@@ -96,19 +96,16 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push test images
         run: |
-          randomString=$(LC_ALL=C tr -dc A-Za-z0-9 </dev/urandom | head -c 10 2>/dev/null || echo RANDOM)
-          {
-            echo "FROM alpine AS builder"
-            echo "RUN echo \"$randomString\" > test.txt"
-            echo "FROM scratch"
-            echo "COPY --from=builder /test.txt ."
-          } > Dockerfile
-
-          docker build -f Dockerfile -t "ghcr.io/snok/container-retention-policy:test-1" --push .
-
           for prefix in test-1 test-2 test-3 test-4; do
-            docker tag "ghcr.io/snok/container-retention-policy:test-1" "ghcr.io/snok/container-retention-policy:${prefix}"
-            docker push "ghcr.io/snok/container-retention-policy:${prefix}"
+            randomString=$(LC_ALL=C tr -dc A-Za-z0-9 </dev/urandom | head -c 10 2>/dev/null || echo RANDOM)
+            {
+              echo "FROM alpine AS builder"
+              echo "RUN echo \"${prefix}-${randomString}\" > test.txt"
+              echo "FROM scratch"
+              echo "COPY --from=builder /test.txt ."
+            } > Dockerfile
+
+            docker build -f Dockerfile -t "ghcr.io/snok/container-retention-policy:${prefix}" --push .
 
             for ((j=1; j<=3; j++)); do
               docker tag "ghcr.io/snok/container-retention-policy:${prefix}" "ghcr.io/snok/container-retention-policy:${prefix}-${j}"
