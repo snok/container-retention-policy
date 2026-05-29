@@ -66,11 +66,11 @@ jobs:
         env:
           RUST_LOG: container_retention_policy=debug
 
-  clean-action-main:
+  clean-v310:
     runs-on: ubuntu-latest
-    name: Delete test-4-* images with @main action (temporal token)
+    name: Delete test-4-* images with v3.1.0 (temporal token)
     steps:
-      - uses: snok/container-retention-policy@main
+      - uses: snok/container-retention-policy@v3.1.0
         with:
           account: snok
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -83,7 +83,7 @@ jobs:
           rust-log: container_retention_policy=debug
 
   produce:
-    needs: [clean-v300, clean-v301, clean-main, clean-action-main]
+    needs: [clean-v300, clean-v301, clean-main, clean-v310]
     runs-on: ubuntu-latest
     name: Upload test images
     steps:
