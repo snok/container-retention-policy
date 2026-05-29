@@ -33,6 +33,7 @@ RUN mkdir /build-out && cp target/$TARGET_ENV/release/container-retention-policy
 FROM scratch
 
 COPY --from=builder /etc/passwd /etc/passwd
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /build-out/container-retention-policy /container-retention-policy
 
 USER dockeruser
