@@ -71,7 +71,7 @@ on extra information to know about each token type, below.
 
 #### Classic personal access tokens
 
-Personal access tokens must have the `packages:write` scopes.
+Personal access tokens must have the `packages:delete` scopes.
 
 #### Temporal tokens
 
