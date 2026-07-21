@@ -22,7 +22,7 @@ serde_json = { version = "1.0.115", default-features = false }
 tokio = { version = "1.47.1", features = ["rt-multi-thread", "macros"], default-features = false }
 tower = { version = "0.5.2", default-features = false, features = ["limit", "util"] }
 tracing = { version = "0.1.40", default-features = false }
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"], default-features = false }
+tracing-subscriber = { version = "0.3.21", features = ["env-filter"], default-features = false }
 tracing-indicatif = "0.3.13"
 url = { version = "2.5.0" , default-features = false}
 urlencoding = { version="2.1.3" }
