@@ -8,6 +8,7 @@ pub mod client;
 pub mod core;
 mod matchers;
 pub mod registry;
+mod scraper;
 
 pub struct Counts {
     pub remaining_requests: RwLock<usize>,
