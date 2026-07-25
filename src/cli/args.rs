@@ -42,7 +42,7 @@ pub fn try_parse_shas_as_list(s: &str) -> Result<Vec<String>, String> {
     Ok(shas)
 }
 
-pub(crate) fn try_parse_url(url_str: &str) -> Result<Url, url::ParseError> {
+pub fn try_parse_url(url_str: &str) -> Result<Url, url::ParseError> {
     // Since `Url` will always add a `/` if the path is empty, we should make it consistent beforehand.
     // See also: https://github.com/servo/rust-url/issues/808
     if url_str.ends_with('/') {
@@ -97,6 +97,10 @@ pub struct Input {
     /// How many tagged packages to keep, after filtering
     #[arg(long, long, default_value = "0")]
     pub keep_n_most_recent: u32,
+
+    /// Setting the minimum number of downloads in the last 30 days
+    #[arg(long, default_value = "0")]
+    pub min_downloads_last_30_days: u32,
 
     /// Whether to delete package versions or not
     #[arg(long, action(ArgAction::Set), default_value = "false")]

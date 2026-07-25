@@ -2,6 +2,7 @@ use crate::cli::models::{TagSelection, Timestamp};
 use crate::client::client::PackagesClient;
 use crate::client::models::PackageVersion;
 use crate::client::urls::Urls;
+use crate::core::filter_by_downloads::filter_by_recent_downloads;
 use crate::matchers::Matchers;
 use crate::{Counts, PackageVersions, TaggedDigest};
 use chrono::Utc;
@@ -123,7 +124,7 @@ fn filter_by_matchers(
     match (any_negative_match, positive_matches) {
         // Both negative and positive matches
         (true, positive_matches) if positive_matches > 0 => {
-            let package_url = urls.package_version_url(package_name, &package_version.id)?;
+            let package_url = urls.package_version_url(package_name, &package_version.id, None)?;
             warn!(tags=?tags, "✕ package version matched a negative `image-tags` filter, but it also matched a positive filter. If you want this package version to be deleted, make sure to review your `image-tags` filters to remove the conflict. The package version can be found at {package_url}. Enable debug logging for more info.");
             Ok(None)
         }
@@ -144,7 +145,7 @@ fn filter_by_matchers(
         }
         // Partial positive matches
         (false, 1..) => {
-            let package_url = urls.package_version_url(package_name, &package_version.id)?;
+            let package_url = urls.package_version_url(package_name, &package_version.id, None)?;
             warn!(tags=?tags, "✕ package version matched some, but not all tags. If you want this package version to be deleted, make sure to review your `image-tags` filters to remove the conflict. The package version can be found at {package_url}. Enable debug logging for more info.");
             Ok(None)
         }
@@ -260,6 +261,7 @@ pub async fn select_package_versions(
     tag_selection: TagSelection,
     cut_off: &HumantimeDuration,
     timestamp_to_use: &Timestamp,
+    min_downloads_last_30_days: u32,
     counts: Arc<Counts>,
 ) -> Result<(
     HashMap<String, PackageVersions>,
@@ -317,6 +319,16 @@ pub async fn select_package_versions(
         // Keep n package versions per package, if specified
         package_versions.tagged =
             handle_keep_n_most_recent(package_versions.tagged, keep_n_most_recent, timestamp_to_use);
+
+        if min_downloads_last_30_days > 0 {
+            filter_by_recent_downloads(
+                &package_name,
+                &mut package_versions.tagged,
+                &client.urls,
+                min_downloads_last_30_days,
+            )
+            .await?;
+        }
 
         // Compute kept tagged digests for multi-arch child protection
         let kept_digests = if pagination_complete {

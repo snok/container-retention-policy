@@ -2,75 +2,22 @@ use std::env;
 use std::process::exit;
 use std::sync::Arc;
 
+use clap::Parser;
 use color_eyre::eyre::Result;
+use container_retention_policy::cli::args::{try_parse_url, Input, DEFAULT_GITHUB_API_URL, DEFAULT_GITHUB_SERVER_URL};
+use container_retention_policy::client::builder::PackagesClientBuilder;
+use container_retention_policy::client::client::PackagesClient;
+use container_retention_policy::core::delete_package_versions::delete_package_versions;
+use container_retention_policy::core::filter_out_multi_arch_children::filter_out_multi_arch_children;
+use container_retention_policy::core::select_package_versions::select_package_versions;
+use container_retention_policy::core::select_packages::select_packages;
+use container_retention_policy::Counts;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, info_span, trace, warn, Instrument};
 use tracing_indicatif::IndicatifLayer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter};
-
-use crate::cli::args::{try_parse_url, Input, DEFAULT_GITHUB_API_URL, DEFAULT_GITHUB_SERVER_URL};
-use crate::client::builder::PackagesClientBuilder;
-use crate::client::client::PackagesClient;
-use crate::client::models::PackageVersion;
-use crate::core::delete_package_versions::delete_package_versions;
-use crate::core::filter_out_multi_arch_children::filter_out_multi_arch_children;
-use crate::core::select_package_versions::select_package_versions;
-use crate::core::select_packages::select_packages;
-use chrono::{DateTime, Utc};
-use clap::Parser;
-
-mod cli;
-pub mod client;
-mod core;
-mod matchers;
-pub mod registry;
-
-pub struct Counts {
-    pub remaining_requests: RwLock<usize>,
-    pub rate_limit_reset: DateTime<Utc>,
-    pub package_versions: RwLock<usize>,
-}
-
-/// A tagged package version's ID, digest, and tags, used for multi-arch child protection.
-pub struct TaggedDigest {
-    pub id: u32,
-    pub digest: String,
-    pub tags: Vec<String>,
-}
-
-pub struct PackageVersions {
-    pub untagged: Vec<PackageVersion>,
-    pub tagged: Vec<PackageVersion>,
-}
-
-impl Default for PackageVersions {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl PackageVersions {
-    /// Create a new, empty, struct
-    pub fn new() -> Self {
-        Self {
-            untagged: vec![],
-            tagged: vec![],
-        }
-    }
-
-    /// Compute the total number of package versions contained in the struct
-    pub fn len(&self) -> usize {
-        self.untagged.len() + self.tagged.len()
-    }
-
-    /// Add another PackageVersions struct to this one
-    pub fn extend(&mut self, other: PackageVersions) {
-        self.untagged.extend(other.untagged);
-        self.tagged.extend(other.tagged);
-    }
-}
 
 #[tokio::main()]
 async fn main() -> Result<()> {
@@ -150,6 +97,7 @@ async fn main() -> Result<()> {
         input.tag_selection,
         &input.cut_off,
         &input.timestamp_to_use,
+        input.min_downloads_last_30_days,
         counts.clone(),
     )
     .await

@@ -31,6 +31,10 @@ inputs:
     description: 'How many image versions to always retain. Newer package versions are prioritized.'
     required: false
     default: '0'
+  min-downloads-last-30-days:
+    description: 'Keep tagged versions with at least this many downloads in the last 30 days. 0 disables.'
+    required: false
+    default: '0'
   timestamp-to-use:
     description: 'Whether to use `updated_at` or `created_at` timestamps when considering the cut-off.'
     required: false
@@ -63,6 +67,7 @@ runs:
     - --shas-to-skip=${{ inputs.skip-shas }}
     - --tag-selection=${{ inputs.tag-selection }}
     - --keep-n-most-recent=${{ inputs.keep-n-most-recent }}
+    - --min-downloads-last-30-days=${{ inputs.min-downloads-last-30-days}}
     - --timestamp-to-use=${{ inputs.timestamp-to-use }}
     - --cut-off=${{ inputs.cut-off }}
     - --dry-run=${{ inputs.dry-run }}
