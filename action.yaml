@@ -67,6 +67,7 @@ runs:
     - --shas-to-skip=${{ inputs.skip-shas }}
     - --tag-selection=${{ inputs.tag-selection }}
     - --keep-n-most-recent=${{ inputs.keep-n-most-recent }}
+    - --min-downloads-last-30-days=${{ inputs.min-downloads-last-30-days}}
     - --timestamp-to-use=${{ inputs.timestamp-to-use }}
     - --cut-off=${{ inputs.cut-off }}
     - --dry-run=${{ inputs.dry-run }}
