@@ -97,6 +97,7 @@ async fn main() -> Result<()> {
         input.tag_selection,
         &input.cut_off,
         &input.timestamp_to_use,
+        input.min_downloads_last_30_days,
         counts.clone(),
     )
     .await

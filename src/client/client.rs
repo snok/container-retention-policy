@@ -607,7 +607,7 @@ mod tests {
             DEFAULT_GITHUB_API_URL.to_string() + "/user/packages/container/foo/versions/123"
         );
         assert_eq!(
-            urls.package_version_url("foo", &123).unwrap().as_str(),
+            urls.package_version_url("foo", &123, None).unwrap().as_str(),
             DEFAULT_GITHUB_SERVER_URL.to_string() + "/user/packages/container/foo/123"
         );
     }
@@ -632,8 +632,8 @@ mod tests {
             DEFAULT_GITHUB_API_URL.to_string() + "/orgs/acme/packages/container/foo/versions/123"
         );
         assert_eq!(
-            urls.package_version_url("foo", &123).unwrap().as_str(),
-            DEFAULT_GITHUB_SERVER_URL.to_string() + "/orgs/acme/packages/container/foo/123"
+            urls.package_version_url("foo", &123, Some("v3.1.0")).unwrap().as_str(),
+            DEFAULT_GITHUB_SERVER_URL.to_string() + "/orgs/acme/packages/container/foo/123?tag=v3.1.0"
         );
     }
 

@@ -1,5 +1,5 @@
 use crate::cli::models::Account;
-use color_eyre::Result;
+use color_eyre::{eyre::Ok, Result};
 use url::Url;
 
 #[derive(Debug)]
@@ -56,13 +56,19 @@ impl Urls {
         )?)
     }
 
-    pub fn package_version_url(&self, package_name: &str, package_id: &u32) -> Result<Url> {
+    pub fn package_version_url(&self, package_name: &str, package_id: &u32, tag: Option<&str>) -> Result<Url> {
         let encoded_package_name = Self::percent_encode(package_name);
         let encoded_package_version_name = Self::percent_encode(&package_id.to_string());
-        Ok(Url::parse(
+        let mut url = Url::parse(
             &(self.packages_frontend_base.to_string()
                 + &format!("/{encoded_package_name}/{encoded_package_version_name}")),
-        )?)
+        )?;
+
+        if let Some(tag) = tag {
+            url.query_pairs_mut().append_pair("tag", tag);
+        }
+
+        Ok(url)
     }
 
     pub fn fetch_package_url(&self, package_name: &str) -> Result<Url> {

@@ -6,14 +6,9 @@ use crate::scraper::models::PackagePage;
 pub async fn scrape_package_version(page: &Page, url: &str) -> Result<PackagePage> {
     page.goto(url, None).await?;
 
-    let tag = url
-        .split("tag=")
-        .nth(1)
-        .map(|s| s.split('&').next().unwrap_or(s).to_string());
-
     let last_30_days = scrape_last_30_days(page).await?;
 
-    Ok(PackagePage { tag, last_30_days })
+    Ok(PackagePage { last_30_days })
 }
 
 async fn scrape_last_30_days(page: &Page) -> Result<Option<u64>> {
@@ -38,24 +33,6 @@ async fn scrape_last_30_days(page: &Page) -> Result<Option<u64>> {
 mod test {
     use super::*;
     use crate::scraper::browser::Scraper;
-
-    #[tokio::test]
-    async fn scrape_package_version_fetches_tag() {
-        let url = "https://github.com/snok/container-retention-policy/pkgs/container/container-retention-policy/900676147?tag=v3.1.0";
-
-        let mut scraper = Scraper::new().await;
-        scraper.launch_browser().await.expect("launch browser");
-
-        let page = scraper.new_page().await.expect("new page");
-        let package_page = scrape_package_version(&page, url)
-            .await
-            .expect("scrape package version");
-
-        assert_eq!(package_page.tag.as_deref(), Some("v3.1.0"));
-
-        page.close().await.expect("close page");
-        scraper.close_browser().await.expect("close browser");
-    }
 
     #[tokio::test]
     async fn scrape_package_version_fetches_last_30_days() {

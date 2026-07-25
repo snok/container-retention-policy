@@ -98,6 +98,10 @@ pub struct Input {
     #[arg(long, long, default_value = "0")]
     pub keep_n_most_recent: u32,
 
+    /// Setting the minimum number of downloads in the last 30 days
+    #[arg(long, default_value = "0")]
+    pub min_downloads_last_30_days: u32,
+
     /// Whether to delete package versions or not
     #[arg(long, action(ArgAction::Set), default_value = "false")]
     pub dry_run: bool,

@@ -169,6 +169,17 @@ This parameter will not prevent deletion of untagged images, because we do not k
 The parameter can be useful, e.g., to protect some number of tagged images, so that rollbacks don't fail
 in Kubernetes. See [making sure there are enough revisions available for rollbacks in Kubernetes](#making-sure-there-are-enough-revisions-available-for-rollbacks-in-kubernetes) for details.
 
+### min-downloads-last-30-days
+
+* **Required**: `No`
+* **Example**: `min-downloads-last-30-days: 1`
+* **Default**: `min-downloads-last-30-days: 0`
+
+Keeps tagged package versions that have at least this many downloads in the last 30 days, based on the
+download count shown on the package version page. Set to `0` to disable.
+
+Applied after name, tag, cut-off, and keep-n filtering. Does not apply to untagged images.
+
 ### timestamp-to-use
 
 * **Required**: `No`

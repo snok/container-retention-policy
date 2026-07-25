@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 pub mod cli;
 pub mod client;
 pub mod core;
-mod matchers;
+pub mod matchers;
 pub mod registry;
 mod scraper;
 
