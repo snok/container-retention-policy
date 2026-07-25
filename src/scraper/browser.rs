@@ -73,4 +73,3 @@ mod test {
         scraper.close_browser().await.expect("close browser");
     }
 }
-

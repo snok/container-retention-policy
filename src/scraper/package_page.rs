@@ -46,9 +46,7 @@ mod test {
             .await
             .expect("scrape package version");
 
-        let downloads = package_page
-            .last_30_days
-            .expect("last_30_days should be present");
+        let downloads = package_page.last_30_days.expect("last_30_days should be present");
         eprintln!("last_30_days downloads: {downloads}");
         assert!(downloads > 0, "expected a positive download count, got {downloads}");
 
