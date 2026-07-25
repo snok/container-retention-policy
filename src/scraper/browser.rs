@@ -52,7 +52,9 @@ impl Scraper {
 mod test {
     use super::*;
 
+    /// Requires Playwright browsers and network access. Run with `cargo test -- --ignored`.
     #[tokio::test]
+    #[ignore]
     async fn smoke_opens_github_package_page() {
         let url = "https://github.com/snok/container-retention-policy/pkgs/container/container-retention-policy/900676147?tag=v3.1.0";
 

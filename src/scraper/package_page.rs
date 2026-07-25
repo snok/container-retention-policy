@@ -34,7 +34,9 @@ mod test {
     use super::*;
     use crate::scraper::browser::Scraper;
 
+    /// Requires Playwright browsers and network access. Run with `cargo test -- --ignored`.
     #[tokio::test]
+    #[ignore]
     async fn scrape_package_version_fetches_last_30_days() {
         let url = "https://github.com/snok/container-retention-policy/pkgs/container/container-retention-policy/900676147?tag=v3.1.0";
 
